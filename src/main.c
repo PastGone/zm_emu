@@ -6,8 +6,9 @@
 #endif
 //
 #include "./log/log.h" //第三方实现的日志库
-#include "./tool/mem.h"
 #include "./tool/paser_info.h"
+#include "./zmaee/core/zm_mem.h"
+#include "./zmaee/core/zm_str.h"
 //
 #include <SDL2/SDL.h>
 #include <capstone/capstone.h>
@@ -62,13 +63,16 @@ uint32_t DUMMY_BUF = SHIM_BASE + 0x750;
 uint32_t TR_root_queryRuntime = TRAP(0);
 uint32_t TR_root_malloc = TRAP(1);
 uint32_t TR_root_free = TRAP(2);
+// 字符串操作
 uint32_t TR_root_str_copy = TRAP(3);
 uint32_t TR_root_sprintf = TRAP(4);
 uint32_t TR_root_str_ctor = TRAP(5);
 uint32_t TR_root_spec_lookup = TRAP(6);
 uint32_t TR_root_str_find = TRAP(7);
+//
 uint32_t TR_rt_queryInterface = TRAP(8);
 uint32_t TR_rt_getSystemInfo = TRAP(9);
+//
 uint32_t TR_gfx_clear = TRAP(10);
 uint32_t TR_gfx_fillRect = TRAP(11);
 uint32_t TR_gfx_commit = TRAP(12);
@@ -88,6 +92,7 @@ uint32_t SIZE_SLOT = SHIM_BASE + 0x700;
 uint32_t API_SLOT = SHIM_BASE + 0x710;
 
 //
+uc_engine *uc;
 AppHeader header;
 
 //
@@ -139,8 +144,59 @@ void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
     //
     uc_reg_write(uc, UC_ARM_REG_PC, &handler);
     return;
-  } else {
+  }
+  // root
+  else if (trap_address == TR_root_queryRuntime) { // 查询运行时
+    ret = RUNTIME;
+  } else if (trap_address == TR_root_malloc) { // 分配内存
+    ret = host_malloc(&heap_ptr, r1);
+  } else if (trap_address == TR_root_free) { // 释放内存
+    ret = 0;
+  } else if (trap_address == TR_root_str_copy) { // 字符串复制
+    ret = zm_strcpy(uc, r0, r1, r2, r3);
+  } else if (trap_address == TR_root_sprintf) { // 格式化输出
+    ret = zm_sprintf(uc, r0, r1, r2);
+  } else if (trap_address == TR_root_str_ctor) { // 字符串构造函数
+    // 简单实现：读取格式字符串，假设格式为 "%u" 或 "%d" 或 "%s"
+    char fmt[256];
+    read_cstr(uc, r1, fmt, sizeof(fmt));
+    char out[256];
+    if (strstr(fmt, "%u")) {
+      uint32_t arg;
+      uc_mem_read(uc, r2, &arg, 4);
+      snprintf(out, sizeof(out), fmt, arg);
+    } else if (strstr(fmt, "%d")) {
+      int32_t arg;
+      uc_mem_read(uc, r2, &arg, 4);
+      snprintf(out, sizeof(out), fmt, arg);
+    } else if (strstr(fmt, "%s")) {
+      uint32_t arg;
+      uc_mem_read(uc, r2, &arg, 4);
+      char s[256];
+      read_cstr(uc, arg, s, sizeof(s));
+      snprintf(out, sizeof(out), fmt, s);
+    } else {
+      // 直接复制
+      strncpy(out, fmt, sizeof(out));
+    }
+    size_t out_len = strlen(out);
+    uc_mem_write(uc, r0, out, out_len + 1);
+    ret = out_len;
+  } else if (trap_address == TR_root_spec_lookup) { // 查找规格
+    ret = 0;
+  } else if (trap_address == TR_root_str_find) { // 查找字符串
+    ret = 0;
+  } else if (trap_address == TR_root_str_find) { // 查找字符串
+    ret = 0;
+  }
+  /* ---- runtime ---- */
+  else if (trap_address == TR_rt_queryInterface) {
+    ret = 0;
+  }
+
+  else {
     log_error("非法的外部调用: 0x%08" PRIx32, trap_address);
+    log_error("其陷阱号是: %d", (trap_address - TRAMP_BASE) / 4);
   }
   //
   uc_reg_write(uc, UC_ARM_REG_R0, &ret);
@@ -255,7 +311,7 @@ int main() {
   print_header(&header);
 
   // 初始化 unicorn 引擎
-  uc_engine *uc;
+
   {
     my_uc_err = uc_open(UC_ARCH_ARM, UC_MODE_ARM, &uc);
     if (my_uc_err != UC_ERR_OK) {
