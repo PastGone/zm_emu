@@ -97,8 +97,8 @@ uint32_t heap_ptr = HEAP_BASE;
 void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
                  uint32_t r2, uint32_t r3, uint32_t sp, uint32_t lr) {
   uint32_t ret = 0;
-  const char *log = NULL;
-  char buf[256];
+  // const char *log = NULL;
+  // char buf[256];
 
   if (trap_address == TR_init_callback) {
     uint32_t size;
@@ -121,17 +121,20 @@ void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
     free(zero_buf);
     //
 
-    uc_mem_write(uc, INSTANCE, &header.AppName, sizeof(AppHeader));
+    uc_mem_write(uc, INSTANCE + 4, &header.AppName, sizeof(header.AppName));
     log_info("AppName: %s\n", header.AppName);
     log_info("  instance=0x%X\n", INSTANCE);
 
-    uint32_t stack_ptr = 123;
-    log_info("  stack_ptr=0x%X\n", stack_ptr);
+    uint32_t stack_ptr = STACK_TOP;
     uc_reg_write(uc, UC_ARM_REG_SP, &stack_ptr);
+
     uc_reg_write(uc, UC_ARM_REG_R0, &INSTANCE);
-    uc_reg_write(uc, UC_ARM_REG_R1, 0);
-    uc_reg_write(uc, UC_ARM_REG_R2, 0);
-    uc_reg_write(uc, UC_ARM_REG_R3, 0);
+    // uc_reg_write 第3个参数是“指向值的指针”，不能传 0(NULL)，
+    // 否则 unicorn 内部会解引用 NULL 读取寄存器值 → 段错误。
+    uint32_t zero = 0;
+    uc_reg_write(uc, UC_ARM_REG_R1, &zero);
+    uc_reg_write(uc, UC_ARM_REG_R2, &zero);
+    uc_reg_write(uc, UC_ARM_REG_R3, &zero);
     uc_reg_write(uc, UC_ARM_REG_LR, &lr);
     //
     uc_reg_write(uc, UC_ARM_REG_PC, &handler);
@@ -378,6 +381,7 @@ int main() {
   // 向  BLOB_BASE + ROOT_SLOT_OFF
   // 注入根槽地址,这一步实际上
   // 我不知道是什么发时候发生的但是需要的话现在就开始的时候就把它搞
+  uc_mem_write(uc, BLOB_BASE + ROOT_SLOT_OFF, &ROOT, 4);
 
   // 启动 unicorn 引擎
 #define APPLET_ENTRY_OFF 0x188
