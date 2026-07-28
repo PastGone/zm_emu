@@ -151,8 +151,15 @@ void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
     uc_reg_write(uc, UC_ARM_REG_R1, &zero);
     uc_reg_write(uc, UC_ARM_REG_R2, &zero);
     uc_reg_write(uc, UC_ARM_REG_R3, &zero);
-    uc_reg_write(uc, UC_ARM_REG_LR, &lr);
-    //
+    // init 执行完毕后让其返回到 uc_emu_start 的结束地址（STACK_TOP），
+    // 这样 init 一次绘制完成后即停止模拟。若把 LR 设成传入的 lr，由于
+    // uc_reg_write(uc, UC_ARM_REG_LR, &lr);
+    // 入口处 LR=TR_init_callback、sub_A98 用 bx lr 跳入本陷阱时 lr 未变，
+    // 会导致 init 结束后 bx lr 又跳回 TR_init_callback，重复执行 init+draw，
+    // 并在第二轮因栈顶上方 0x2801b8 未映射触发 MEM unmapped 才停住。
+    uint32_t end_addr = STACK_TOP;
+    uc_reg_write(uc, UC_ARM_REG_LR, &end_addr);
+
     uc_reg_write(uc, UC_ARM_REG_PC, &handler);
     return;
   }
@@ -160,8 +167,8 @@ void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
   else if (trap_address == TR_root_queryRuntime) { // 查询运行时
     ret = RUNTIME;
   } else if (trap_address == TR_root_malloc) { // 分配内存
-    // NOTE: main.txt.c 用 r0 作为 size；这里沿用既有实现使用 r1，待运行时确认
-    ret = host_malloc(&heap_ptr, r1);
+    // NOTE: main.txt.c 用 r0 作为 size；这里也应该使用 r0，待运行时确认
+    ret = host_malloc(&heap_ptr, r0);
   } else if (trap_address == TR_root_free) { // 释放内存
     ret = 0;
   } else if (trap_address == TR_root_str_copy) { // 字符串复制
