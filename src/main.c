@@ -13,6 +13,32 @@
 #include <unicorn/arm.h>
 #include <unicorn/unicorn.h>
 
+// 映射内存
+#define ONE_MB (0x100000) // 这里说的1MB是1MiB
+//
+#define BLOB_BASE (0x80000)    // blob 基础地址 512KB处
+#define BLOB_SIZE (1 * ONE_MB) // blob 大小 1MB
+
+// 栈
+#define STACK_BASE (BLOB_BASE + BLOB_SIZE)  // 栈基础地址 512KB处 + 1MB
+#define STACK_SIZE (1 * ONE_MB)             // 栈大小 1MB
+#define STACK_TOP (STACK_BASE + STACK_SIZE) // 栈顶部地址 512KB处 + 1MB
+// 堆
+#define HEAP_BASE (STACK_TOP + ONE_MB / 8) // 离初始栈128KB处
+#define HEAP_SIZE (6 * ONE_MB)             // 堆大小 6MB
+#define HEAP_END (HEAP_BASE + HEAP_SIZE)   //  + 6MB
+// shim 蹦床——>虚表
+#define SHIM_BASE (HEAP_END)
+#define SHIM_SIZE (1 * ONE_MB)
+// tramp 陷阱，调用外部。
+#define TRAMP_BASE (SHIM_BASE + SHIM_SIZE)
+#define TRAMP_SIZE (1 * ONE_MB)
+// zmr
+#define ZMR_BASE (TRAMP_BASE + TRAMP_SIZE)
+#define ZMR_SIZE (1 * ONE_MB)
+// 根槽偏移量 0x180
+#define ROOT_SLOT_OFF 0x180
+
 csh handle;
 cs_insn *insn;
 size_t count;
@@ -55,6 +81,25 @@ static void hook_code(uc_engine *uc, uint64_t address, uint32_t size,
     } else {
       fprintf(stderr, "Disassembly failed\n");
     }
+  }
+
+  if (address >= TRAMP_BASE && address < TRAMP_BASE + TRAMP_SIZE) {
+    uint32_t idx = (address - TRAMP_BASE) / 4;
+
+    uint32_t r0, r1, r2, r3, sp, lr;
+    uc_reg_read(uc, UC_ARM_REG_R0, &r0);
+    uc_reg_read(uc, UC_ARM_REG_R1, &r1);
+    uc_reg_read(uc, UC_ARM_REG_R2, &r2);
+    uc_reg_read(uc, UC_ARM_REG_R3, &r3);
+    uc_reg_read(uc, UC_ARM_REG_SP, &sp);
+    uc_reg_read(uc, UC_ARM_REG_LR, &lr);
+    // handle_trap(uc, idx, r0, r1, r2, r3, sp, lr);
+    log_info("trap idx: %d, r0: %d, r1: %d, r2: %d, r3: %d, sp: %d, lr: %d\n",
+             idx, r0, r1, r2, r3, sp, lr);
+
+    // 制造暂停：等待用户按回车
+    log_info("按回车键继续...");
+    scanf("%*c"); // 读取一个字符，但不保存（*表示赋值忽略）
   }
 }
 
@@ -110,33 +155,6 @@ int main() {
     }
     log_info("unicorn engine initialized");
   }
-
-// 映射内存
-#define ONE_MB (0x100000) // 这里说的1MB是1MiB
-//
-#define BLOB_BASE (0x80000)    // blob 基础地址 512KB处
-#define BLOB_SIZE (1 * ONE_MB) // blob 大小 1MB
-
-// 栈
-#define STACK_BASE (BLOB_BASE + BLOB_SIZE)  // 栈基础地址 512KB处 + 1MB
-#define STACK_SIZE (1 * ONE_MB)             // 栈大小 1MB
-#define STACK_TOP (STACK_BASE + STACK_SIZE) // 栈顶部地址 512KB处 + 1MB
-// 堆
-#define HEAP_BASE (STACK_TOP + ONE_MB / 8) // 离初始栈128KB处
-#define HEAP_SIZE (6 * ONE_MB)             // 堆大小 6MB
-#define HEAP_END (HEAP_BASE + HEAP_SIZE)   //  + 6MB
-// shim 蹦床——>虚表
-#define SHIM_BASE (HEAP_END)
-#define SHIM_SIZE (1 * ONE_MB)
-// tramp 陷阱，调用外部。
-#define TRAMP_BASE (SHIM_BASE + SHIM_SIZE)
-#define TRAMP_SIZE (1 * ONE_MB)
-// zmr
-#define ZMR_BASE (TRAMP_BASE + TRAMP_SIZE)
-#define ZMR_SIZE (1 * ONE_MB)
-#define ROOT_SLOT_OFF 0x180
-// 根槽偏移量 0x180
-#define ROOT_SLOT_OFF 0x180
 
   // 内存映射
   {
