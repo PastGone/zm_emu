@@ -1,6 +1,8 @@
 add_rules("mode.debug", "mode.release")
--- 
+--
 add_requires("libsdl")  -- 声明依赖 SDL2
+add_requires("libsdl2_ttf")  -- 声明依赖 SDL2_ttf（文本渲染）
+add_requires("libsdl2_mixer", {configs = {flac = false}})  -- 声明依赖 SDL2_mixer（音频播放/MP3 解码；禁用 FLAC 以规避系统 libflac cmake 配置问题，MP3 由内置 dr_mp3 解码）
 add_requires("unicorn", {configs = {archs = {"arm"}}})-- 声明依赖 unicorn 库
 add_requires("capstone") -- 声明依赖 capstone 库
 
@@ -12,6 +14,8 @@ target("zm_emu")
     add_defines("LOG_USE_COLOR")  -- <--- 添加这一行来启用颜色输出
 
     add_packages("libsdl") -- 链接 SDL2 库
+    add_packages("libsdl2_ttf") -- 链接 SDL2_ttf 库
+    add_packages("libsdl2_mixer") -- 链接 SDL2_mixer 库
     add_packages("unicorn") -- 链接 unicorn 库
     add_packages("capstone") -- 链接 capstone 库
 

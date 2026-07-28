@@ -1,0 +1,50 @@
+#ifndef __ZM_GFX_H__
+#define __ZM_GFX_H__
+
+// -------------------- gfx 相关 trap 处理函数声明 --------------------
+// 基于 SDL2 + SDL_ttf 的真实渲染实现：
+//   - 画布大小由 AppHeader.ScreenW / ScreenH 决定（zm_gfx_init 传入）
+//   - 颜色格式为 ARGB8888（0xAARRGGBB），与 applet 一致
+//   - 以一张 ARGB8888 的 RenderTarget 纹理作为持久画布，
+//     fb_commit 时把画布拷到屏幕并 Present
+#include <stdint.h>
+#include <unicorn/unicorn.h>
+
+/* 初始化 SDL 窗口 / 渲染器 / 画布 / 字体。
+ * screen_w / screen_h 取自 AppHeader，作为窗口与画布尺寸。
+ * 成功返回 0，失败返回 -1。 */
+int zm_gfx_init(uint32_t screen_w, uint32_t screen_h);
+
+/* 释放 SDL 资源（窗口、渲染器、画布、字体） */
+void zm_gfx_shutdown(void);
+
+/* 保持窗口显示直到用户关闭或超时（ms）。
+ * applet 只跑一次 init、无事件循环，故 uc_emu_start 返回后用此函数
+ * 让最后一帧停留以便观察。timeout_ms=0 表示不限时（直到关窗）。 */
+void zm_gfx_hold(uint32_t timeout_ms);
+
+/* gfx.clear：以 color 清屏。r1=color */
+uint32_t zm_gfx_clear(uc_engine *uc, uint32_t color);
+
+/* gfx.fillRect：填充矩形。r1=rect_ptr（当前为空实现） */
+uint32_t zm_gfx_fillRect(uc_engine *uc, uint32_t rect_ptr);
+
+/* gfx.commit：提交帧缓冲。 */
+uint32_t zm_gfx_commit(uc_engine *uc);
+
+/* gfx.drawText：绘制文本。
+ * r1=rect_ptr, r2=text_ptr, r3=text_len, sp=color, sp+8=font_size */
+uint32_t zm_gfx_drawText(uc_engine *uc, uint32_t rect_ptr, uint32_t text_ptr,
+                         uint32_t text_len, uint32_t sp);
+
+/* gfx.drawRect：绘制矩形边框。
+ * r1=x, r2=y, r3=w, sp=h, sp+4=color */
+uint32_t zm_gfx_drawRect(uc_engine *uc, uint32_t x, uint32_t y, uint32_t w,
+                         uint32_t sp);
+
+/* gfx.fillRect2：填充矩形。
+ * r1=x, r2=y, r3=w, sp=h, sp+4=color */
+uint32_t zm_gfx_fillRect2(uc_engine *uc, uint32_t x, uint32_t y, uint32_t w,
+                          uint32_t sp);
+
+#endif

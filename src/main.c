@@ -7,11 +7,17 @@
 //
 #include "./log/log.h" //第三方实现的日志库
 #include "./tool/paser_info.h"
+#include "./zmaee/audio/zm_audio.h"
 #include "./zmaee/core/zm_mem.h"
 #include "./zmaee/core/zm_str.h"
+#include "./zmaee/fs/zm_fs.h"
+#include "./zmaee/gfx/zm_gfx.h"
+#include "./zmaee/runtime/zm_runtime.h"
 //
 #include <SDL2/SDL.h>
 #include <capstone/capstone.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unicorn/arm.h>
 #include <unicorn/unicorn.h>
 
@@ -126,8 +132,13 @@ void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
     free(zero_buf);
     //
 
-    uc_mem_write(uc, INSTANCE + 4, &header.AppName, sizeof(header.AppName));
-    log_info("AppName: %s\n", header.AppName);
+    // 与 main.txt.c 一致：实例名需带 ".app" 后缀，applet 初始化时会用
+    // str_find 在名字里查找 '.'（分隔扩展名），缺省后缀会走错分支。
+    char app_name[64];
+    snprintf(app_name, sizeof(app_name), "%.*s.app",
+             (int)sizeof(header.AppName), header.AppName);
+    uc_mem_write(uc, INSTANCE + 4, app_name, strlen(app_name) + 1);
+    log_info("AppName: %s\n", app_name);
     log_info("  instance=0x%X\n", INSTANCE);
 
     uint32_t stack_ptr = STACK_TOP;
@@ -149,6 +160,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
   else if (trap_address == TR_root_queryRuntime) { // 查询运行时
     ret = RUNTIME;
   } else if (trap_address == TR_root_malloc) { // 分配内存
+    // NOTE: main.txt.c 用 r0 作为 size；这里沿用既有实现使用 r1，待运行时确认
     ret = host_malloc(&heap_ptr, r1);
   } else if (trap_address == TR_root_free) { // 释放内存
     ret = 0;
@@ -157,44 +169,50 @@ void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
   } else if (trap_address == TR_root_sprintf) { // 格式化输出
     ret = zm_sprintf(uc, r0, r1, r2);
   } else if (trap_address == TR_root_str_ctor) { // 字符串构造函数
-    // 简单实现：读取格式字符串，假设格式为 "%u" 或 "%d" 或 "%s"
-    char fmt[256];
-    read_cstr(uc, r1, fmt, sizeof(fmt));
-    char out[256];
-    if (strstr(fmt, "%u")) {
-      uint32_t arg;
-      uc_mem_read(uc, r2, &arg, 4);
-      snprintf(out, sizeof(out), fmt, arg);
-    } else if (strstr(fmt, "%d")) {
-      int32_t arg;
-      uc_mem_read(uc, r2, &arg, 4);
-      snprintf(out, sizeof(out), fmt, arg);
-    } else if (strstr(fmt, "%s")) {
-      uint32_t arg;
-      uc_mem_read(uc, r2, &arg, 4);
-      char s[256];
-      read_cstr(uc, arg, s, sizeof(s));
-      snprintf(out, sizeof(out), fmt, s);
-    } else {
-      // 直接复制
-      strncpy(out, fmt, sizeof(out));
-    }
-    size_t out_len = strlen(out);
-    uc_mem_write(uc, r0, out, out_len + 1);
-    ret = out_len;
+    ret = zm_str_ctor(uc, r0, r1);
   } else if (trap_address == TR_root_spec_lookup) { // 查找规格
-    ret = 0;
+    ret = zm_spec_lookup(uc, r0);
   } else if (trap_address == TR_root_str_find) { // 查找字符串
-    ret = 0;
-  } else if (trap_address == TR_root_str_find) { // 查找字符串
-    ret = 0;
+    ret = zm_str_find(uc, r0, r1);
   }
   /* ---- runtime ---- */
   else if (trap_address == TR_rt_queryInterface) {
-    ret = 0;
+    ret = zm_rt_queryInterface(uc, r1, r2);
+  } else if (trap_address == TR_rt_getSystemInfo) {
+    ret = zm_rt_getSystemInfo(uc, r1);
   }
-
-  else {
+  /* ---- gfx ---- */
+  else if (trap_address == TR_gfx_clear) {
+    ret = zm_gfx_clear(uc, r1);
+  } else if (trap_address == TR_gfx_fillRect) {
+    ret = zm_gfx_fillRect(uc, r1);
+  } else if (trap_address == TR_gfx_commit) {
+    ret = zm_gfx_commit(uc);
+  } else if (trap_address == TR_gfx_drawText) {
+    ret = zm_gfx_drawText(uc, r1, r2, r3, sp);
+  } else if (trap_address == TR_gfx_drawRect) {
+    ret = zm_gfx_drawRect(uc, r1, r2, r3, sp);
+  } else if (trap_address == TR_gfx_fillRect2) {
+    ret = zm_gfx_fillRect2(uc, r1, r2, r3, sp);
+  }
+  /* ---- fs / file ---- */
+  else if (trap_address == TR_fs_open) {
+    ret = zm_fs_open(uc);
+  } else if (trap_address == TR_file_close) {
+    ret = zm_file_close(uc);
+  } else if (trap_address == TR_file_read) {
+    ret = zm_file_read(uc, r1, r2);
+  } else if (trap_address == TR_file_seek) {
+    ret = zm_file_seek(uc, r1, r2);
+  }
+  /* ---- audio / ap ---- */
+  else if (trap_address == TR_audio_stop) {
+    ret = zm_audio_stop(uc);
+  } else if (trap_address == TR_ap_play) {
+    ret = zm_ap_play(uc, r2, r3);
+  } else if (trap_address == TR_ap_stop) {
+    ret = zm_ap_stop(uc);
+  } else {
     log_error("非法的外部调用: 0x%08" PRIx32, trap_address);
     log_error("其陷阱号是: %d", (trap_address - TRAMP_BASE) / 4);
   }
@@ -309,6 +327,16 @@ int main() {
 
   parse_app_header(fp, &header);
   print_header(&header);
+
+  // 初始化 SDL2 渲染（窗口大小取自 AppHeader.ScreenW/ScreenH）与 SDL_mixer 音频
+  // 同步把屏幕尺寸告知 runtime，使 applet 经 getSystemInfo 拿到的尺寸与窗口一致
+  zm_rt_set_screen_size(header.ScreenW, header.ScreenH);
+  if (zm_gfx_init(header.ScreenW, header.ScreenH) != 0) {
+    log_warn("zm_gfx_init 失败，渲染将不可用（继续运行）");
+  }
+  if (zm_audio_init() != 0) {
+    log_warn("zm_audio_init 失败，音频将不可用（继续运行）");
+  }
 
   // 初始化 unicorn 引擎
 
@@ -428,6 +456,25 @@ int main() {
     fclose(fp);
     log_info("文件关闭完成");
   }
+
+  // 载入 .zmr 资源（作为 file.read 的数据源）
+  // 路径由 .app 路径把后缀替换为 .zmr 得到
+  {
+    char zmr_path[1024];
+    strncpy(zmr_path, filename, sizeof(zmr_path) - 1);
+    zmr_path[sizeof(zmr_path) - 1] = '\0';
+    size_t plen = strlen(zmr_path);
+    if (plen >= 4 && strcmp(zmr_path + plen - 4, ".app") == 0) {
+      strcpy(zmr_path + plen - 4, ".zmr");
+    } else {
+      strncat(zmr_path, ".zmr", sizeof(zmr_path) - plen - 1);
+    }
+    if (!zm_fs_load_zmr(zmr_path)) {
+      log_error("载入 .zmr 失败: %s", zmr_path);
+      return 1;
+    }
+    log_info(".zmr 资源载入完成: %s", zmr_path);
+  }
   // 设置初始的寄存器
 
   uc_reg_write(uc, UC_ARM_REG_LR, &TR_init_callback);
@@ -450,6 +497,20 @@ int main() {
   // test_parse();
   // test_lib();
 #endif
+
+  // applet 只跑一次 init、无事件循环，保持窗口显示最后一帧以便观察
+  // （ZM_GFX_HOLD_MS 环境变量可控制停留毫秒数，默认 0=直到关闭窗口）
+  {
+    uint32_t hold_ms = 0;
+    const char *env = getenv("ZM_GFX_HOLD_MS");
+    if (env && *env)
+      hold_ms = (uint32_t)strtoul(env, NULL, 0);
+    zm_gfx_hold(hold_ms);
+  }
+
+  // 释放 SDL 渲染 / 音频资源
+  zm_audio_shutdown();
+  zm_gfx_shutdown();
 
   return 0;
 }
