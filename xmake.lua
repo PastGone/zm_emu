@@ -1,7 +1,7 @@
 add_rules("mode.debug", "mode.release")
 -- 
 add_requires("libsdl")  -- 声明依赖 SDL2
-add_requires("unicorn") -- 声明依赖 unicorn 库
+add_requires("unicorn", {configs = {archs = {"arm"}}})-- 声明依赖 unicorn 库
 add_requires("capstone") -- 声明依赖 capstone 库
 
 target("zm_emu")

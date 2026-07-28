@@ -105,7 +105,7 @@ bool parse_app_header(FILE *fp, AppHeader *header) {
 
   /* 不再检查“镜像”相等性，因为已被新样本推翻 */
 
-  fclose(fp);
+  rewind(fp);
   return true;
 }
 
