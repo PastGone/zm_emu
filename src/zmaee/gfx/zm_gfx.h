@@ -23,6 +23,17 @@ void zm_gfx_shutdown(void);
  * 让最后一帧停留以便观察。timeout_ms=0 表示不限时（直到关窗）。 */
 void zm_gfx_hold(uint32_t timeout_ms);
 
+/**
+ * @brief 事件循环：保持窗口显示，处理关闭与鼠标点击
+ * @param on_click  鼠标按下回调（传入画布坐标）；NULL 则不处理点击
+ * @param timeout_ms 0=直到窗口关闭；>0 停留指定毫秒后返回
+ *
+ * on_click 内部通常会调用 uc_emu_start 把点击转发给 applet 的触摸 handler，
+ * 注意该回调执行期间会阻塞 SDL 事件处理。
+ */
+void zm_gfx_event_loop(void (*on_click)(uint32_t x, uint32_t y),
+                       uint32_t timeout_ms);
+
 /* gfx.clear：以 color 清屏。r1=color */
 uint32_t zm_gfx_clear(uc_engine *uc, uint32_t color);
 

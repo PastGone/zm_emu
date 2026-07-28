@@ -258,6 +258,46 @@ void zm_gfx_hold(uint32_t timeout_ms) {
   }
 }
 
+void zm_gfx_event_loop(void (*on_click)(uint32_t x, uint32_t y),
+                       uint32_t timeout_ms) {
+  if (!g_win)
+    return;
+  /* present 最终画布（init 绘制内容）让用户看到界面 */
+  SDL_SetRenderTarget(g_ren, NULL);
+  SDL_RenderCopy(g_ren, g_canvas, NULL, NULL);
+  SDL_RenderPresent(g_ren);
+
+  /* 窗口像素坐标 -> 画布坐标的缩放（窗口尺寸即画布尺寸时为 1:1） */
+  int win_w = g_w, win_h = g_h;
+  SDL_GetWindowSize(g_win, &win_w, &win_h);
+
+  SDL_Event e;
+  Uint32 start = SDL_GetTicks();
+  for (;;) {
+    while (SDL_PollEvent(&e)) {
+      if (e.type == SDL_QUIT)
+        return;
+      if (e.type == SDL_MOUSEBUTTONDOWN && on_click) {
+        uint32_t cx = (win_w > 0)
+                          ? (uint32_t)(e.button.x * g_w / win_w)
+                          : (uint32_t)e.button.x;
+        uint32_t cy = (win_h > 0)
+                          ? (uint32_t)(e.button.y * g_h / win_h)
+                          : (uint32_t)e.button.y;
+        /* 回调内会 uc_emu_start 调用 applet handler，期间阻塞事件处理 */
+        on_click(cx, cy);
+        /* applet 的 touch handler 通常不重绘，但保险起见 present 一次 */
+        SDL_SetRenderTarget(g_ren, NULL);
+        SDL_RenderCopy(g_ren, g_canvas, NULL, NULL);
+        SDL_RenderPresent(g_ren);
+      }
+    }
+    if (timeout_ms != 0 && SDL_GetTicks() - start >= timeout_ms)
+      return;
+    SDL_Delay(16);
+  }
+}
+
 /* ---------- gfx trap 处理函数 ---------- */
 
 /* gfx.clear：以 color 清屏 */

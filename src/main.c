@@ -106,6 +106,15 @@ AppHeader header;
 /* 堆指针 */
 uint32_t heap_ptr = HEAP_BASE;
 
+/* applet 实例与事件 handler（sub_A30），由 TR_init_callback 保存，
+ * 供事件循环把 SDL 点击转发为 applet 触摸事件（sub_A30 case 10） */
+uint32_t g_instance = 0;
+uint32_t g_handler = 0;
+/* 调试开关：ZM_STEP=1 时每个 trap 后等待回车；ZM_DISASM=1 时反汇编每条指令。
+ * 默认均关闭，以保证交互式点击流畅。 */
+int g_trap_pause = 0;
+int g_disasm = 0;
+
 void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
                  uint32_t r2, uint32_t r3, uint32_t sp, uint32_t lr) {
   uint32_t ret = 0;
@@ -160,6 +169,10 @@ void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
     // 并在第二轮因栈顶上方 0x2801b8 未映射触发 MEM unmapped 才停住。
     uint32_t end_addr = STACK_TOP;
     uc_reg_write(uc, UC_ARM_REG_LR, &end_addr);
+
+    /* 保存实例与 handler，供事件循环把 SDL 点击转发为 applet 触摸事件 */
+    g_instance = INSTANCE;
+    g_handler = handler;
 
     uc_reg_write(uc, UC_ARM_REG_PC, &handler);
     return;
@@ -237,8 +250,8 @@ uint8_t code[16]; // 最大指令长度通常不超过 16 字节（ARM Thumb
 static void hook_code(uc_engine *uc, uint64_t address, uint32_t size,
                       void *user_data) {
   uint32_t pc = address;
-  // 分析当前执行代码段
-  {
+  // 分析当前执行代码段（ZM_DISASM=1 时开启，默认关闭以加速交互式点击）
+  if (g_disasm) {
     uc_mem_read(uc, pc, code, size); // 读取内存数据
 
     count = cs_disasm(handle, code, size, pc, 0, &insn);
@@ -288,9 +301,11 @@ static void hook_code(uc_engine *uc, uint64_t address, uint32_t size,
 
     handle_trap(uc, pc, r0, r1, r2, r3, sp, lr);
 
-    // 制造暂停：等待用户按回车
-    log_info("按回车键继续...");
-    scanf("%*c"); // 读取一个字符，但不保存（*表示赋值忽略）
+    // 制造暂停：等待用户按回车（ZM_STEP=1 时开启，默认关闭以支持交互）
+    if (g_trap_pause) {
+      log_info("按回车键继续...");
+      scanf("%*c"); // 读取一个字符，但不保存（*表示赋值忽略）
+    }
   }
 }
 
@@ -300,8 +315,47 @@ static bool hook_mem_unmapped(uc_engine *uc, uc_mem_type type, uint64_t address,
   return false; // 不处理
 }
 
+/* 调用 applet 事件 handler sub_A30(instance, event_type, x, y)。
+ * 与 init 相同的陷入模式：设好 R0..R3 / SP / LR 后 uc_emu_start，
+ * handler 执行到 bx lr（LR=STACK_TOP）时 PC 命中 end 地址自动停止。 */
+static void dispatch_applet_event(uint32_t evt, uint32_t x, uint32_t y) {
+  if (!g_instance || !g_handler)
+    return;
+  uint32_t sp = STACK_TOP;
+  uint32_t lr = STACK_TOP;
+  uc_reg_write(uc, UC_ARM_REG_SP, &sp);
+  uc_reg_write(uc, UC_ARM_REG_LR, &lr);
+  uc_reg_write(uc, UC_ARM_REG_R0, &g_instance);
+  uc_reg_write(uc, UC_ARM_REG_R1, &evt);
+  uc_reg_write(uc, UC_ARM_REG_R2, &x);
+  uc_reg_write(uc, UC_ARM_REG_R3, &y);
+  uc_emu_start(uc, g_handler, STACK_TOP, 0, 0);
+}
+
+/* 把 SDL 鼠标点击转发为 applet 触摸事件。
+ * applet 的 tap 检测需要成对的 case9(pen down)+case10(pen up)：
+ *   case9(sub_824) 把按下点记录到 INSTANCE[25..26]；
+ *   case10(sub_8B4) 比较按下点与抬起点是否落在同一按钮，是则
+ *   从 .zmr 读出该按钮的 MP3 资源并 ap.play 播放。
+ * 故一次鼠标点击需连续派发 case9 与 case10（同坐标）。 */
+static void on_touch_click(uint32_t x, uint32_t y) {
+  log_info("触摸事件: (%u, %u) -> handler=0x%X instance=0x%X", x, y, g_handler,
+           g_instance);
+  dispatch_applet_event(9, x, y);  /* pen down：记录按下点 */
+  dispatch_applet_event(10, x, y); /* pen up：判定同按钮则播放 */
+}
+
 int main() {
   log_info("hello world!");
+  // 调试开关：ZM_STEP=1 每个 trap 后等待回车；ZM_DISASM=1 反汇编每条指令
+  {
+    const char *s = getenv("ZM_STEP");
+    if (s && *s)
+      g_trap_pause = 1;
+    s = getenv("ZM_DISASM");
+    if (s && *s)
+      g_disasm = 1;
+  }
   //
   // 初始化 Capstone，使用 ARM-64 架构（CS_ARCH_ARM，CS_MODE_64）
   if (cs_open(CS_ARCH_ARM, CS_MODE_ARM, &handle) != CS_ERR_OK) {
@@ -506,6 +560,21 @@ int main() {
   // test_lib();
 #endif
 
+  // 调试：ZM_DUMP_BUTTONS=1 时打印 applet 在 init 中计算出的 25 个按钮矩形，
+  // 便于确定触摸坐标（按钮数组位于 INSTANCE+124，每项 16 字节 x,y,w,h）。
+  {
+    const char *db = getenv("ZM_DUMP_BUTTONS");
+    if (db && *db && g_instance) {
+      for (uint32_t i = 0; i < 25; i++) {
+        uint32_t off = g_instance + 124 + i * 16;
+        uint32_t r[4];
+        if (uc_mem_read(uc, off, r, 16) == UC_ERR_OK)
+          log_info("按钮[%2u] rect=(%u,%u,%u,%u) center=(%u,%u)", i, r[0], r[1],
+                   r[2], r[3], r[0] + r[2] / 2, r[1] + r[3] / 2);
+      }
+    }
+  }
+
   // 音频自测：applet 的 init 不触发 ap.play（音频仅在触摸事件 sub_8B4
   // 中播放）， 故提供环境变量 ZM_AUDIO_TEST 让宿主直接按索引取 .zmr
   // 中的音频资源， 写入客户机内存后走真实 zm_ap_play 路径播放，以验证 SDL_mixer
@@ -538,6 +607,19 @@ int main() {
     }
   }
 
+  // 自动点击测试：ZM_AUTO_CLICK="x,y" 时在进入事件循环前注入一次触摸，
+  // 用于非交互环境验证 sub_A30(case10)→sub_8B4→读 .zmr→ap.play 路径。
+  {
+    const char *ac = getenv("ZM_AUTO_CLICK");
+    if (ac && *ac) {
+      unsigned ax = 0, ay = 0;
+      if (sscanf(ac, "%u,%u", &ax, &ay) == 2) {
+        log_info("自动点击测试: (%u,%u)", ax, ay);
+        on_touch_click((uint32_t)ax, (uint32_t)ay);
+      }
+    }
+  }
+
   // applet 只跑一次 init、无事件循环，保持窗口显示最后一帧以便观察
   // （ZM_GFX_HOLD_MS 环境变量可控制停留毫秒数，默认 0=直到关闭窗口）
   {
@@ -545,7 +627,7 @@ int main() {
     const char *env = getenv("ZM_GFX_HOLD_MS");
     if (env && *env)
       hold_ms = (uint32_t)strtoul(env, NULL, 0);
-    zm_gfx_hold(hold_ms);
+    zm_gfx_event_loop(on_touch_click, hold_ms);
   }
 
   // 释放资源
