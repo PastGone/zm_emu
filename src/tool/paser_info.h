@@ -7,8 +7,6 @@
 #include <stdint.h>
 #include <stdio.h>
 
-// typedef struct AppHeader AppHeader;
-
 typedef struct {
   /* 起始 0x000，长度 4 —— AppletID（LE uint32） */
   uint32_t AppletID;

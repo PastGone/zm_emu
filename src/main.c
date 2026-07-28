@@ -6,6 +6,7 @@
 #endif
 //
 #include "./log/log.h" //第三方实现的日志库
+#include "./tool/mem.h"
 #include "./tool/paser_info.h"
 //
 #include <SDL2/SDL.h>
@@ -38,6 +39,110 @@
 #define ZMR_SIZE (1 * ONE_MB)
 // 根槽偏移量 0x180
 #define ROOT_SLOT_OFF 0x180
+
+// ---------------------
+// 划分shim虚表空间
+uint32_t ROOT = SHIM_BASE + 0x000;
+uint32_t RUNTIME = SHIM_BASE + 0x100;
+uint32_t RT_VT = SHIM_BASE + 0x180;
+uint32_t GFX = SHIM_BASE + 0x200;
+uint32_t GFX_VT = SHIM_BASE + 0x280;
+uint32_t FS = SHIM_BASE + 0x300;
+uint32_t FS_VT = SHIM_BASE + 0x380;
+uint32_t FILE1 = SHIM_BASE + 0x400;
+uint32_t FILE_VT = SHIM_BASE + 0x480;
+uint32_t AUDIO = SHIM_BASE + 0x500;
+uint32_t AUDIO_VT = SHIM_BASE + 0x580;
+uint32_t AP = SHIM_BASE + 0x600;
+uint32_t AP_VT = SHIM_BASE + 0x680;
+uint32_t DUMMY_BUF = SHIM_BASE + 0x750;
+
+// 外部函数，陷阱地址分配,tramp空间分配
+#define TRAP(idx) (TRAMP_BASE + 4 * (idx))
+uint32_t TR_root_queryRuntime = TRAP(0);
+uint32_t TR_root_malloc = TRAP(1);
+uint32_t TR_root_free = TRAP(2);
+uint32_t TR_root_str_copy = TRAP(3);
+uint32_t TR_root_sprintf = TRAP(4);
+uint32_t TR_root_str_ctor = TRAP(5);
+uint32_t TR_root_spec_lookup = TRAP(6);
+uint32_t TR_root_str_find = TRAP(7);
+uint32_t TR_rt_queryInterface = TRAP(8);
+uint32_t TR_rt_getSystemInfo = TRAP(9);
+uint32_t TR_gfx_clear = TRAP(10);
+uint32_t TR_gfx_fillRect = TRAP(11);
+uint32_t TR_gfx_commit = TRAP(12);
+uint32_t TR_gfx_drawText = TRAP(13);
+uint32_t TR_gfx_drawRect = TRAP(14);
+uint32_t TR_gfx_fillRect2 = TRAP(15);
+uint32_t TR_fs_open = TRAP(16);
+uint32_t TR_file_close = TRAP(17);
+uint32_t TR_file_read = TRAP(18);
+uint32_t TR_file_seek = TRAP(19);
+uint32_t TR_audio_stop = TRAP(20);
+uint32_t TR_ap_play = TRAP(21);
+uint32_t TR_ap_stop = TRAP(22);
+//
+uint32_t TR_init_callback = TRAP(100); // 这个实际上不知道这个是我随便定的
+uint32_t SIZE_SLOT = SHIM_BASE + 0x700;
+uint32_t API_SLOT = SHIM_BASE + 0x710;
+
+//
+AppHeader header;
+
+//
+/* 堆指针 */
+uint32_t heap_ptr = HEAP_BASE;
+
+void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
+                 uint32_t r2, uint32_t r3, uint32_t sp, uint32_t lr) {
+  uint32_t ret = 0;
+  const char *log = NULL;
+  char buf[256];
+
+  if (trap_address == TR_init_callback) {
+    uint32_t size;
+    if (uc_mem_read(uc, SIZE_SLOT, &size, 4) != UC_ERR_OK) {
+      log_error("Failed to read size");
+      return;
+    }
+    uint32_t handler;
+    if (uc_mem_read(uc, API_SLOT + 8, &handler, 4) != UC_ERR_OK) {
+      log_error("Failed to read handler");
+      return;
+    }
+
+    log_info("  size=%d handler=0x%X\n", size, handler);
+    uint32_t INSTANCE = host_malloc(&heap_ptr, size);
+    // 将 Unicorn 模拟器（虚拟机）的虚拟内存中，从地址 INSTANCE 开始、长度为
+    // size 的一块区域，全部填充为 0（清零）
+    uint8_t *zero_buf = calloc(1, size);
+    uc_mem_write(uc, INSTANCE, zero_buf, size);
+    free(zero_buf);
+    //
+
+    uc_mem_write(uc, INSTANCE, &header.AppName, sizeof(AppHeader));
+    log_info("AppName: %s\n", header.AppName);
+    log_info("  instance=0x%X\n", INSTANCE);
+
+    uint32_t stack_ptr = 123;
+    log_info("  stack_ptr=0x%X\n", stack_ptr);
+    uc_reg_write(uc, UC_ARM_REG_SP, &stack_ptr);
+    uc_reg_write(uc, UC_ARM_REG_R0, &INSTANCE);
+    uc_reg_write(uc, UC_ARM_REG_R1, 0);
+    uc_reg_write(uc, UC_ARM_REG_R2, 0);
+    uc_reg_write(uc, UC_ARM_REG_R3, 0);
+    uc_reg_write(uc, UC_ARM_REG_LR, &lr);
+    //
+    uc_reg_write(uc, UC_ARM_REG_PC, &handler);
+    return;
+  } else {
+    log_error("非法的外部调用: 0x%08" PRIx32, trap_address);
+  }
+  //
+  uc_reg_write(uc, UC_ARM_REG_R0, &ret);
+  uc_reg_write(uc, UC_ARM_REG_PC, &lr);
+}
 
 csh handle;
 cs_insn *insn;
@@ -83,8 +188,7 @@ static void hook_code(uc_engine *uc, uint64_t address, uint32_t size,
     }
   }
 
-  if (address >= TRAMP_BASE && address < TRAMP_BASE + TRAMP_SIZE) {
-    uint32_t idx = (address - TRAMP_BASE) / 4;
+  if (pc >= TRAMP_BASE && pc < TRAMP_BASE + TRAMP_SIZE) {
 
     uint32_t r0, r1, r2, r3, sp, lr;
     uc_reg_read(uc, UC_ARM_REG_R0, &r0);
@@ -93,9 +197,11 @@ static void hook_code(uc_engine *uc, uint64_t address, uint32_t size,
     uc_reg_read(uc, UC_ARM_REG_R3, &r3);
     uc_reg_read(uc, UC_ARM_REG_SP, &sp);
     uc_reg_read(uc, UC_ARM_REG_LR, &lr);
-    // handle_trap(uc, idx, r0, r1, r2, r3, sp, lr);
-    log_info("trap idx: %d, r0: %d, r1: %d, r2: %d, r3: %d, sp: %d, lr: %d\n",
-             idx, r0, r1, r2, r3, sp, lr);
+
+    log_info("trap pc: %d, r0: %d, r1: %d, r2: %d, r3: %d, sp: %d, lr: %d\n",
+             pc, r0, r1, r2, r3, sp, lr);
+
+    handle_trap(uc, pc, r0, r1, r2, r3, sp, lr);
 
     // 制造暂停：等待用户按回车
     log_info("按回车键继续...");
@@ -141,7 +247,7 @@ int main() {
   }
 
   // 解析 applet 头
-  AppHeader header;
+
   parse_app_header(fp, &header);
   print_header(&header);
 
@@ -170,47 +276,6 @@ int main() {
     }
     log_info("内存映射完成");
   }
-  // 划分shim虚表空间
-  uint32_t ROOT = SHIM_BASE + 0x000;
-  uint32_t RUNTIME = SHIM_BASE + 0x100;
-  uint32_t RT_VT = SHIM_BASE + 0x180;
-  uint32_t GFX = SHIM_BASE + 0x200;
-  uint32_t GFX_VT = SHIM_BASE + 0x280;
-  uint32_t FS = SHIM_BASE + 0x300;
-  uint32_t FS_VT = SHIM_BASE + 0x380;
-  uint32_t FILE1 = SHIM_BASE + 0x400;
-  uint32_t FILE_VT = SHIM_BASE + 0x480;
-  uint32_t AUDIO = SHIM_BASE + 0x500;
-  uint32_t AUDIO_VT = SHIM_BASE + 0x580;
-  uint32_t AP = SHIM_BASE + 0x600;
-  uint32_t AP_VT = SHIM_BASE + 0x680;
-  uint32_t DUMMY_BUF = SHIM_BASE + 0x750;
-
-  // 外部函数，陷阱地址分配,tramp空间分配
-#define TRAP(idx) (TRAMP_BASE + 4 * (idx))
-  uint32_t TR_root_queryRuntime = TRAP(0);
-  uint32_t TR_root_malloc = TRAP(1);
-  uint32_t TR_root_free = TRAP(2);
-  uint32_t TR_root_str_copy = TRAP(3);
-  uint32_t TR_root_sprintf = TRAP(4);
-  uint32_t TR_root_str_ctor = TRAP(5);
-  uint32_t TR_root_spec_lookup = TRAP(6);
-  uint32_t TR_root_str_find = TRAP(7);
-  uint32_t TR_rt_queryInterface = TRAP(8);
-  uint32_t TR_rt_getSystemInfo = TRAP(9);
-  uint32_t TR_gfx_clear = TRAP(10);
-  uint32_t TR_gfx_fillRect = TRAP(11);
-  uint32_t TR_gfx_commit = TRAP(12);
-  uint32_t TR_gfx_drawText = TRAP(13);
-  uint32_t TR_gfx_drawRect = TRAP(14);
-  uint32_t TR_gfx_fillRect2 = TRAP(15);
-  uint32_t TR_fs_open = TRAP(16);
-  uint32_t TR_file_close = TRAP(17);
-  uint32_t TR_file_read = TRAP(18);
-  uint32_t TR_file_seek = TRAP(19);
-  uint32_t TR_audio_stop = TRAP(20);
-  uint32_t TR_ap_play = TRAP(21);
-  uint32_t TR_ap_stop = TRAP(22);
 
   // 构建垫片或者蹦床或者虚表虚表，指向陷阱地址
   {
@@ -305,9 +370,6 @@ int main() {
     log_info("文件关闭完成");
   }
   // 设置初始的寄存器
-  uint32_t TR_init_callback = TRAP(100);
-  uint32_t SIZE_SLOT = SHIM_BASE + 0x700;
-  uint32_t API_SLOT = SHIM_BASE + 0x710;
 
   uc_reg_write(uc, UC_ARM_REG_LR, &TR_init_callback);
   uc_reg_write(uc, UC_ARM_REG_R0, &SIZE_SLOT);
@@ -323,7 +385,7 @@ int main() {
 
   log_info("启动unicorn engine...");
   uc_emu_start(uc, APPLET_ENTRY_POINT, STACK_TOP, 0, 0);
-
+  log_info("unicorn engine启动完成");
 #ifdef TEST
   // test_parse();
   // test_lib();
