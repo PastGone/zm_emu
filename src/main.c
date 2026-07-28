@@ -18,6 +18,7 @@
 #include <capstone/capstone.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unicorn/arm.h>
 #include <unicorn/unicorn.h>
 
@@ -204,7 +205,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
   }
   /* ---- fs / file ---- */
   else if (trap_address == TR_fs_open) {
-    ret = zm_fs_open(uc);
+    ret = zm_fs_open(uc, r1);
   } else if (trap_address == TR_file_close) {
     ret = zm_file_close(uc);
   } else if (trap_address == TR_file_read) {
@@ -505,6 +506,38 @@ int main() {
   // test_lib();
 #endif
 
+  // 音频自测：applet 的 init 不触发 ap.play（音频仅在触摸事件 sub_8B4
+  // 中播放）， 故提供环境变量 ZM_AUDIO_TEST 让宿主直接按索引取 .zmr
+  // 中的音频资源， 写入客户机内存后走真实 zm_ap_play 路径播放，以验证 SDL_mixer
+  // 后端可用。
+  //   用法：ZM_AUDIO_TEST=0        播放第 0 个资源
+  //        ZM_AUDIO_TEST=3        播放第 3 个资源
+  //        ZM_AUDIO_TEST=random   随机选一个
+  // 未设置时跳过，不影响正常渲染。
+  {
+    const char *atest = getenv("ZM_AUDIO_TEST");
+    if (atest && *atest) {
+      uint32_t count = zm_fs_get_resource_count();
+      uint32_t idx = 0;
+      if (strcmp(atest, "random") == 0) {
+        srand((unsigned)time(NULL));
+        idx = count ? (uint32_t)(rand() % count) : 0;
+      } else {
+        idx = (uint32_t)strtoul(atest, NULL, 0);
+      }
+      uint32_t rsize = 0;
+      const uint8_t *rdata = zm_fs_get_resource(idx, &rsize);
+      if (rdata && rsize && rsize <= ZMR_SIZE) {
+        /* 把资源数据放到 ZMR_BASE 客户机区域，再走 ap.play 读取 */
+        uc_mem_write(uc, ZMR_BASE, rdata, rsize);
+        log_info("音频自测：播放资源 %u/%u  size=%u", idx, count, rsize);
+        zm_ap_play(uc, ZMR_BASE, rsize);
+      } else {
+        log_warn("音频自测：资源 %u 不可用 (count=%u)", idx, count);
+      }
+    }
+  }
+
   // applet 只跑一次 init、无事件循环，保持窗口显示最后一帧以便观察
   // （ZM_GFX_HOLD_MS 环境变量可控制停留毫秒数，默认 0=直到关闭窗口）
   {
@@ -515,9 +548,10 @@ int main() {
     zm_gfx_hold(hold_ms);
   }
 
-  // 释放 SDL 渲染 / 音频资源
+  // 释放资源
   zm_audio_shutdown();
   zm_gfx_shutdown();
+  zm_fs_shutdown();
 
   return 0;
 }

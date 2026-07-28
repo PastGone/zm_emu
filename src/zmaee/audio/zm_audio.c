@@ -94,7 +94,7 @@ uint32_t zm_ap_play(uc_engine *uc, uint32_t buf_ptr, uint32_t buf_len) {
    * data 由 release_music 管理） */
   g_music = Mix_LoadMUS_RW(rw, 1);
   if (!g_music) {
-    log_error("Mix_LoadMUST_RW failed: %s", Mix_GetError());
+    log_error("Mix_LoadMUS_RW failed: %s", Mix_GetError());
     release_music();
     return 0;
   }
