@@ -5,11 +5,11 @@
 #include "./test/test_parse.h"
 #endif
 //
-#include "./log/log.h" //第三方实现的日志库
-#include "./tool/paser_info.h"
+#include "./log/log.h"
+//
+#include "./emu.h"
+#include "./event.h"
 #include "./zmaee/audio/zm_audio.h"
-#include "./zmaee/core/zm_mem.h"
-#include "./zmaee/core/zm_str.h"
 #include "./zmaee/fs/zm_fs.h"
 #include "./zmaee/gfx/zm_gfx.h"
 #include "./zmaee/runtime/zm_runtime.h"
@@ -19,347 +19,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unicorn/arm.h>
 #include <unicorn/unicorn.h>
-
-// 映射内存
-#define ONE_MB (0x100000) // 这里说的1MB是1MiB
-//
-#define BLOB_BASE (0x80000)    // blob 基础地址 512KB处
-#define BLOB_SIZE (1 * ONE_MB) // blob 大小 1MB
-
-// 栈
-#define STACK_BASE (BLOB_BASE + BLOB_SIZE)  // 栈基础地址 512KB处 + 1MB
-#define STACK_SIZE (1 * ONE_MB)             // 栈大小 1MB
-#define STACK_TOP (STACK_BASE + STACK_SIZE) // 栈顶部地址 512KB处 + 1MB
-// 堆
-#define HEAP_BASE (STACK_TOP + ONE_MB / 8) // 离初始栈128KB处
-#define HEAP_SIZE (6 * ONE_MB)             // 堆大小 6MB
-#define HEAP_END (HEAP_BASE + HEAP_SIZE)   //  + 6MB
-// shim 蹦床——>虚表
-#define SHIM_BASE (HEAP_END)
-#define SHIM_SIZE (1 * ONE_MB)
-// tramp 陷阱，调用外部。
-#define TRAMP_BASE (SHIM_BASE + SHIM_SIZE)
-#define TRAMP_SIZE (1 * ONE_MB)
-// zmr
-#define ZMR_BASE (TRAMP_BASE + TRAMP_SIZE)
-#define ZMR_SIZE (2 * ONE_MB)
-// 根槽偏移量 0x180
-#define ROOT_SLOT_OFF 0x180
-
-// ---------------------
-// 划分shim虚表空间
-uint32_t ROOT = SHIM_BASE + 0x000;
-uint32_t RUNTIME = SHIM_BASE + 0x100;
-uint32_t RT_VT = SHIM_BASE + 0x180;
-uint32_t GFX = SHIM_BASE + 0x200;
-uint32_t GFX_VT = SHIM_BASE + 0x280;
-uint32_t FS = SHIM_BASE + 0x300;
-uint32_t FS_VT = SHIM_BASE + 0x380;
-uint32_t FILE1 = SHIM_BASE + 0x400;
-uint32_t FILE_VT = SHIM_BASE + 0x480;
-uint32_t AUDIO = SHIM_BASE + 0x500;
-uint32_t AUDIO_VT = SHIM_BASE + 0x580;
-uint32_t AP = SHIM_BASE + 0x600;
-uint32_t AP_VT = SHIM_BASE + 0x680;
-uint32_t DUMMY_BUF = SHIM_BASE + 0x750;
-
-// 外部函数，陷阱地址分配,tramp空间分配
-#define TRAP(idx) (TRAMP_BASE + 4 * (idx))
-uint32_t TR_root_queryRuntime = TRAP(0);
-uint32_t TR_root_malloc = TRAP(1);
-uint32_t TR_root_free = TRAP(2);
-// 字符串操作
-uint32_t TR_root_str_copy = TRAP(3);
-uint32_t TR_root_sprintf = TRAP(4);
-uint32_t TR_root_str_ctor = TRAP(5);
-uint32_t TR_root_spec_lookup = TRAP(6);
-uint32_t TR_root_str_find = TRAP(7);
-//
-uint32_t TR_rt_queryInterface = TRAP(8);
-uint32_t TR_rt_getSystemInfo = TRAP(9);
-//
-uint32_t TR_gfx_clear = TRAP(10);
-uint32_t TR_gfx_fillRect = TRAP(11);
-uint32_t TR_gfx_commit = TRAP(12);
-uint32_t TR_gfx_drawText = TRAP(13);
-uint32_t TR_gfx_drawRect = TRAP(14);
-uint32_t TR_gfx_fillRect2 = TRAP(15);
-uint32_t TR_fs_open = TRAP(16);
-uint32_t TR_file_close = TRAP(17);
-uint32_t TR_file_read = TRAP(18);
-uint32_t TR_file_seek = TRAP(19);
-uint32_t TR_audio_stop = TRAP(20);
-uint32_t TR_ap_play = TRAP(21);
-uint32_t TR_ap_stop = TRAP(22);
-//
-uint32_t TR_init_callback = TRAP(100); // 这个实际上不知道这个是我随便定的
-uint32_t SIZE_SLOT = SHIM_BASE + 0x700;
-uint32_t API_SLOT = SHIM_BASE + 0x710;
-
-//
-uc_engine *uc;
-AppHeader header;
-
-//
-/* 堆指针 */
-uint32_t heap_ptr = HEAP_BASE;
-
-/* applet 实例与事件 handler（sub_A30），由 TR_init_callback 保存，
- * 供事件循环把 SDL 点击转发为 applet 触摸事件（sub_A30 case 10） */
-uint32_t g_instance = 0;
-uint32_t g_handler = 0;
-/* 调试开关：ZM_STEP=1 时每个 trap 后等待回车；ZM_DISASM=1 时反汇编每条指令。
- * 默认均关闭，以保证交互式点击流畅。 */
-int g_trap_pause = 0;
-int g_disasm = 0;
-
-void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
-                 uint32_t r2, uint32_t r3, uint32_t sp, uint32_t lr) {
-  uint32_t ret = 0;
-  // const char *log = NULL;
-  // char buf[256];
-
-  if (trap_address == TR_init_callback) {
-    uint32_t size;
-    if (uc_mem_read(uc, SIZE_SLOT, &size, 4) != UC_ERR_OK) {
-      log_error("Failed to read size");
-      return;
-    }
-    uint32_t handler;
-    if (uc_mem_read(uc, API_SLOT + 8, &handler, 4) != UC_ERR_OK) {
-      log_error("Failed to read handler");
-      return;
-    }
-
-    log_info("  size=%d handler=0x%X\n", size, handler);
-    uint32_t INSTANCE = host_malloc(&heap_ptr, size);
-    // 将 Unicorn 模拟器（虚拟机）的虚拟内存中，从地址 INSTANCE 开始、长度为
-    // size 的一块区域，全部填充为 0（清零）
-    uint8_t *zero_buf = calloc(1, size);
-    uc_mem_write(uc, INSTANCE, zero_buf, size);
-    free(zero_buf);
-    //
-
-    // 与 main.txt.c 一致：实例名需带 ".app" 后缀，applet 初始化时会用
-    // str_find 在名字里查找 '.'（分隔扩展名），缺省后缀会走错分支。
-    char app_name[64];
-    snprintf(app_name, sizeof(app_name), "%.*s.app",
-             (int)sizeof(header.AppName), header.AppName);
-    uc_mem_write(uc, INSTANCE + 4, app_name, strlen(app_name) + 1);
-    log_info("AppName: %s\n", app_name);
-    log_info("  instance=0x%X\n", INSTANCE);
-
-    uint32_t stack_ptr = STACK_TOP;
-    uc_reg_write(uc, UC_ARM_REG_SP, &stack_ptr);
-
-    uc_reg_write(uc, UC_ARM_REG_R0, &INSTANCE);
-    // uc_reg_write 第3个参数是“指向值的指针”，不能传 0(NULL)，
-    // 否则 unicorn 内部会解引用 NULL 读取寄存器值 → 段错误。
-    uint32_t zero = 0;
-    uc_reg_write(uc, UC_ARM_REG_R1, &zero);
-    uc_reg_write(uc, UC_ARM_REG_R2, &zero);
-    uc_reg_write(uc, UC_ARM_REG_R3, &zero);
-    // init 执行完毕后让其返回到 uc_emu_start 的结束地址（STACK_TOP），
-    // 这样 init 一次绘制完成后即停止模拟。若把 LR 设成传入的 lr，由于
-    // uc_reg_write(uc, UC_ARM_REG_LR, &lr);
-    // 入口处 LR=TR_init_callback、sub_A98 用 bx lr 跳入本陷阱时 lr 未变，
-    // 会导致 init 结束后 bx lr 又跳回 TR_init_callback，重复执行 init+draw，
-    // 并在第二轮因栈顶上方 0x2801b8 未映射触发 MEM unmapped 才停住。
-    uint32_t end_addr = STACK_TOP;
-    uc_reg_write(uc, UC_ARM_REG_LR, &end_addr);
-
-    /* 保存实例与 handler，供事件循环把 SDL 点击转发为 applet 触摸事件 */
-    g_instance = INSTANCE;
-    g_handler = handler;
-
-    uc_reg_write(uc, UC_ARM_REG_PC, &handler);
-    return;
-  }
-  // root
-  else if (trap_address == TR_root_queryRuntime) { // 查询运行时
-    ret = RUNTIME;
-  } else if (trap_address == TR_root_malloc) { // 分配内存
-    // NOTE: main.txt.c 用 r0 作为 size；这里也应该使用 r0，待运行时确认
-    ret = host_malloc(&heap_ptr, r0);
-  } else if (trap_address == TR_root_free) { // 释放内存
-    ret = 0;
-  } else if (trap_address == TR_root_str_copy) { // 字符串复制
-    ret = zm_strcpy(uc, r0, r1, r2, r3);
-  } else if (trap_address == TR_root_sprintf) { // 格式化输出
-    ret = zm_sprintf(uc, r0, r1, r2);
-  } else if (trap_address == TR_root_str_ctor) { // 字符串构造函数
-    ret = zm_str_ctor(uc, r0, r1);
-  } else if (trap_address == TR_root_spec_lookup) { // 查找规格
-    ret = zm_spec_lookup(uc, r0);
-  } else if (trap_address == TR_root_str_find) { // 查找字符串
-    ret = zm_str_find(uc, r0, r1);
-  }
-  /* ---- runtime ---- */
-  else if (trap_address == TR_rt_queryInterface) {
-    ret = zm_rt_queryInterface(uc, r1, r2);
-  } else if (trap_address == TR_rt_getSystemInfo) {
-    ret = zm_rt_getSystemInfo(uc, r1);
-  }
-  /* ---- gfx ---- */
-  else if (trap_address == TR_gfx_clear) {
-    ret = zm_gfx_clear(uc, r1);
-  } else if (trap_address == TR_gfx_fillRect) {
-    ret = zm_gfx_fillRect(uc, r1);
-  } else if (trap_address == TR_gfx_commit) {
-    ret = zm_gfx_commit(uc);
-  } else if (trap_address == TR_gfx_drawText) {
-    ret = zm_gfx_drawText(uc, r1, r2, r3, sp);
-  } else if (trap_address == TR_gfx_drawRect) {
-    ret = zm_gfx_drawRect(uc, r1, r2, r3, sp);
-  } else if (trap_address == TR_gfx_fillRect2) {
-    ret = zm_gfx_fillRect2(uc, r1, r2, r3, sp);
-  }
-  /* ---- fs / file ---- */
-  else if (trap_address == TR_fs_open) {
-    ret = zm_fs_open(uc, r1);
-  } else if (trap_address == TR_file_close) {
-    ret = zm_file_close(uc);
-  } else if (trap_address == TR_file_read) {
-    ret = zm_file_read(uc, r1, r2);
-  } else if (trap_address == TR_file_seek) {
-    ret = zm_file_seek(uc, r1, r2);
-  }
-  /* ---- audio / ap ---- */
-  else if (trap_address == TR_audio_stop) {
-    ret = zm_audio_stop(uc);
-  } else if (trap_address == TR_ap_play) {
-    ret = zm_ap_play(uc, r2, r3);
-  } else if (trap_address == TR_ap_stop) {
-    ret = zm_ap_stop(uc);
-  } else {
-    log_error("非法的外部调用: 0x%08" PRIx32, trap_address);
-    log_error("其陷阱号是: %d", (trap_address - TRAMP_BASE) / 4);
-  }
-  //
-  uc_reg_write(uc, UC_ARM_REG_R0, &ret);
-  uc_reg_write(uc, UC_ARM_REG_PC, &lr);
-}
-
-csh handle;
-cs_insn *insn;
-size_t count;
-uint8_t code[16]; // 最大指令长度通常不超过 16 字节（ARM Thumb
-                  // 可能更长，但安全起见可动态分配）
-static void hook_code(uc_engine *uc, uint64_t address, uint32_t size,
-                      void *user_data) {
-  uint32_t pc = address;
-  // 分析当前执行代码段（ZM_DISASM=1 时开启，默认关闭以加速交互式点击）
-  if (g_disasm) {
-    uc_mem_read(uc, pc, code, size); // 读取内存数据
-
-    count = cs_disasm(handle, code, size, pc, 0, &insn);
-    if (count > 0) {
-      char line[256]; // 临时行缓冲区
-      for (size_t i = 0; i < count; i++) {
-        // 拼接地址
-        int offset =
-            snprintf(line, sizeof(line), "0x%08" PRIx64 ":  ", insn[i].address);
-
-        // 拼接机器码（固定4字节宽度，便于对齐）
-        for (int j = 0; j < 4; j++) {
-          if (j < insn[i].size) {
-            offset += snprintf(line + offset, sizeof(line) - offset, "%02x ",
-                               insn[i].bytes[j]);
-          } else {
-            offset += snprintf(line + offset, sizeof(line) - offset, "   ");
-          }
-        }
-
-        // 拼接指令（助记符和操作数）
-        snprintf(line + offset, sizeof(line) - offset, "%-8s %s",
-                 insn[i].mnemonic, insn[i].op_str);
-
-        // 一次性输出整行到日志
-        log_info("%s\n", line);
-      }
-      cs_free(insn, count); // 必须释放,动态分配的内存
-
-    } else {
-      fprintf(stderr, "Disassembly failed\n");
-    }
-  }
-
-  if (pc >= TRAMP_BASE && pc < TRAMP_BASE + TRAMP_SIZE) {
-
-    uint32_t r0, r1, r2, r3, sp, lr;
-    uc_reg_read(uc, UC_ARM_REG_R0, &r0);
-    uc_reg_read(uc, UC_ARM_REG_R1, &r1);
-    uc_reg_read(uc, UC_ARM_REG_R2, &r2);
-    uc_reg_read(uc, UC_ARM_REG_R3, &r3);
-    uc_reg_read(uc, UC_ARM_REG_SP, &sp);
-    uc_reg_read(uc, UC_ARM_REG_LR, &lr);
-
-    log_info("trap pc: %d, r0: %d, r1: %d, r2: %d, r3: %d, sp: %d, lr: %d\n",
-             pc, r0, r1, r2, r3, sp, lr);
-
-    handle_trap(uc, pc, r0, r1, r2, r3, sp, lr);
-
-    // 制造暂停：等待用户按回车（ZM_STEP=1 时开启，默认关闭以支持交互）
-    if (g_trap_pause) {
-      log_info("按回车键继续...");
-      scanf("%*c"); // 读取一个字符，但不保存（*表示赋值忽略）
-    }
-  }
-}
-// 内存访问 Hook 回调函数
-static void hook_shim_mem(uc_engine *uc, uc_mem_type type, uint64_t address,
-                          int size, int64_t value, void *user_data) {
-  // 判断操作类型
-  if (type == UC_MEM_READ) {
-    log_info("[HOOK] 读取 地址:0x%016lx 大小:%d\n", address, size);
-  } else if (type == UC_MEM_WRITE) {
-    log_info("[HOOK] 写入 地址:0x%016lx 大小:%d 值:0x%016lx\n", address, size,
-             value);
-  } else {
-    log_info("[HOOK] 其他内存操作 (type=%d)\n", type);
-  }
-}
-
-static bool hook_mem_unmapped(uc_engine *uc, uc_mem_type type, uint64_t address,
-                              int size, int64_t value, void *user_data) {
-  log_warn("  !! MEM unmapped @0x%" PRIx64 " size=%d\n", address, size);
-  return false; // 不处理
-}
-
-/* 调用 applet 事件 handler sub_A30(instance, event_type, x, y)。
- * 与 init 相同的陷入模式：设好 R0..R3 / SP / LR 后 uc_emu_start，
- * handler 执行到 bx lr（LR=STACK_TOP）时 PC 命中 end 地址自动停止。 */
-static void dispatch_applet_event(uint32_t evt, uint32_t x, uint32_t y) {
-  if (!g_instance || !g_handler)
-    return;
-  uint32_t sp = STACK_TOP;
-  uint32_t lr = STACK_TOP;
-  uc_reg_write(uc, UC_ARM_REG_SP, &sp);
-  uc_reg_write(uc, UC_ARM_REG_LR, &lr);
-  uc_reg_write(uc, UC_ARM_REG_R0, &g_instance);
-  uc_reg_write(uc, UC_ARM_REG_R1, &evt);
-  uc_reg_write(uc, UC_ARM_REG_R2, &x);
-  uc_reg_write(uc, UC_ARM_REG_R3, &y);
-  uc_emu_start(uc, g_handler, STACK_TOP, 0, 0);
-}
-
-/* 把 SDL 鼠标点击转发为 applet 触摸事件。
- * applet 的 tap 检测需要成对的 case9(pen down)+case10(pen up)：
- *   case9(sub_824) 把按下点记录到 INSTANCE[25..26]；
- *   case10(sub_8B4) 比较按下点与抬起点是否落在同一按钮，是则
- *   从 .zmr 读出该按钮的 MP3 资源并 ap.play 播放。
- * 故一次鼠标点击需连续派发 case9 与 case10（同坐标）。 */
-static void on_touch_click(uint32_t x, uint32_t y) {
-  log_info("触摸事件: (%u, %u) -> handler=0x%X instance=0x%X", x, y, g_handler,
-           g_instance);
-  dispatch_applet_event(9, x, y);  /* pen down：记录按下点 */
-  dispatch_applet_event(10, x, y); /* pen up：判定同按钮则播放 */
-}
 
 int main() {
   log_info("hello world!");
+
   // 调试开关：ZM_STEP=1 每个 trap 后等待回车；ZM_DISASM=1 反汇编每条指令
   {
     const char *s = getenv("ZM_STEP");
@@ -369,10 +33,9 @@ int main() {
     if (s && *s)
       g_disasm = 1;
   }
-  g_trap_pause = 1;
+  // g_trap_pause = 1;
+  // g_disasm = 1;
 
-  g_disasm = 1;
-  //
   // 初始化 Capstone，使用 ARM-32 架构（CS_ARCH_ARM，CS_MODE_ARM）
   if (cs_open(CS_ARCH_ARM, CS_MODE_ARM, &handle) != CS_ERR_OK) {
     fprintf(stderr, "Failed to open Capstone\n");
@@ -382,35 +45,28 @@ int main() {
   uc_err my_uc_err;
 
   // 打开 applet 文件
-  // char filename[1024] =
-  // "/home/apollo/文档/古时游戏/zmaee_emu/applet/00000102/"
-  //                       "00000102.app"; // 该文件已经测试通过
+  char filename[1024] = "/home/apollo/文档/古时游戏/zmaee_emu/applet/00000102/"
+                        "00000102.app";
 
-  char filename[1024] =
-      "/home/apollo/文档/古时游戏/zm_emu/applet/00000405/00000405.app";
-
-  FILE *fp = fopen(filename, "rb");
-  if (fp == NULL) {
-    log_error("fopen failed");
-    return 1;
-  }
-
-  // 获取文件大小
-  long applet_size;
+  // 先解析 applet 头（不依赖 uc），以获取屏幕尺寸
   {
-    fseek(fp, 0, SEEK_END);  // 指针移到末尾
-    applet_size = ftell(fp); // 获取偏移量
-    fseek(fp, 0, SEEK_SET);  // 记得复位指针，否则读不到数据
+    FILE *fp = fopen(filename, "rb");
+    if (fp == NULL) {
+      log_error("fopen failed");
+      cs_close(&handle);
+      return 1;
+    }
+    fseek(fp, 0, SEEK_END);
+    long applet_size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
     log_info("文件大小: %ld\n", applet_size);
+
+    parse_app_header(fp, &header);
+    print_header(&header);
+    fclose(fp);
   }
 
-  // 解析 applet 头
-
-  parse_app_header(fp, &header);
-  print_header(&header);
-
-  // 初始化 SDL2 渲染（窗口大小取自 AppHeader.ScreenW/ScreenH）与 SDL_mixer 音频
-  // 同步把屏幕尺寸告知 runtime，使 applet 经 getSystemInfo 拿到的尺寸与窗口一致
+  // 初始化 SDL2 渲染与音频
   zm_rt_set_screen_size(header.ScreenW, header.ScreenH);
   if (zm_gfx_init(header.ScreenW, header.ScreenH) != 0) {
     log_warn("zm_gfx_init 失败，渲染将不可用（继续运行）");
@@ -420,184 +76,63 @@ int main() {
   }
 
   // 初始化 unicorn 引擎
-
   {
     my_uc_err = uc_open(UC_ARCH_ARM, UC_MODE_ARM, &uc);
     if (my_uc_err != UC_ERR_OK) {
       log_error("uc_open failed, err: %d\n", my_uc_err);
+      cs_close(&handle);
       return 1;
     }
     log_info("unicorn engine initialized");
   }
 
   // 内存映射
-  {
-    my_uc_err = uc_mem_map(uc, BLOB_BASE, BLOB_SIZE, UC_PROT_ALL);
-    my_uc_err = uc_mem_map(uc, STACK_BASE, STACK_SIZE, UC_PROT_ALL);
-    my_uc_err = uc_mem_map(uc, HEAP_BASE, HEAP_SIZE, UC_PROT_ALL);
-    my_uc_err = uc_mem_map(uc, SHIM_BASE, SHIM_SIZE, UC_PROT_ALL);
-    my_uc_err = uc_mem_map(uc, TRAMP_BASE, TRAMP_SIZE, UC_PROT_ALL);
-    my_uc_err = uc_mem_map(uc, ZMR_BASE, ZMR_SIZE, UC_PROT_ALL);
-    if (my_uc_err != UC_ERR_OK) {
-      log_error("uc_mem_map failed, err: %d\n", my_uc_err);
-      return 1;
-    }
-    log_info("内存映射完成");
+  if (zm_emu_map_memory(uc) != 0) {
+    uc_close(uc);
+    cs_close(&handle);
+    return 1;
   }
 
-  // 构建垫片或者蹦床或者虚表虚表，指向陷阱地址
-  {
-    // root
-    my_uc_err = uc_mem_write(uc, ROOT, &TR_root_queryRuntime, 4);
-    my_uc_err = uc_mem_write(uc, ROOT + 0x008, &TR_root_malloc, 4);
-    my_uc_err = uc_mem_write(uc, ROOT + 0x00C, &TR_root_free, 4);
-    my_uc_err = uc_mem_write(uc, ROOT + 0x020, &TR_root_str_copy, 4);
-    my_uc_err = uc_mem_write(uc, ROOT + 0x06C, &TR_root_sprintf, 4);
-    my_uc_err = uc_mem_write(uc, ROOT + 0x088, &TR_root_str_ctor, 4);
-    my_uc_err = uc_mem_write(uc, ROOT + 0x0A4, &TR_root_spec_lookup, 4);
-    my_uc_err = uc_mem_write(uc, ROOT + 0x0A8, &TR_root_str_find, 4);
-
-    // runtime
-    my_uc_err = uc_mem_write(uc, RUNTIME, &RT_VT, 4);
-    my_uc_err = uc_mem_write(uc, RT_VT + 0x08, &TR_rt_queryInterface, 4);
-    my_uc_err = uc_mem_write(uc, RT_VT + 0x10, &TR_rt_getSystemInfo, 4);
-    // gfx
-    my_uc_err = uc_mem_write(uc, GFX, &GFX_VT, 4);
-    my_uc_err = uc_mem_write(uc, GFX_VT + 0x20, &TR_gfx_clear, 4);
-    my_uc_err = uc_mem_write(uc, GFX_VT + 0x2C, &TR_gfx_fillRect, 4);
-    my_uc_err = uc_mem_write(uc, GFX_VT + 0x40, &TR_gfx_commit, 4);
-    my_uc_err = uc_mem_write(uc, GFX_VT + 0x50, &TR_gfx_drawText, 4);
-    my_uc_err = uc_mem_write(uc, GFX_VT + 0x6C, &TR_gfx_drawRect, 4);
-    my_uc_err = uc_mem_write(uc, GFX_VT + 0x70, &TR_gfx_fillRect2, 4);
-
-    // fs
-    my_uc_err = uc_mem_write(uc, FS, &FS_VT, 4);
-    my_uc_err = uc_mem_write(uc, FS_VT + 0x08, &TR_fs_open, 4);
-    my_uc_err = uc_mem_write(uc, FILE1, &FILE_VT, 4);
-    my_uc_err = uc_mem_write(uc, FILE_VT + 0x04, &TR_file_close, 4);
-    my_uc_err = uc_mem_write(uc, FILE_VT + 0x08, &TR_file_read, 4);
-    my_uc_err = uc_mem_write(uc, FILE_VT + 0x20, &TR_file_seek, 4);
-    // audio
-    my_uc_err = uc_mem_write(uc, AUDIO, &AUDIO_VT, 4);
-    my_uc_err = uc_mem_write(uc, AUDIO_VT + 0x14, &TR_audio_stop, 4);
-    my_uc_err = uc_mem_write(uc, AP, &AP_VT, 4);
-    my_uc_err = uc_mem_write(uc, AP_VT + 0x10, &TR_ap_play, 4);
-    my_uc_err = uc_mem_write(uc, AP_VT + 0x14, &TR_ap_stop, 4);
-    if (my_uc_err != UC_ERR_OK) {
-      log_error("uc_mem_write failed, err: %d\n", my_uc_err);
-      return 1;
-    }
-    log_info("虚表构建完成");
+  // 构建虚表
+  if (zm_emu_build_vtables(uc) != 0) {
+    uc_close(uc);
+    cs_close(&handle);
+    return 1;
   }
-  // 设置钩子，拦截系统调用使它陷入陷阱函数嗯，就和前面相配合了
+
+  // 注册钩子
   uc_hook hook_code_handle;
   uc_hook hook_unmapped_mem_handle;
   uc_hook hook_shim_mem_handle;
-  {
-    log_info("添加钩子");
-    my_uc_err =
-        uc_hook_add(uc, &hook_code_handle, UC_HOOK_CODE, hook_code, NULL, 1, 0);
-    if (my_uc_err != UC_ERR_OK) {
-      log_error("uc_hook_add failed, err: %d\n", my_uc_err);
-      return 1;
-    }
-    my_uc_err = uc_hook_add(uc, &hook_unmapped_mem_handle, UC_HOOK_MEM_UNMAPPED,
-                            hook_mem_unmapped, NULL, 1, 0);
-    if (my_uc_err != UC_ERR_OK) {
-      log_error("uc_hook_add failed, err: %d\n", my_uc_err);
-      return 1;
-    }
-    my_uc_err = uc_hook_add(uc, &hook_shim_mem_handle,
-                            UC_HOOK_MEM_READ | UC_HOOK_MEM_WRITE, hook_shim_mem,
-                            NULL, SHIM_BASE, SHIM_BASE + SHIM_SIZE);
-    if (my_uc_err != UC_ERR_OK) {
-      log_error("uc_hook_add failed, err: %d\n", my_uc_err);
-      return 1;
-    }
-    log_info("钩子添加完成");
+  if (zm_emu_add_hooks(uc, &hook_code_handle, &hook_unmapped_mem_handle,
+                       &hook_shim_mem_handle) != 0) {
+    uc_close(uc);
+    cs_close(&handle);
+    return 1;
   }
 
-  // 载入blob数据
-  log_info("开始载入blob数据");
+  // 载入 blob 数据到客户机内存
   {
-    unsigned char *buf = malloc(applet_size);
-    if (buf == NULL) {
-      log_error("malloc failed");
+    long applet_size;
+    if (zm_emu_load_blob(uc, filename, &applet_size) != 0) {
+      uc_close(uc);
+      cs_close(&handle);
       return 1;
     }
-
-    size_t bytes_read = fread(buf, 1, applet_size, fp);
-    if (bytes_read != applet_size) {
-      log_error("读取文件失败，期望%zu字节，实际读取%zu", applet_size,
-                bytes_read);
-      free(buf);
-      return 1;
-    }
-
-    uc_err err = uc_mem_write(uc, BLOB_BASE, buf, applet_size);
-    if (err != UC_ERR_OK) {
-      log_error("uc_mem_write failed, err: %d\n", err);
-      return 1;
-    }
-    free(buf);
-    log_info("blob数据载入完成");
-    // 文件现在没用了准备释放文件
-    fclose(fp);
-    log_info("文件关闭完成");
   }
 
-  // 载入 .zmr 资源（作为 file.read 的数据源）
-  // 路径由 .app 路径把后缀替换为 .zmr 得到
-  // 若同路径下无 .zmr 文件则跳过（部分 applet 没有资源文件）
-  {
-    char zmr_path[1024];
-    strncpy(zmr_path, filename, sizeof(zmr_path) - 1);
-    zmr_path[sizeof(zmr_path) - 1] = '\0';
-    size_t plen = strlen(zmr_path);
-    if (plen >= 4 && strcmp(zmr_path + plen - 4, ".app") == 0) {
-      strcpy(zmr_path + plen - 4, ".zmr");
-    } else {
-      strncat(zmr_path, ".zmr", sizeof(zmr_path) - plen - 1);
-    }
+  // 载入 .zmr 资源
+  zm_emu_load_zmr_if_exists(uc, filename);
 
-    /* 先判断 .zmr 文件是否存在，存在再载入，不存在则跳过 */
-    FILE *zmr_fp = fopen(zmr_path, "rb");
-    if (zmr_fp) {
-      fclose(zmr_fp);
-      if (!zm_fs_load_zmr(zmr_path)) {
-        log_warn(".zmr 载入失败，跳过: %s", zmr_path);
-      } else {
-        log_info(".zmr 资源载入完成: %s", zmr_path);
-      }
-    } else {
-      log_info("未找到 .zmr 文件，跳过资源载入: %s", zmr_path);
-    }
-  }
-  // 设置初始的寄存器
+  // 启动 applet（init → 绘制 → 停止）
+  zm_emu_start_applet(uc);
 
-  uc_reg_write(uc, UC_ARM_REG_LR, &TR_init_callback);
-  uc_reg_write(uc, UC_ARM_REG_R0, &SIZE_SLOT);
-  uc_reg_write(uc, UC_ARM_REG_R1, &API_SLOT);
-
-  // 向  BLOB_BASE + ROOT_SLOT_OFF
-  // 注入根槽地址,这一步实际上
-  // 我不知道是什么发时候发生的但是需要的话现在就开始的时候就把它搞
-  uc_mem_write(uc, BLOB_BASE + ROOT_SLOT_OFF, &ROOT, 4);
-
-  // 启动 unicorn 引擎
-#define APPLET_ENTRY_OFF 0x188
-#define APPLET_ENTRY_POINT (BLOB_BASE + APPLET_ENTRY_OFF)
-
-  log_info("启动unicorn engine...");
-  uc_emu_start(uc, APPLET_ENTRY_POINT, STACK_TOP, 0, 0);
-  log_info("unicorn engine启动完成");
 #ifdef TEST
   // test_parse();
   // test_lib();
 #endif
 
-  // 调试：ZM_DUMP_BUTTONS=1 时打印 applet 在 init 中计算出的 25 个按钮矩形，
-  // 便于确定触摸坐标（按钮数组位于 INSTANCE+124，每项 16 字节 x,y,w,h）。
+  // 调试：ZM_DUMP_BUTTONS=1 时打印 applet 在 init 中计算出的 25 个按钮矩形
   {
     const char *db = getenv("ZM_DUMP_BUTTONS");
     if (db && *db && g_instance) {
@@ -611,14 +146,7 @@ int main() {
     }
   }
 
-  // 音频自测：applet 的 init 不触发 ap.play（音频仅在触摸事件 sub_8B4
-  // 中播放）， 故提供环境变量 ZM_AUDIO_TEST 让宿主直接按索引取 .zmr
-  // 中的音频资源， 写入客户机内存后走真实 zm_ap_play 路径播放，以验证 SDL_mixer
-  // 后端可用。
-  //   用法：ZM_AUDIO_TEST=0        播放第 0 个资源
-  //        ZM_AUDIO_TEST=3        播放第 3 个资源
-  //        ZM_AUDIO_TEST=random   随机选一个
-  // 未设置时跳过，不影响正常渲染。
+  // 音频自测
   {
     const char *atest = getenv("ZM_AUDIO_TEST");
     if (atest && *atest) {
@@ -633,7 +161,6 @@ int main() {
       uint32_t rsize = 0;
       const uint8_t *rdata = zm_fs_get_resource(idx, &rsize);
       if (rdata && rsize && rsize <= ZMR_SIZE) {
-        /* 把资源数据放到 ZMR_BASE 客户机区域，再走 ap.play 读取 */
         uc_mem_write(uc, ZMR_BASE, rdata, rsize);
         log_info("音频自测：播放资源 %u/%u  size=%u", idx, count, rsize);
         zm_ap_play(uc, ZMR_BASE, rsize);
@@ -643,8 +170,7 @@ int main() {
     }
   }
 
-  // 自动点击测试：ZM_AUTO_CLICK="x,y" 时在进入事件循环前注入一次触摸，
-  // 用于非交互环境验证 sub_A30(case10)→sub_8B4→读 .zmr→ap.play 路径。
+  // 自动点击测试
   {
     const char *ac = getenv("ZM_AUTO_CLICK");
     if (ac && *ac) {
@@ -656,8 +182,7 @@ int main() {
     }
   }
 
-  // applet 只跑一次 init、无事件循环，保持窗口显示最后一帧以便观察
-  // （ZM_GFX_HOLD_MS 环境变量可控制停留毫秒数，默认 0=直到关闭窗口）
+  // 事件循环
   {
     uint32_t hold_ms = 0;
     const char *env = getenv("ZM_GFX_HOLD_MS");
@@ -670,6 +195,8 @@ int main() {
   zm_audio_shutdown();
   zm_gfx_shutdown();
   zm_fs_shutdown();
+  cs_close(&handle);
+  uc_close(uc);
 
   return 0;
 }

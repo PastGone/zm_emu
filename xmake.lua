@@ -8,11 +8,12 @@ add_requires("capstone") -- 声明依赖 capstone 库
 
 target("zm_emu")
     set_kind("binary")
-    add_files("src/main.c")
+--    
+    add_files("src/*.c")        
     add_files("src/**/*.c")
-    -- add_files("src/log/*.c")      -- 新增 log 目录下的所有 .c
-    add_defines("LOG_USE_COLOR")  -- <--- 添加这一行来启用颜色输出
-
+--    
+    add_defines("LOG_USE_COLOR")  -- <--- 添加这一行来启用颜色输出 log/log.h
+-- 
     add_packages("libsdl") -- 链接 SDL2 库
     add_packages("libsdl2_ttf") -- 链接 SDL2_ttf 库
     add_packages("libsdl2_mixer") -- 链接 SDL2_mixer 库
