@@ -387,7 +387,7 @@ int main() {
   //                       "00000102.app"; // 该文件已经测试通过
 
   char filename[1024] =
-      "/home/apollo/文档/古时游戏/zmaee_emu/zemee/0000050c/0000050c.app";
+      "/home/apollo/文档/古时游戏/zm_emu/applet/00000405/00000405.app";
 
   FILE *fp = fopen(filename, "rb");
   if (fp == NULL) {
@@ -548,6 +548,7 @@ int main() {
 
   // 载入 .zmr 资源（作为 file.read 的数据源）
   // 路径由 .app 路径把后缀替换为 .zmr 得到
+  // 若同路径下无 .zmr 文件则跳过（部分 applet 没有资源文件）
   {
     char zmr_path[1024];
     strncpy(zmr_path, filename, sizeof(zmr_path) - 1);
@@ -558,11 +559,19 @@ int main() {
     } else {
       strncat(zmr_path, ".zmr", sizeof(zmr_path) - plen - 1);
     }
-    if (!zm_fs_load_zmr(zmr_path)) {
-      log_error("载入 .zmr 失败: %s", zmr_path);
-      return 1;
+
+    /* 先判断 .zmr 文件是否存在，存在再载入，不存在则跳过 */
+    FILE *zmr_fp = fopen(zmr_path, "rb");
+    if (zmr_fp) {
+      fclose(zmr_fp);
+      if (!zm_fs_load_zmr(zmr_path)) {
+        log_warn(".zmr 载入失败，跳过: %s", zmr_path);
+      } else {
+        log_info(".zmr 资源载入完成: %s", zmr_path);
+      }
+    } else {
+      log_info("未找到 .zmr 文件，跳过资源载入: %s", zmr_path);
     }
-    log_info(".zmr 资源载入完成: %s", zmr_path);
   }
   // 设置初始的寄存器
 
