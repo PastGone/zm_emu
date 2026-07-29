@@ -58,4 +58,15 @@ uint32_t zm_gfx_drawRect(uc_engine *uc, uint32_t x, uint32_t y, uint32_t w,
 uint32_t zm_gfx_fillRect2(uc_engine *uc, uint32_t x, uint32_t y, uint32_t w,
                           uint32_t sp);
 
+/* ---- 00000405.app：GFX vtable 缺失槽 stub ---- */
+uint32_t zm_gfx_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
+                     uint32_t r2, uint32_t r3);
+uint32_t zm_gfx_get_width(uc_engine *uc); /* GFX_VT[0x48]：返回屏幕宽度 */
+
+/* GFX_VT[0x4C]：measureChar(gfx, char_ptr, count, width_out, metrics_buf)
+ * sub_802EC 文本布局用它测量字符宽度；stub 写 0 到 *width_out 并返回 0。
+ * 后续可用 TTF_SizeUTF8 实现真实测量。 */
+uint32_t zm_gfx_measure_char(uc_engine *uc, uint32_t gfx, uint32_t char_ptr,
+                             uint32_t count, uint32_t width_out);
+
 #endif

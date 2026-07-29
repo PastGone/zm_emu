@@ -26,4 +26,22 @@ uint32_t zm_spec_lookup(uc_engine *uc, uint32_t ch_addr);
 /* root.str_find：在字符串对象中查找字符，命中返回子指针，否则 0 */
 uint32_t zm_str_find(uc_engine *uc, uint32_t str_obj_ptr, uint32_t ch);
 
+/**
+ * @brief 鲁棒地读取一个"可能是 zmaee 字符串对象"的客户机地址到 buf
+ *
+ * 兼容两种形态：
+ *   (a) zmaee 字符串对象：首 4B 为数据指针（指向内联缓冲 +12 或堆/栈地址），
+ *       +4 为长度。str_ctor/str_assign 构造的对象 data_ptr 通常 == ptr+12。
+ *   (b) 裸 C 字符串：sprintf 拼出的 "%s%08x.app" 等直接传给 fs.open。
+ *
+ * 判定：先读 data_ptr=*(u32*)ptr 与 len=*(u32*)(ptr+4)。
+ *   若 data_ptr==ptr+12（内联），或 data_ptr 落在已映射区间
+ *   （BLOB_BASE..ZMR_BASE+ZMR_SIZE）且 len 合理（<4096）且 data_ptr
+ *   处首字节可读且为可打印/0 → 按 str_obj 解引用 data_ptr。
+ *   否则按裸 C 串读取 ptr。
+ *
+ * @return 写入 buf 的字节数（不含 '\0'）
+ */
+uint32_t zm_read_str_obj(uc_engine *uc, uint32_t ptr, char *buf, size_t cap);
+
 #endif

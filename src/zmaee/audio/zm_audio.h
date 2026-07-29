@@ -31,4 +31,13 @@ uint32_t zm_ap_play(uc_engine *uc, uint32_t buf_ptr, uint32_t buf_len);
 /* ap.stop：停止播放，固定返回 0 */
 uint32_t zm_ap_stop(uc_engine *uc);
 
+/**
+ * @brief AUDIO_VT[0x24] audio.getStatus(this, out4, out_buf)
+ *
+ * sub_83D44 取 AUDIO 后调 (*AUDIO_VT[0x24])(AUDIO, v8, v7)，返回 0 表成功。
+ * applet 读 out_buf[0..2] 与 a1[122..124] 比较，相同则走播放路径。
+ * stub：向 out4/out_buf 写 0（使比较命中，因 instance 初值为 0），返 0。
+ */
+uint32_t zm_audio_get_status(uc_engine *uc, uint32_t out4, uint32_t out_buf);
+
 #endif

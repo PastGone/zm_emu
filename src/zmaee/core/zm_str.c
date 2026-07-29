@@ -1,5 +1,7 @@
 #include "zm_str.h"
 
+#include <ctype.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -49,52 +51,134 @@ uint32_t zm_strcpy(uc_engine *uc, uint32_t src, uint32_t src_len, uint32_t dst,
 }
 
 /**
- * @brief 格式化字符串并写入客户机目标地址（模拟简易 sprintf）
+ * @brief 格式化字符串并写入客户机目标地址（模拟 sprintf，多参数）
  * @param dest_addr 目标缓冲区客户机地址 (对应 r0)
  * @param fmt_addr  格式字符串客户机地址 (对应 r1)
  * @param args_addr 参数列表基址 (对应 r2)，第一个参数位于 args_addr + 4
  * @return 写入目标缓冲区的字符串长度（不含结尾 '\0'）
  *
- * @note 当前实现仅支持 %u, %d, %s 三种格式，且仅处理第一个参数。
- *       若格式串不含上述格式，则直接复制原格式串。
+ * @note 遍历 fmt，遇 % 解析 flags/width/precision/length/conversion，
+ *       依次从 args_addr + 4 起按 4B 取参数（%f 取 8B）。
+ *       支持 d/i/u/x/X/o/c/s/p/f/g/e 等，足够
+ *       "%s%08x.app" 与 "&dllversion=%d&dllname=%s" 等调用点。
  */
 uint32_t zm_sprintf(uc_engine *uc, uint32_t dest_addr, uint32_t fmt_addr,
                     uint32_t args_addr) {
-  // 1. 读取格式字符串到宿主机缓冲区
   char fmt[256];
   read_cstr(uc, fmt_addr, fmt, sizeof(fmt));
+  char out[512];
+  size_t oi = 0;
+  uint32_t arg_off = 4; /* 第一个参数位于 args_addr + 4 */
+  size_t flen = strlen(fmt);
+  size_t out_cap = sizeof(out);
 
-  // 2. 准备输出缓冲区
-  char out[256];
+  for (size_t fi = 0; fi < flen && oi < out_cap - 1;) {
+    if (fmt[fi] != '%') {
+      out[oi++] = fmt[fi++];
+      continue;
+    }
+    /* 收集完整转换说明（'%' 起到 conversion char） */
+    char spec[32];
+    size_t si = 0;
+    spec[si++] = '%';
+    fi++;
+    /* flags */
+    while (fi < flen && strchr("-+ #0", fmt[fi]) && si < sizeof(spec) - 2)
+      spec[si++] = fmt[fi++];
+    /* width */
+    while (fi < flen && (isdigit((unsigned char)fmt[fi]) || fmt[fi] == '*') &&
+           si < sizeof(spec) - 2)
+      spec[si++] = fmt[fi++];
+    /* precision */
+    if (fi < flen && fmt[fi] == '.') {
+      spec[si++] = fmt[fi++];
+      while (fi < flen && (isdigit((unsigned char)fmt[fi]) || fmt[fi] == '*') &&
+             si < sizeof(spec) - 2)
+        spec[si++] = fmt[fi++];
+    }
+    /* length modifiers */
+    while (fi < flen && strchr("lhLjz", fmt[fi]) && si < sizeof(spec) - 2)
+      spec[si++] = fmt[fi++];
+    if (fi >= flen)
+      break;
+    char conv = fmt[fi++];
+    spec[si++] = conv;
+    spec[si] = '\0';
 
-  // 3. 根据格式类型，从参数列表（args_addr + 4）读取对应参数并格式化
-  //    第一个参数实际位于 args_addr + 4（r2+4）
-  uint32_t arg = 0;
-  if (strstr(fmt, "%u")) {
-    uc_mem_read(uc, args_addr + 4, &arg, 4);
-    snprintf(out, sizeof(out), fmt, arg);
-  } else if (strstr(fmt, "%d")) {
-    uc_mem_read(uc, args_addr + 4, &arg, 4); // 有符号转换
-    int32_t sarg = (int32_t)arg;
-    snprintf(out, sizeof(out), fmt, sarg);
-  } else if (strstr(fmt, "%s")) {
-    // %s 时 args_addr+4 处存放的是字符串的客户机地址
-    uc_mem_read(uc, args_addr + 4, &arg, 4);
-    char s[256];
-    read_cstr(uc, arg, s, sizeof(s));
-    snprintf(out, sizeof(out), fmt, s);
-  } else {
-    // 不包含特殊格式，直接拷贝原字符串
-    strncpy(out, fmt, sizeof(out) - 1);
-    out[sizeof(out) - 1] = '\0';
+    int written = 0;
+    switch (conv) {
+    case 'd':
+    case 'i': {
+      uint32_t v = 0;
+      uc_mem_read(uc, args_addr + arg_off, &v, 4);
+      arg_off += 4;
+      written = snprintf(out + oi, out_cap - oi, spec, (int32_t)v);
+      break;
+    }
+    case 'u':
+    case 'x':
+    case 'X':
+    case 'o':
+    case 'p': {
+      uint32_t v = 0;
+      uc_mem_read(uc, args_addr + arg_off, &v, 4);
+      arg_off += 4;
+      written = snprintf(out + oi, out_cap - oi, spec, v);
+      break;
+    }
+    case 'c': {
+      uint32_t v = 0;
+      uc_mem_read(uc, args_addr + arg_off, &v, 4);
+      arg_off += 4;
+      written = snprintf(out + oi, out_cap - oi, spec, (int)v);
+      break;
+    }
+    case 's': {
+      uint32_t v = 0;
+      uc_mem_read(uc, args_addr + arg_off, &v, 4);
+      arg_off += 4;
+      char s[256];
+      read_cstr(uc, v, s, sizeof(s));
+      written = snprintf(out + oi, out_cap - oi, spec, s);
+      break;
+    }
+    case 'f':
+    case 'F':
+    case 'g':
+    case 'G':
+    case 'e':
+    case 'E': {
+      /* double 8B，8 字节对齐 */
+      if (arg_off & 4)
+        arg_off += 4;
+      uint64_t v = 0;
+      uc_mem_read(uc, args_addr + arg_off, &v, 8);
+      arg_off += 8;
+      double d;
+      memcpy(&d, &v, 8);
+      written = snprintf(out + oi, out_cap - oi, spec, d);
+      break;
+    }
+    case '%':
+      out[oi++] = '%';
+      written = 0;
+      break;
+    default:
+      /* 未知转换：原样输出 % 与字符 */
+      out[oi++] = '%';
+      if (oi < out_cap - 1)
+        out[oi++] = conv;
+      written = 0;
+      break;
+    }
+    if (written > 0)
+      oi += (size_t)written;
+    else if (written < 0)
+      break; /* snprintf 出错 */
   }
-
-  // 4. 计算长度并将结果写回客户机内存（包含 '\0' 结束符）
-  size_t out_len = strlen(out);
-  uc_mem_write(uc, dest_addr, out, out_len + 1);
-
-  // 5. 返回写入的字符数（不含 '\0'）
-  return out_len;
+  out[oi] = '\0';
+  uc_mem_write(uc, dest_addr, out, oi + 1);
+  return (uint32_t)oi;
 }
 
 /**
@@ -165,4 +249,50 @@ uint32_t zm_str_find(uc_engine *uc, uint32_t str_obj_ptr, uint32_t ch) {
     return cstr_ptr + (uint32_t)(p - cstr);
   }
   return 0;
+}
+
+/**
+ * @brief 鲁棒读取"可能是 zmaee 字符串对象"的客户机地址
+ *
+ * 详见 zm_str.h 注释。判定优先级：
+ *   1. data_ptr==ptr+12（str_ctor/str_assign 内联布局）→ 解引用
+ *   2. data_ptr 可读且首字节可打印/0 且 len<4096 → 解引用
+ *   3. 否则按裸 C 串读取 ptr
+ *
+ * 不依赖内存布局常量，仅靠 uc_mem_read 返回值判定可读性，
+ * 避免把指向未映射区间的"指针"误当 str_obj 解引用。
+ */
+uint32_t zm_read_str_obj(uc_engine *uc, uint32_t ptr, char *buf, size_t cap) {
+  if (buf && cap)
+    buf[0] = '\0';
+  if (ptr == 0 || cap == 0)
+    return 0;
+
+  uint32_t data_ptr = 0, len = 0;
+  bool as_obj = false;
+  if (uc_mem_read(uc, ptr, &data_ptr, 4) == UC_ERR_OK &&
+      uc_mem_read(uc, ptr + 4, &len, 4) == UC_ERR_OK) {
+    if (data_ptr == ptr + 12) {
+      /* str_ctor/str_assign 的内联布局 */
+      as_obj = true;
+    } else if (data_ptr != 0 && len < 4096) {
+      /* 可能为堆/栈字符串对象：验证 data_ptr 处首字节可读且合理 */
+      uint8_t first = 0;
+      if (uc_mem_read(uc, data_ptr, &first, 1) == UC_ERR_OK &&
+          (first == 0 || (first >= 0x20 && first < 0x80))) {
+        as_obj = true;
+      }
+    }
+  }
+
+  if (as_obj) {
+    read_cstr(uc, data_ptr, buf, cap);
+    /* 若解引用得到空串，但裸串形态可能有效，则回退尝试裸串 */
+    if (buf[0] != '\0')
+      return (uint32_t)strlen(buf);
+  }
+
+  /* 裸 C 字符串形态（sprintf 拼出的路径等） */
+  read_cstr(uc, ptr, buf, cap);
+  return (uint32_t)strlen(buf);
 }

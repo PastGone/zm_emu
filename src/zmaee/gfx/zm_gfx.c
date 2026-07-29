@@ -55,6 +55,10 @@ static void target_canvas(void) { SDL_SetRenderTarget(g_ren, g_canvas); }
 static TTF_Font *get_font(int font_size) {
   if (font_size <= 0)
     font_size = 16;
+  /* 00000405.app 传入的 font_size 可能是 font_id(1,2)而非像素值；
+   * 小于 8 时视为 font_id，映射到可读的像素大小。 */
+  if (font_size < 8)
+    font_size = 14;
   if (g_font && g_font_size == font_size)
     return g_font;
   if (g_font) {
@@ -196,9 +200,20 @@ int zm_gfx_init(uint32_t screen_w, uint32_t screen_h) {
     log_error("SDL_CreateWindow failed: %s", SDL_GetError());
     return -1;
   }
-  /* 用软件渲染器即可，画布很小（240x240） */
+  /* 画布很小，优先尝试加速+目标纹理；失败则回退到软件渲染（无头环境） */
   g_ren = SDL_CreateRenderer(
       g_win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_TARGETTEXTURE);
+  if (!g_ren) {
+    log_warn("SDL_CreateRenderer(accel) failed: %s, 尝试软件渲染",
+             SDL_GetError());
+    g_ren = SDL_CreateRenderer(
+        g_win, -1, SDL_RENDERER_SOFTWARE | SDL_RENDERER_TARGETTEXTURE);
+  }
+  if (!g_ren) {
+    log_warn("SDL_CreateRenderer(software+target) failed: %s, 尝试纯软件",
+             SDL_GetError());
+    g_ren = SDL_CreateRenderer(g_win, -1, SDL_RENDERER_SOFTWARE);
+  }
   if (!g_ren) {
     log_error("SDL_CreateRenderer failed: %s", SDL_GetError());
     return -1;
@@ -366,5 +381,55 @@ uint32_t zm_gfx_fillRect2(uc_engine *uc, uint32_t x, uint32_t y, uint32_t w,
   int h = (int)zm_read32(uc, sp);
   uint32_t color = zm_read32(uc, sp + 4);
   fb_fill_rect((int)x, (int)y, (int)w, h, color);
+  return 0;
+}
+
+/* ---- 00000405.app：GFX vtable 缺失槽 stub ----
+ * 这些偏移在 applet 绘制流程中被调用但功能未知，暂返回 0。
+ * 后续可根据 applet 行为逐步实现。
+ *   0x18: 疑似 setClipRect / setViewport
+ *   0x34: 疑似 beginDraw / resetGfxState
+ *   0x38: 疑似 endDraw / flush
+ *   0x44: 疑似 setFont / setColor
+ *   0x54: 疑似 drawLine
+ *   0x68: 疑似 drawImage / drawBitmap
+ *   0x94: 未知
+ *   0xA4: 未知
+ *   0xB0: 未知
+ */
+uint32_t zm_gfx_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
+                     uint32_t r2, uint32_t r3) {
+  (void)uc;
+  (void)r0;
+  (void)r1;
+  (void)r2;
+  (void)r3;
+  log_info("stub gfx[0x%X] r0=%u r1=%u r2=%u r3=%u", off, r0, r1, r2, r3);
+  return 0;
+}
+
+/* GFX_VT[0x48]：返回屏幕宽度。
+ * sub_8062C 用返回值+8 作为文本布局宽度；
+ * sub_80790 用返回值+a2 作为文本区域宽度。 */
+uint32_t zm_gfx_get_width(uc_engine *uc) {
+  (void)uc;
+  log_info("gfx[0x48] getWidth -> %u", g_w);
+  return g_w;
+}
+
+/* GFX_VT[0x4C]：measureChar(gfx, char_ptr, count, width_out, metrics_buf)
+ * sub_802EC 文本布局循环中调用，用于逐字符测量宽度并推进排版游标。
+ *   r0=gfx, r1=char_ptr(指向 uint16 字符码), r2=count, r3=width_out(int*),
+ *   sp[0]=metrics_buf(4B)
+ * stub：向 *width_out 写一个固定宽度（取 font 默认值），避免文本叠在一起。
+ * 返回 0。 */
+uint32_t zm_gfx_measure_char(uc_engine *uc, uint32_t gfx, uint32_t char_ptr,
+                             uint32_t count, uint32_t width_out) {
+  (void)gfx;
+  (void)char_ptr;
+  (void)count;
+  /* 写入固定字符宽度（约 font_size 的 60%），使文本不致全叠在同一位置 */
+  if (width_out)
+    zm_write32(uc, width_out, 8);
   return 0;
 }

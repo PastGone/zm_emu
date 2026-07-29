@@ -37,6 +37,17 @@ uint32_t AP = SHIM_BASE + 0x600;
 uint32_t AP_VT = SHIM_BASE + 0x680;
 uint32_t DUMMY_BUF = SHIM_BASE + 0x750;
 
+/* 00000405.app 新增 shim 对象地址（0x800 起，与 DUMMY_BUF@0x750 不冲突） */
+uint32_t INIT_CTX = SHIM_BASE + 0x800; /* 256B 零填充：init 事件 r3 上下文 */
+uint32_t SVC04 = SHIM_BASE + 0x900;    /* 0x1000004 服务对象 */
+uint32_t SVC04_VT = SHIM_BASE + 0x910;
+uint32_t SVC09 = SHIM_BASE + 0x940; /* 0x1000009 服务对象 */
+uint32_t SVC09_VT = SHIM_BASE + 0x950;
+uint32_t CBK_OBJ = SHIM_BASE + 0x980;    /* sub_84E04 返回的回调对象 */
+uint32_t CBK_OBJ_VT = SHIM_BASE + 0x990; /* 可写：applet 覆写 vt[+8] */
+uint32_t DLL_OBJ = SHIM_BASE + 0x9C0;    /* loadDLL 返回的 stub DLL 对象 */
+uint32_t DLL_OBJ_VT = SHIM_BASE + 0x9D0;
+
 /* -------------------- trap 地址定义 -------------------- */
 uint32_t TR_root_queryRuntime = TRAP(0);
 uint32_t TR_root_malloc = TRAP(1);
@@ -61,14 +72,76 @@ uint32_t TR_fs_open = TRAP(16);
 uint32_t TR_file_close = TRAP(17);
 uint32_t TR_file_read = TRAP(18);
 uint32_t TR_file_seek = TRAP(19);
+uint32_t TR_file_size = TRAP(58); /* FILE_VT[0x24]：返回文件总大小 */
 
 uint32_t TR_audio_stop = TRAP(20);
 uint32_t TR_ap_play = TRAP(21);
 uint32_t TR_ap_stop = TRAP(22);
+uint32_t TR_audio_get_status = TRAP(60); /* AUDIO_VT[0x24] */
+
+/* 00000405.app：GFX vtable 缺失槽（索引 61..70） */
+uint32_t TR_gfx_x18 = TRAP(61); /* GFX_VT[0x18] */
+uint32_t TR_gfx_x34 = TRAP(62); /* GFX_VT[0x34] */
+uint32_t TR_gfx_x38 = TRAP(63); /* GFX_VT[0x38] */
+uint32_t TR_gfx_x44 = TRAP(64); /* GFX_VT[0x44] */
+uint32_t TR_gfx_x48 = TRAP(65); /* GFX_VT[0x48] */
+uint32_t TR_gfx_x54 = TRAP(66); /* GFX_VT[0x54] */
+uint32_t TR_gfx_x68 = TRAP(67); /* GFX_VT[0x68] */
+uint32_t TR_gfx_x94 = TRAP(68); /* GFX_VT[0x94] */
+uint32_t TR_gfx_xA4 = TRAP(69); /* GFX_VT[0xA4] */
+uint32_t TR_gfx_xB0 = TRAP(70); /* GFX_VT[0xB0] */
+
+/* 00000405.app：GFX vtable 补充缺失槽（索引 71..73） */
+uint32_t TR_gfx_x0C = TRAP(71); /* GFX_VT[0x0C] */
+uint32_t TR_gfx_x28 = TRAP(72); /* GFX_VT[0x28] */
+uint32_t TR_gfx_x4C = TRAP(73); /* GFX_VT[0x4C] */
+
+/* 00000405.app：FS vtable 缺失槽 */
+uint32_t TR_fs_enum = TRAP(74); /* FS_VT[0x30]：enumFile */
 
 uint32_t TR_init_callback = TRAP(100);
 uint32_t SIZE_SLOT = SHIM_BASE + 0x700;
 uint32_t API_SLOT = SHIM_BASE + 0x710;
+
+/* 00000405.app 新增 ROOT vtable trap（索引 23..45） */
+uint32_t TR_root_x18 = TRAP(23);
+uint32_t TR_root_x1C = TRAP(24);
+uint32_t TR_root_x24 = TRAP(25);
+uint32_t TR_root_x50 = TRAP(26);
+uint32_t TR_root_x5C = TRAP(27);
+uint32_t TR_root_memset = TRAP(28); /* ROOT[0x60] */
+uint32_t TR_root_x74 = TRAP(29);
+uint32_t TR_root_str_assign = TRAP(30); /* ROOT[0x78] */
+uint32_t TR_root_x7C = TRAP(31);
+uint32_t TR_root_x80 = TRAP(32);
+uint32_t TR_root_x84 = TRAP(33);
+uint32_t TR_root_x8C = TRAP(34);
+uint32_t TR_root_x90 = TRAP(35);
+uint32_t TR_root_xB0 = TRAP(36);
+uint32_t TR_root_xC0 = TRAP(37);
+uint32_t TR_root_xC8 = TRAP(38);
+uint32_t TR_root_xD0 = TRAP(39);
+uint32_t TR_root_get_tick = TRAP(40); /* ROOT[0xD8] */
+uint32_t TR_root_x12C = TRAP(41);
+uint32_t TR_root_x130 = TRAP(42);
+uint32_t TR_root_x140 = TRAP(43);
+uint32_t TR_root_create_cbk = TRAP(44); /* ROOT[0x154] */
+uint32_t TR_root_x16C = TRAP(45);
+
+/* 服务对象 / FS / RT / DLL / CBK trap（索引 46..57） */
+uint32_t TR_svc_release = TRAP(46);
+uint32_t TR_svc04_x1C = TRAP(47);
+uint32_t TR_svc09_x2C = TRAP(48);
+uint32_t TR_svc09_x40 = TRAP(49);
+uint32_t TR_fs_release = TRAP(50);
+uint32_t TR_fs_chdir = TRAP(51);
+uint32_t TR_rt_loadDLL = TRAP(52);
+uint32_t TR_rt_unloadDLL = TRAP(53);
+uint32_t TR_rt_loadDLL2 = TRAP(59); /* RT_VT[0x78] */
+uint32_t TR_dll_init = TRAP(54);
+uint32_t TR_dll_config = TRAP(55);
+uint32_t TR_dll_entry = TRAP(56);
+uint32_t TR_cbk_default = TRAP(57);
 
 /* -------------------- 实现 -------------------- */
 
@@ -106,12 +179,30 @@ int zm_emu_build_vtables(uc_engine *uc) {
   err = uc_mem_write(uc, RT_VT + 0x10, &TR_rt_getSystemInfo, 4);
   // gfx
   err = uc_mem_write(uc, GFX, &GFX_VT, 4);
+  err = uc_mem_write(uc, GFX_VT + 0x04, &TR_svc_release, 4);
   err = uc_mem_write(uc, GFX_VT + 0x20, &TR_gfx_clear, 4);
   err = uc_mem_write(uc, GFX_VT + 0x2C, &TR_gfx_fillRect, 4);
   err = uc_mem_write(uc, GFX_VT + 0x40, &TR_gfx_commit, 4);
   err = uc_mem_write(uc, GFX_VT + 0x50, &TR_gfx_drawText, 4);
   err = uc_mem_write(uc, GFX_VT + 0x6C, &TR_gfx_drawRect, 4);
   err = uc_mem_write(uc, GFX_VT + 0x70, &TR_gfx_fillRect2, 4);
+
+  /* 00000405.app：补全 GFX vtable 缺失槽 */
+  err = uc_mem_write(uc, GFX_VT + 0x18, &TR_gfx_x18, 4);
+  err = uc_mem_write(uc, GFX_VT + 0x34, &TR_gfx_x34, 4);
+  err = uc_mem_write(uc, GFX_VT + 0x38, &TR_gfx_x38, 4);
+  err = uc_mem_write(uc, GFX_VT + 0x44, &TR_gfx_x44, 4);
+  err = uc_mem_write(uc, GFX_VT + 0x48, &TR_gfx_x48, 4);
+  err = uc_mem_write(uc, GFX_VT + 0x54, &TR_gfx_x54, 4);
+  err = uc_mem_write(uc, GFX_VT + 0x68, &TR_gfx_x68, 4);
+  err = uc_mem_write(uc, GFX_VT + 0x94, &TR_gfx_x94, 4);
+  err = uc_mem_write(uc, GFX_VT + 0xA4, &TR_gfx_xA4, 4);
+  err = uc_mem_write(uc, GFX_VT + 0xB0, &TR_gfx_xB0, 4);
+  err = uc_mem_write(uc, GFX_VT + 0x0C, &TR_gfx_x0C, 4);
+  err = uc_mem_write(uc, GFX_VT + 0x28, &TR_gfx_x28, 4);
+  err = uc_mem_write(uc, GFX_VT + 0x4C, &TR_gfx_x4C, 4);
+  /* FS_VT[0x30]：enumFile — sub_82584 枚举 app_list 下文件 */
+  err = uc_mem_write(uc, FS_VT + 0x30, &TR_fs_enum, 4);
 
   // fs
   err = uc_mem_write(uc, FS, &FS_VT, 4);
@@ -120,12 +211,77 @@ int zm_emu_build_vtables(uc_engine *uc) {
   err = uc_mem_write(uc, FILE_VT + 0x04, &TR_file_close, 4);
   err = uc_mem_write(uc, FILE_VT + 0x08, &TR_file_read, 4);
   err = uc_mem_write(uc, FILE_VT + 0x20, &TR_file_seek, 4);
+  err = uc_mem_write(uc, FILE_VT + 0x24, &TR_file_size, 4);
   // audio
   err = uc_mem_write(uc, AUDIO, &AUDIO_VT, 4);
+  err = uc_mem_write(uc, AUDIO_VT + 0x04, &TR_svc_release, 4);
   err = uc_mem_write(uc, AUDIO_VT + 0x14, &TR_audio_stop, 4);
+  err = uc_mem_write(uc, AUDIO_VT + 0x24, &TR_audio_get_status, 4);
   err = uc_mem_write(uc, AP, &AP_VT, 4);
+  err = uc_mem_write(uc, AP_VT + 0x04, &TR_svc_release, 4);
   err = uc_mem_write(uc, AP_VT + 0x10, &TR_ap_play, 4);
   err = uc_mem_write(uc, AP_VT + 0x14, &TR_ap_stop, 4);
+
+  /* ---- 00000405.app：补全 ROOT vtable 缺失槽（.lst 已验证偏移） ---- */
+  err = uc_mem_write(uc, ROOT + 0x018, &TR_root_x18, 4);
+  err = uc_mem_write(uc, ROOT + 0x01C, &TR_root_x1C, 4);
+  err = uc_mem_write(uc, ROOT + 0x024, &TR_root_x24, 4);
+  err = uc_mem_write(uc, ROOT + 0x050, &TR_root_x50, 4);
+  err = uc_mem_write(uc, ROOT + 0x05C, &TR_root_x5C, 4);
+  err = uc_mem_write(uc, ROOT + 0x060, &TR_root_memset, 4);
+  err = uc_mem_write(uc, ROOT + 0x074, &TR_root_x74, 4);
+  err = uc_mem_write(uc, ROOT + 0x078, &TR_root_str_assign, 4);
+  err = uc_mem_write(uc, ROOT + 0x07C, &TR_root_x7C, 4);
+  err = uc_mem_write(uc, ROOT + 0x080, &TR_root_x80, 4);
+  err = uc_mem_write(uc, ROOT + 0x084, &TR_root_x84, 4);
+  err = uc_mem_write(uc, ROOT + 0x08C, &TR_root_x8C, 4);
+  err = uc_mem_write(uc, ROOT + 0x090, &TR_root_x90, 4);
+  err = uc_mem_write(uc, ROOT + 0x0B0, &TR_root_xB0, 4);
+  err = uc_mem_write(uc, ROOT + 0x0C0, &TR_root_xC0, 4);
+  err = uc_mem_write(uc, ROOT + 0x0C8, &TR_root_xC8, 4);
+  err = uc_mem_write(uc, ROOT + 0x0D0, &TR_root_xD0, 4);
+  err = uc_mem_write(uc, ROOT + 0x0D8, &TR_root_get_tick, 4);
+  err = uc_mem_write(uc, ROOT + 0x12C, &TR_root_x12C, 4);
+  err = uc_mem_write(uc, ROOT + 0x130, &TR_root_x130, 4);
+  err = uc_mem_write(uc, ROOT + 0x140, &TR_root_x140, 4);
+  err = uc_mem_write(uc, ROOT + 0x154, &TR_root_create_cbk, 4);
+  err = uc_mem_write(uc, ROOT + 0x16C, &TR_root_x16C, 4);
+
+  /* ---- 新增 runtime 服务对象 SVC04 / SVC09 ---- */
+  err = uc_mem_write(uc, SVC04, &SVC04_VT, 4);
+  err = uc_mem_write(uc, SVC04_VT + 0x04, &TR_svc_release, 4);
+  err = uc_mem_write(uc, SVC04_VT + 0x1C, &TR_svc04_x1C, 4);
+  err = uc_mem_write(uc, SVC09, &SVC09_VT, 4);
+  err = uc_mem_write(uc, SVC09_VT + 0x04, &TR_svc_release, 4);
+  err = uc_mem_write(uc, SVC09_VT + 0x2C, &TR_svc09_x2C, 4);
+  err = uc_mem_write(uc, SVC09_VT + 0x40, &TR_svc09_x40, 4);
+
+  /* ---- FS 补 release 与 chdir 槽 ---- */
+  err = uc_mem_write(uc, FS_VT + 0x04, &TR_fs_release, 4);
+  err = uc_mem_write(uc, FS_VT + 0x14, &TR_fs_chdir, 4);
+
+  /* ---- RUNTIME 补 loadDLL / unloadDLL / loadDLL2 ---- */
+  err = uc_mem_write(uc, RT_VT + 0x58, &TR_rt_loadDLL, 4);
+  err = uc_mem_write(uc, RT_VT + 0x5C, &TR_rt_unloadDLL, 4);
+  err = uc_mem_write(uc, RT_VT + 0x78, &TR_rt_loadDLL2, 4);
+
+  /* ---- CBK 回调对象（sub_84E04 返回，vt[+8] 会被 applet 覆写为 sub_82FF8）
+   * ---- */
+  err = uc_mem_write(uc, CBK_OBJ, &CBK_OBJ_VT, 4);
+  err = uc_mem_write(uc, CBK_OBJ_VT + 0x08, &TR_cbk_default, 4);
+
+  /* ---- stub DLL 对象（loadDLL 返回） ---- */
+  err = uc_mem_write(uc, DLL_OBJ, &DLL_OBJ_VT, 4);
+  err = uc_mem_write(uc, DLL_OBJ_VT + 0x08, &TR_dll_init, 4);
+  err = uc_mem_write(uc, DLL_OBJ_VT + 0x0C, &TR_dll_config, 4);
+  err = uc_mem_write(uc, DLL_OBJ_VT + 0x10, &TR_dll_entry, 4);
+
+  /* INIT_CTX 显式零填充（Unicorn 默认零，此处双保险，确保 r3+0x100 可读） */
+  {
+    uint8_t zeros[256] = {0};
+    err = uc_mem_write(uc, INIT_CTX, zeros, sizeof(zeros));
+  }
+
   if (err != UC_ERR_OK) {
     log_error("uc_mem_write failed, err: %d\n", err);
     return -1;

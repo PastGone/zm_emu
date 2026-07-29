@@ -29,7 +29,7 @@ int main() {
       g_disasm = 1;
   }
   // g_trap_pause = 1;
-  // g_disasm = 1;
+  // g_disasm = 1; // 用 ZM_DISASM=1 环境变量开启
 
   // 初始化 Capstone，使用 ARM-32 架构（CS_ARCH_ARM，CS_MODE_ARM）
   if (cs_open(CS_ARCH_ARM, CS_MODE_ARM, &handle) != CS_ERR_OK) {
@@ -40,10 +40,13 @@ int main() {
   uc_err my_uc_err;
 
   // 打开 applet 文件
-  // char *filename =
-  //     "/home/apollo/文档/古时游戏/zm_emu/applet/00000102/00000102.app";//测试文件1已通过
-  char *filename = "/home/apollo/文档/古时游戏/zm_emu/applet/00000405/"
-                   "00000405.app"; // 测试文件2
+  // char *filename = "/home/apollo/文档/古时游戏/zm_emu/applet/00000102/"
+  //                  "00000102.app"; // 测试文件1（向后兼容验证）
+  // char *filename = "/home/apollo/文档/古时游戏/zm_emu/applet/00000405/"
+  //                  "00000405.app"; // 测试文件2（号码归属）
+  // /home/apollo/文档/古时游戏/zmaee_emu/zemee/0000050c/0000050c.app
+  char *filename = "/home/apollo/文档/古时游戏/zmaee_emu/zemee/0000050c/"
+                   "0000050c.app"; // 测试文件1（向后兼容验证）
 
   // 先解析 applet 头（不依赖 uc），以获取屏幕尺寸
   {
@@ -120,6 +123,20 @@ int main() {
 
   // 载入 .zmr 资源
   zm_emu_load_zmr_if_exists(uc, filename);
+
+  // 登记多文件 fs 表（00000405.app：config.b / zmsys006.dll / 图标等）
+  // 从 filename 取目录部分传给 zm_fs_register_default
+  {
+    char applet_dir[1024];
+    strncpy(applet_dir, filename, sizeof(applet_dir) - 1);
+    applet_dir[sizeof(applet_dir) - 1] = '\0';
+    char *slash = strrchr(applet_dir, '/');
+    if (slash)
+      *slash = '\0';
+    zm_fs_register_default(applet_dir);
+    // 登记 applet 自身（applet 可能通过 sprintf("%s%08x.app") 打开）
+    zm_fs_register_hostfile(filename, "00000405.app");
+  }
 
   // 启动 applet（init → 绘制 → 停止）
   zm_emu_start_applet(uc);

@@ -62,14 +62,77 @@ extern uint32_t TR_fs_open;
 extern uint32_t TR_file_close;
 extern uint32_t TR_file_read;
 extern uint32_t TR_file_seek;
+extern uint32_t TR_file_size; /* FILE_VT[0x24] */
 
 extern uint32_t TR_audio_stop;
 extern uint32_t TR_ap_play;
 extern uint32_t TR_ap_stop;
+extern uint32_t TR_audio_get_status; /* AUDIO_VT[0x24] */
+
+/* ---- 00000405.app：GFX vtable 缺失槽（索引 61..70） ---- */
+extern uint32_t TR_gfx_x18; /* GFX_VT[0x18] */
+extern uint32_t TR_gfx_x34; /* GFX_VT[0x34] */
+extern uint32_t TR_gfx_x38; /* GFX_VT[0x38] */
+extern uint32_t TR_gfx_x44; /* GFX_VT[0x44] */
+extern uint32_t TR_gfx_x48; /* GFX_VT[0x48]：返回屏幕宽度 */
+extern uint32_t TR_gfx_x54; /* GFX_VT[0x54] */
+extern uint32_t TR_gfx_x68; /* GFX_VT[0x68] */
+extern uint32_t TR_gfx_x94; /* GFX_VT[0x94] */
+extern uint32_t TR_gfx_xA4; /* GFX_VT[0xA4] */
+extern uint32_t TR_gfx_xB0; /* GFX_VT[0xB0] */
+
+/* 00000405.app：GFX vtable 补充缺失槽（索引 71..73） */
+extern uint32_t TR_gfx_x0C; /* GFX_VT[0x0C]：setClipRect / fillRect */
+extern uint32_t TR_gfx_x28; /* GFX_VT[0x28]：flush / commitRegion */
+extern uint32_t TR_gfx_x4C; /* GFX_VT[0x4C]：measureChar（文本测量） */
+
+/* 00000405.app：FS vtable 缺失槽 */
+extern uint32_t
+    TR_fs_enum; /* FS_VT[0x30]：enumFile(FS, index) → 返 0 表无文件 */
 
 extern uint32_t TR_init_callback;
 extern uint32_t SIZE_SLOT;
 extern uint32_t API_SLOT;
+
+/* ---- 00000405.app 新增 ROOT vtable trap（索引 23..45） ---- */
+extern uint32_t TR_root_x18;
+extern uint32_t TR_root_x1C;
+extern uint32_t TR_root_x24;
+extern uint32_t TR_root_x50;
+extern uint32_t TR_root_x5C;
+extern uint32_t TR_root_memset; /* ROOT[0x60] */
+extern uint32_t TR_root_x74;
+extern uint32_t TR_root_str_assign; /* ROOT[0x78] */
+extern uint32_t TR_root_x7C;
+extern uint32_t TR_root_x80;
+extern uint32_t TR_root_x84;
+extern uint32_t TR_root_x8C;
+extern uint32_t TR_root_x90;
+extern uint32_t TR_root_xB0;
+extern uint32_t TR_root_xC0;
+extern uint32_t TR_root_xC8;
+extern uint32_t TR_root_xD0;
+extern uint32_t TR_root_get_tick; /* ROOT[0xD8] -> SDL_GetTicks() */
+extern uint32_t TR_root_x12C;
+extern uint32_t TR_root_x130;
+extern uint32_t TR_root_x140;
+extern uint32_t TR_root_create_cbk; /* ROOT[0x154] -> CBK_OBJ */
+extern uint32_t TR_root_x16C;
+
+/* ---- 服务对象 / FS / RT / DLL / CBK trap（索引 46..57） ---- */
+extern uint32_t TR_svc_release;
+extern uint32_t TR_svc04_x1C;
+extern uint32_t TR_svc09_x2C;
+extern uint32_t TR_svc09_x40;
+extern uint32_t TR_fs_release;
+extern uint32_t TR_fs_chdir;
+extern uint32_t TR_rt_loadDLL;
+extern uint32_t TR_rt_unloadDLL;
+extern uint32_t TR_rt_loadDLL2; /* RT_VT[0x78]：sub_83E24 调用的模块载入变体 */
+extern uint32_t TR_dll_init;
+extern uint32_t TR_dll_config;
+extern uint32_t TR_dll_entry;
+extern uint32_t TR_cbk_default;
 
 // -------------------- 全局变量 --------------------
 extern uc_engine *uc;
