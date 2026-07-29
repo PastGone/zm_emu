@@ -48,16 +48,16 @@ typedef struct {
   uint8_t Extended[236];
 
   /* 起始 0x174，长度 4 —— 未知字段（原误认为 ScreenW 镜像，现已推翻） */
-  uint32_t Unknown_0x174;
+  uint32_t ScreenW_Small;
 
   /* 起始 0x178，长度 4 —— 屏幕宽度（像素），值合理（128/176/220/240/320 等） */
-  uint32_t ScreenW;
+  uint32_t ScreenH_Small;
 
   /* 起始 0x17C，长度 4 —— 屏幕高度（像素），值合理（240/640/800/900 等） */
-  uint32_t ScreenH;
+  uint32_t ScreenW;
 
   /* 起始 0x180，长度 4 —— 未知字段（原误认为 ScreenH 镜像，现已推翻） */
-  uint32_t Unknown_0x180;
+  uint32_t ScreenH;
 
   /* 起始 0x184，长度 4 —— 未知字段，疑似高16位/低16位两个子字段 */
   uint32_t Unknown_0x184;
@@ -97,13 +97,14 @@ bool parse_app_header(FILE *fp, AppHeader *header) {
   memcpy(header->SignatureData, raw + 0x075, 15);
   header->Unknown_0x084 = le32_to_host(raw + 0x084);
   memcpy(header->Extended, raw + 0x088, 236);
-  header->Unknown_0x174 = le32_to_host(raw + 0x174);
-  header->ScreenW = le32_to_host(raw + 0x178);
-  header->ScreenH = le32_to_host(raw + 0x17C);
-  header->Unknown_0x180 = le32_to_host(raw + 0x180);
+  header->ScreenW_Small = le32_to_host(raw + 0x174);
+  header->ScreenH_Small = le32_to_host(raw + 0x178);
+  header->ScreenW = le32_to_host(raw + 0x17C);
+  header->ScreenH = le32_to_host(raw + 0x180);
   header->Unknown_0x184 = le32_to_host(raw + 0x184);
 
-  /* 不再检查“镜像”相等性，因为已被新样本推翻 */
+  /* 不再检查“镜像”相等性，因为已被新样本推翻
+   * ,我从一个文件之中得到了它的真实尺寸或或者说是它的这个两个尺寸*/
 
   rewind(fp);
   return true;
@@ -128,12 +129,12 @@ void print_header(const AppHeader *h) {
     printf("%02X ", h->SignatureData[i]);
   printf("\n");
   printf("Unknown_0x084   : 0x%08X\n", h->Unknown_0x084);
-  printf("Unknown_0x174   : 0x%08X (%u)  [原误认为 ScreenW 镜像]\n",
-         h->Unknown_0x174, h->Unknown_0x174);
-  printf("ScreenW (0x178) : 0x%08X (%u px)\n", h->ScreenW, h->ScreenW);
-  printf("ScreenH (0x17C) : 0x%08X (%u px)\n", h->ScreenH, h->ScreenH);
-  printf("Unknown_0x180   : 0x%08X (%u)  [原误认为 ScreenH 镜像]\n",
-         h->Unknown_0x180, h->Unknown_0x180);
+  printf("ScreenW_Small(0x174)   : 0x%08X (%u)\n", h->ScreenW_Small,
+         h->ScreenW_Small);
+  printf("ScreenH_Small(0x178)   : 0x%08X (%u)\n", h->ScreenH_Small,
+         h->ScreenH_Small);
+  printf("ScreenW (0x17C) : 0x%08X (%u px)\n", h->ScreenW, h->ScreenW);
+  printf("ScreenH (0x180) : 0x%08X (%u px)\n", h->ScreenH, h->ScreenH);
   printf("Unknown_0x184   : 0x%08X (高16位:0x%04X, 低16位:0x%04X)\n",
          h->Unknown_0x184, (h->Unknown_0x184 >> 16) & 0xFFFF,
          h->Unknown_0x184 & 0xFFFF);

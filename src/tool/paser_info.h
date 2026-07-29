@@ -6,7 +6,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
-
 typedef struct {
   /* 起始 0x000，长度 4 —— AppletID（LE uint32） */
   uint32_t AppletID;
@@ -17,8 +16,7 @@ typedef struct {
   /* 起始 0x008，长度 4 —— 标志位（LE uint32），已观察 0x02/0x10/0x20 三类 */
   uint32_t Flags;
 
-  /* 起始 0x00C，长度 4 —— 负载大小（LE uint32），0x188 + 此值 =
-  文件大小，9/9
+  /* 起始 0x00C，长度 4 —— 负载大小（LE uint32），0x188 + 此值 = 文件大小，9/9
    * 验证 */
   uint32_t PayloadSize;
 
@@ -40,25 +38,23 @@ typedef struct {
   /* 起始 0x075，长度 15 —— 签名/校验数据（算法未还原，非裸 MD5） */
   uint8_t SignatureData[15];
 
-  /* 起始 0x084，长度 4 —— 未知字段（待定），有重复值（0x190 / 0x7FFFFFFF）
-   */
+  /* 起始 0x084，长度 4 —— 未知字段（待定），有重复值（0x190 / 0x7FFFFFFF） */
   uint32_t Unknown_0x084;
 
   /* 起始 0x088，长度 236 —— 保留/扩展数据区，部分样本有非零数据 */
   uint8_t Extended[236];
 
   /* 起始 0x174，长度 4 —— 未知字段（原误认为 ScreenW 镜像，现已推翻） */
-  uint32_t Unknown_0x174;
+  uint32_t ScreenW_Small;
 
-  /* 起始 0x178，长度 4 —— 屏幕宽度（像素），值合理（128/176/220/240/320 等）
-   */
-  uint32_t ScreenW;
+  /* 起始 0x178，长度 4 —— 屏幕宽度（像素），值合理（128/176/220/240/320 等） */
+  uint32_t ScreenH_Small;
 
   /* 起始 0x17C，长度 4 —— 屏幕高度（像素），值合理（240/640/800/900 等） */
-  uint32_t ScreenH;
+  uint32_t ScreenW;
 
   /* 起始 0x180，长度 4 —— 未知字段（原误认为 ScreenH 镜像，现已推翻） */
-  uint32_t Unknown_0x180;
+  uint32_t ScreenH;
 
   /* 起始 0x184，长度 4 —— 未知字段，疑似高16位/低16位两个子字段 */
   uint32_t Unknown_0x184;

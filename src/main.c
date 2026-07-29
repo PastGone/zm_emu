@@ -42,11 +42,11 @@ int main() {
   // 打开 applet 文件
   // char *filename = "/home/apollo/文档/古时游戏/zm_emu/applet/00000102/"
   //                  "00000102.app"; // 测试文件1（向后兼容验证）
-  // char *filename = "/home/apollo/文档/古时游戏/zm_emu/applet/00000405/"
-  //                  "00000405.app"; // 测试文件2（号码归属）
+  char *filename = "/home/apollo/文档/古时游戏/zm_emu/applet/00000405/"
+                   "00000405.app"; // 测试文件2（号码归属）
   // /home/apollo/文档/古时游戏/zmaee_emu/zemee/0000050c/0000050c.app
-  char *filename = "/home/apollo/文档/古时游戏/zmaee_emu/zemee/0000050c/"
-                   "0000050c.app"; // 测试文件1（向后兼容验证）
+  // char *filename = "/home/apollo/文档/古时游戏/zmaee_emu/zemee/0000050c/"
+  //                  "0000050c.app"; // 测试文件3
 
   // 先解析 applet 头（不依赖 uc），以获取屏幕尺寸
   {
