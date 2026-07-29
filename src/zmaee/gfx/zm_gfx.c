@@ -7,7 +7,6 @@
 #include <SDL2/SDL_ttf.h>
 
 #include <stdlib.h>
-#include <string.h>
 
 /* ---------- 渲染器（SDL2 + SDL_ttf） ----------
  * 设计要点：
@@ -278,12 +277,10 @@ void zm_gfx_event_loop(void (*on_click)(uint32_t x, uint32_t y),
       if (e.type == SDL_QUIT)
         return;
       if (e.type == SDL_MOUSEBUTTONDOWN && on_click) {
-        uint32_t cx = (win_w > 0)
-                          ? (uint32_t)(e.button.x * g_w / win_w)
-                          : (uint32_t)e.button.x;
-        uint32_t cy = (win_h > 0)
-                          ? (uint32_t)(e.button.y * g_h / win_h)
-                          : (uint32_t)e.button.y;
+        uint32_t cx = (win_w > 0) ? (uint32_t)(e.button.x * g_w / win_w)
+                                  : (uint32_t)e.button.x;
+        uint32_t cy = (win_h > 0) ? (uint32_t)(e.button.y * g_h / win_h)
+                                  : (uint32_t)e.button.y;
         /* 回调内会 uc_emu_start 调用 applet handler，期间阻塞事件处理 */
         on_click(cx, cy);
         /* applet 的 touch handler 通常不重绘，但保险起见 present 一次 */
