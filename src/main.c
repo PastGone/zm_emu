@@ -44,7 +44,7 @@
 #define TRAMP_SIZE (1 * ONE_MB)
 // zmr
 #define ZMR_BASE (TRAMP_BASE + TRAMP_SIZE)
-#define ZMR_SIZE (1 * ONE_MB)
+#define ZMR_SIZE (2 * ONE_MB)
 // 根槽偏移量 0x180
 #define ROOT_SLOT_OFF 0x180
 
@@ -308,6 +308,19 @@ static void hook_code(uc_engine *uc, uint64_t address, uint32_t size,
     }
   }
 }
+// 内存访问 Hook 回调函数
+static void hook_shim_mem(uc_engine *uc, uc_mem_type type, uint64_t address,
+                          int size, int64_t value, void *user_data) {
+  // 判断操作类型
+  if (type == UC_MEM_READ) {
+    log_info("[HOOK] 读取 地址:0x%016lx 大小:%d\n", address, size);
+  } else if (type == UC_MEM_WRITE) {
+    log_info("[HOOK] 写入 地址:0x%016lx 大小:%d 值:0x%016lx\n", address, size,
+             value);
+  } else {
+    log_info("[HOOK] 其他内存操作 (type=%d)\n", type);
+  }
+}
 
 static bool hook_mem_unmapped(uc_engine *uc, uc_mem_type type, uint64_t address,
                               int size, int64_t value, void *user_data) {
@@ -356,8 +369,11 @@ int main() {
     if (s && *s)
       g_disasm = 1;
   }
+  g_trap_pause = 1;
+
+  g_disasm = 1;
   //
-  // 初始化 Capstone，使用 ARM-64 架构（CS_ARCH_ARM，CS_MODE_64）
+  // 初始化 Capstone，使用 ARM-32 架构（CS_ARCH_ARM，CS_MODE_ARM）
   if (cs_open(CS_ARCH_ARM, CS_MODE_ARM, &handle) != CS_ERR_OK) {
     fprintf(stderr, "Failed to open Capstone\n");
     return 1;
@@ -366,9 +382,12 @@ int main() {
   uc_err my_uc_err;
 
   // 打开 applet 文件
-  char filename[1024];
-  strcpy(filename,
-         "/home/apollo/文档/古时游戏/zmaee_emu/applet/00000102/00000102.app");
+  // char filename[1024] =
+  // "/home/apollo/文档/古时游戏/zmaee_emu/applet/00000102/"
+  //                       "00000102.app"; // 该文件已经测试通过
+
+  char filename[1024] =
+      "/home/apollo/文档/古时游戏/zmaee_emu/zemee/0000050c/0000050c.app";
 
   FILE *fp = fopen(filename, "rb");
   if (fp == NULL) {
@@ -472,7 +491,8 @@ int main() {
   }
   // 设置钩子，拦截系统调用使它陷入陷阱函数嗯，就和前面相配合了
   uc_hook hook_code_handle;
-  uc_hook hook_mem_handle;
+  uc_hook hook_unmapped_mem_handle;
+  uc_hook hook_shim_mem_handle;
   {
     log_info("添加钩子");
     my_uc_err =
@@ -481,8 +501,15 @@ int main() {
       log_error("uc_hook_add failed, err: %d\n", my_uc_err);
       return 1;
     }
-    my_uc_err = uc_hook_add(uc, &hook_mem_handle, UC_HOOK_MEM_UNMAPPED,
+    my_uc_err = uc_hook_add(uc, &hook_unmapped_mem_handle, UC_HOOK_MEM_UNMAPPED,
                             hook_mem_unmapped, NULL, 1, 0);
+    if (my_uc_err != UC_ERR_OK) {
+      log_error("uc_hook_add failed, err: %d\n", my_uc_err);
+      return 1;
+    }
+    my_uc_err = uc_hook_add(uc, &hook_shim_mem_handle,
+                            UC_HOOK_MEM_READ | UC_HOOK_MEM_WRITE, hook_shim_mem,
+                            NULL, SHIM_BASE, SHIM_BASE + SHIM_SIZE);
     if (my_uc_err != UC_ERR_OK) {
       log_error("uc_hook_add failed, err: %d\n", my_uc_err);
       return 1;
