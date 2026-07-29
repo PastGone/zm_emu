@@ -1,5 +1,6 @@
 #include "zm_gfx.h"
 
+#include "../../emu.h"
 #include "../../log/log.h"
 #include "../core/zm_common.h"
 
@@ -183,8 +184,14 @@ int zm_gfx_init(uint32_t screen_w, uint32_t screen_h) {
     return -1;
   }
 
-  g_win = SDL_CreateWindow("zm_emu", SDL_WINDOWPOS_UNDEFINED,
-                           SDL_WINDOWPOS_UNDEFINED, g_w, g_h, 0);
+  char window_title[128];
+  char *ext_char = " (zm_emu)";
+  snprintf(window_title, sizeof(window_title), "%s%s", header.AppName,
+           ext_char);
+
+  g_win =
+      SDL_CreateWindow(window_title, SDL_WINDOWPOS_UNDEFINED,
+                       SDL_WINDOWPOS_UNDEFINED, g_w, g_h, SDL_WINDOW_RESIZABLE);
   if (!g_win) {
     log_error("SDL_CreateWindow failed: %s", SDL_GetError());
     return -1;
@@ -197,6 +204,7 @@ int zm_gfx_init(uint32_t screen_w, uint32_t screen_h) {
     return -1;
   }
 
+  SDL_RenderSetLogicalSize(g_ren, g_w, g_h);
   g_canvas = SDL_CreateTexture(g_ren, SDL_PIXELFORMAT_ARGB8888,
                                SDL_TEXTUREACCESS_TARGET, g_w, g_h);
   if (!g_canvas) {

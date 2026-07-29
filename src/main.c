@@ -1,9 +1,4 @@
 // 测试主函数
-#define TEST
-#ifdef TEST
-#include "./test/test_lib.h"
-#include "./test/test_parse.h"
-#endif
 //
 #include "./log/log.h"
 //
@@ -126,11 +121,6 @@ int main() {
 
   // 启动 applet（init → 绘制 → 停止）
   zm_emu_start_applet(uc);
-
-#ifdef TEST
-  // test_parse();
-  // test_lib();
-#endif
 
   // 调试：ZM_DUMP_BUTTONS=1 时打印 applet 在 init 中计算出的 25 个按钮矩形
   {

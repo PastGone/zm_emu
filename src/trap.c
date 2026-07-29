@@ -1,5 +1,5 @@
-#include "./log/log.h"
 #include "./trap.h"
+#include "./log/log.h"
 #include <inttypes.h>
 #include <string.h>
 
