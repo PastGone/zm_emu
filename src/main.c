@@ -40,8 +40,10 @@ int main() {
   uc_err my_uc_err;
 
   // 打开 applet 文件
-  char filename[1024] = "/home/apollo/文档/古时游戏/zmaee_emu/applet/00000102/"
-                        "00000102.app";
+  // char *filename =
+  //     "/home/apollo/文档/古时游戏/zm_emu/applet/00000102/00000102.app";//测试文件1已通过
+  char *filename = "/home/apollo/文档/古时游戏/zm_emu/applet/00000405/"
+                   "00000405.app"; // 测试文件2
 
   // 先解析 applet 头（不依赖 uc），以获取屏幕尺寸
   {
