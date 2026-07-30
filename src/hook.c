@@ -30,7 +30,7 @@ void hook_code(uc_engine *uc, uint64_t address, uint32_t size,
         snprintf(line + offset, sizeof(line) - offset, "%-8s %s",
                  insn[i].mnemonic, insn[i].op_str);
 
-        log_info("%s\n", line);
+        log_trace("%s\n", line);
       }
       cs_free(insn, count);
 
@@ -48,8 +48,8 @@ void hook_code(uc_engine *uc, uint64_t address, uint32_t size,
     uc_reg_read(uc, UC_ARM_REG_SP, &sp);
     uc_reg_read(uc, UC_ARM_REG_LR, &lr);
 
-    log_info("trap pc: %d, r0: %d, r1: %d, r2: %d, r3: %d, sp: %d, lr: %d\n",
-             pc, r0, r1, r2, r3, sp, lr);
+    log_debug("trap pc: %d, r0: %d, r1: %d, r2: %d, r3: %d, sp: %d, lr: %d\n",
+              pc, r0, r1, r2, r3, sp, lr);
 
     handle_trap(uc, pc, r0, r1, r2, r3, sp, lr);
 
@@ -63,12 +63,12 @@ void hook_code(uc_engine *uc, uint64_t address, uint32_t size,
 void hook_shim_mem(uc_engine *uc, uc_mem_type type, uint64_t address, int size,
                    int64_t value, void *user_data) {
   if (type == UC_MEM_READ) {
-    log_info("[HOOK] 读取 地址:0x%016lx 大小:%d\n", address, size);
+    log_debug("[HOOK] 读取 地址:0x%016lx 大小:%d\n", address, size);
   } else if (type == UC_MEM_WRITE) {
-    log_info("[HOOK] 写入 地址:0x%016lx 大小:%d 值:0x%016lx\n", address, size,
-             value);
+    log_debug("[HOOK] 写入 地址:0x%016lx 大小:%d 值:0x%016lx\n", address, size,
+              value);
   } else {
-    log_info("[HOOK] 其他内存操作 (type=%d)\n", type);
+    log_debug("[HOOK] 其他内存操作 (type=%d)\n", type);
   }
 }
 

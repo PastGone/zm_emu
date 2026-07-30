@@ -320,8 +320,8 @@ int zm_emu_load_blob(uc_engine *uc, FILE *fp, long *applet_size) {
   }
   free(buf);
   fclose(fp);
-  log_info("blob数据载入完成");
-  log_info("文件关闭完成");
+  log_info("blob数据载入完成,文件流已被关闭");
+
   return 0;
 }
 
