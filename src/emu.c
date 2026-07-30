@@ -102,7 +102,7 @@ uint32_t TR_fs_enum = TRAP(74); /* FS_VT[0x30]：enumFile */
 uint32_t TR_init_callback =
     TRAP(114514); // 随便写一个位置我想也应该不影响这个叫什么来.初始化回调
 
-uint32_t SIZE_SLOT = SHIM_BASE + 0x700;
+uint32_t SIZE_SLOT = SHIM_BASE + 0x700; // 其实这个文件大小槽还有待确认
 uint32_t API_SLOT = SHIM_BASE + 0x710;
 
 /* 00000405.app 新增 ROOT vtable trap（索引 23..45） */
@@ -292,37 +292,26 @@ int zm_emu_build_vtables(uc_engine *uc) {
   return 0;
 }
 
-int zm_emu_load_blob(uc_engine *uc, const char *filename, long *out_size) {
-  FILE *fp = fopen(filename, "rb");
-  if (fp == NULL) {
-    log_error("fopen failed");
-    return -1;
-  }
-
-  fseek(fp, 0, SEEK_END);
-  long applet_size = ftell(fp);
-  fseek(fp, 0, SEEK_SET);
-  log_info("文件大小: %ld\n", applet_size);
-  *out_size = applet_size;
+int zm_emu_load_blob(uc_engine *uc, FILE *fp, long *applet_size) {
 
   log_info("开始载入blob数据");
-  unsigned char *buf = malloc(applet_size);
+  unsigned char *buf = malloc(*applet_size);
   if (buf == NULL) {
     log_error("malloc failed");
     fclose(fp);
     return -1;
   }
 
-  size_t bytes_read = fread(buf, 1, applet_size, fp);
-  if (bytes_read != (size_t)applet_size) {
-    log_error("读取文件失败，期望%zu字节，实际读取%zu", (size_t)applet_size,
+  size_t bytes_read = fread(buf, 1, *applet_size, fp);
+  if (bytes_read != (size_t)*applet_size) {
+    log_error("读取文件失败，期望%zu字节，实际读取%zu", (size_t)*applet_size,
               bytes_read);
     free(buf);
     fclose(fp);
     return -1;
   }
 
-  uc_err err = uc_mem_write(uc, BLOB_BASE, buf, applet_size);
+  uc_err err = uc_mem_write(uc, BLOB_BASE, buf, *applet_size);
   if (err != UC_ERR_OK) {
     log_error("uc_mem_write failed, err: %d\n", err);
     free(buf);

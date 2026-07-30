@@ -158,7 +158,7 @@ int zm_emu_build_vtables(uc_engine *uc);
 int zm_emu_map_memory(uc_engine *uc);
 
 /* 载入 applet blob 到 BLOB_BASE */
-int zm_emu_load_blob(uc_engine *uc, const char *filename, long *out_size);
+int zm_emu_load_blob(uc_engine *uc, FILE *fp, long *applet_size);
 
 /* 载入 .zmr 资源（按 .app 路径替换后缀） */
 void zm_emu_load_zmr_if_exists(uc_engine *uc, const char *app_path);

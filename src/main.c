@@ -4,6 +4,7 @@
 //
 #include "./emu.h"
 #include "./test/test_diag.h"
+#include "./tool/odds.h"
 #include "./zmaee/audio/zm_audio.h"
 #include "./zmaee/fs/zm_fs.h"
 #include "./zmaee/gfx/zm_gfx.h"
@@ -47,21 +48,19 @@ int main() {
   //                  "0000050c.app"; // 测试文件3
 
   // 先解析 applet 头（不依赖 uc），以获取屏幕尺寸
+  FILE *fp = fopen(filename, "rb");
+  long applet_size;
+
   {
-    FILE *fp = fopen(filename, "rb");
     if (fp == NULL) {
       log_error("fopen failed");
       cs_close(&cs_handle);
       return 1;
     }
-    fseek(fp, 0, SEEK_END);
-    long applet_size = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
+    applet_size = get_file_size(fp);
     log_info("文件大小: %ld\n", applet_size);
-
     parse_app_header(fp, &header);
     print_header(&header);
-    fclose(fp);
   }
 
   // 初始化 SDL2 渲染与音频
@@ -79,6 +78,7 @@ int main() {
     if (my_uc_err != UC_ERR_OK) {
       log_error("uc_open failed, err: %d\n", my_uc_err);
       cs_close(&cs_handle);
+      fclose(fp);
       return 1;
     }
     log_info("unicorn engine initialized");
@@ -88,6 +88,7 @@ int main() {
   if (zm_emu_map_memory(uc) != 0) {
     uc_close(uc);
     cs_close(&cs_handle);
+    fclose(fp);
     return 1;
   }
 
@@ -95,6 +96,7 @@ int main() {
   if (zm_emu_build_vtables(uc) != 0) {
     uc_close(uc);
     cs_close(&cs_handle);
+    fclose(fp);
     return 1;
   }
 
@@ -103,13 +105,13 @@ int main() {
   if (zm_emu_add_hooks(uc) != 0) {
     uc_close(uc);
     cs_close(&cs_handle);
+    fclose(fp);
     return 1;
   }
 
-  // 载入 blob 数据到客户机内存
+  // 载入 blob 数据到客户机内存, 并关闭文件
   {
-    long applet_size;
-    if (zm_emu_load_blob(uc, filename, &applet_size) != 0) {
+    if (zm_emu_load_blob(uc, fp, &applet_size) != 0) {
       uc_close(uc);
       cs_close(&cs_handle);
       return 1;
