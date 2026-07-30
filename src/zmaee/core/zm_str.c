@@ -6,9 +6,7 @@
 #include <string.h>
 
 #include "../../log/log.h"
-#include "../../tool/odds.h"
 #include "zm_addrs.h"
-#include "zm_common.h"
 
 /* 读取客户机地址 addr 处的 C 字符串到宿主机 buf，最多 maxlen-1 字符 */
 char *read_cstr(uc_engine *uc, uint32_t addr, char *buf, size_t maxlen) {
@@ -200,16 +198,25 @@ uint32_t zm_sprintf(uc_engine *uc, uint32_t dest_addr, uint32_t fmt_addr,
  * @return 返回 dest_struct（即 r0）
  */
 uint32_t zm_str_ctor(uc_engine *uc, uint32_t dest_struct, uint32_t src_str) {
+  if (dest_struct == 0 || src_str == 0)
+    return dest_struct;
+
   char cstr[256];
   read_cstr(uc, src_str, cstr, sizeof(cstr));
-  log_debug("源字符串为: %s", cstr);
+  log_debug("str_ctor 复制: '%s' -> 0x%08X", cstr, dest_struct);
+
   uint32_t clen = (uint32_t)strlen(cstr);
-  uint32_t inline_buf = dest_struct + 12;
-  pause_console();
-  zm_write32(uc, dest_struct, inline_buf); // 数据指针
-  zm_write32(uc, dest_struct + 4, clen);   // 长度
-  zm_write32(uc, dest_struct + 8, clen);   // 容量
-  uc_mem_write(uc, inline_buf, cstr, clen + 1);
+  if (clen > 255)
+    clen = 255;
+
+  /*
+   * 00000102.app 中的实际用法是把扩展名直接写到已有字符串缓冲区里：
+   *   str_ctor(instance+0x214, "00000102.app")   // 复制完整文件名
+   *   str_find(..., '.')                         // 找到 '.'
+   *   str_ctor('.'+1, "zmr")                     // 把 "app" 替换成 "zmr"
+   * 因此这里按 C 字符串拷贝处理，而不是构造带 header 的字符串对象。
+   */
+  uc_mem_write(uc, dest_struct, cstr, clen + 1);
 
   return dest_struct;
 }
@@ -246,14 +253,38 @@ uint32_t zm_spec_lookup(uc_engine *uc, uint32_t ch_addr) {
  * @return 命中返回子指针，未命中返回 0
  */
 uint32_t zm_str_find(uc_engine *uc, uint32_t str_obj_ptr, uint32_t ch) {
-  uint32_t cstr_ptr = zm_read32(uc, str_obj_ptr);
+  if (str_obj_ptr == 0)
+    return 0;
+
+  /*
+   * 兼容两种形态：
+   *   (a) zmaee 字符串对象：+0=data_ptr，+4=len，data_ptr 可映射。
+   *   (b) 裸 C 字符串缓冲区：str_ctor 把文件名直接复制到 instance+0x214
+   *       后，str_find 需要能直接在缓冲区里查找字符。
+   */
+  uint32_t data_ptr = 0, len = 0;
+  bool as_obj = false;
+  if (uc_mem_read(uc, str_obj_ptr, &data_ptr, 4) == UC_ERR_OK &&
+      uc_mem_read(uc, str_obj_ptr + 4, &len, 4) == UC_ERR_OK) {
+    if (data_ptr == str_obj_ptr + 12) {
+      as_obj = true; /* str_assign/str_ctor 的内联对象布局 */
+    } else if (data_ptr != 0 && len < 4096) {
+      uint8_t first = 0;
+      if (uc_mem_read(uc, data_ptr, &first, 1) == UC_ERR_OK &&
+          (first == 0 || (first >= 0x20 && first < 0x80))) {
+        as_obj = true;
+      }
+    }
+  }
+
+  uint32_t base = as_obj ? data_ptr : str_obj_ptr;
   char cstr[256];
-  read_cstr(uc, cstr_ptr, cstr, sizeof(cstr));
+  read_cstr(uc, base, cstr, sizeof(cstr));
+
   char needle = (char)(ch & 0xFF);
   char *p = strchr(cstr, needle);
-  if (p) {
-    return cstr_ptr + (uint32_t)(p - cstr);
-  }
+  if (p)
+    return base + (uint32_t)(p - cstr);
   return 0;
 }
 
