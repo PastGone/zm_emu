@@ -37,13 +37,18 @@
  */
 
 /* ---------- 模块内部状态 ---------- */
-static uint8_t *s_zmr_data = NULL; /* 整个 .zmr 文件缓冲 */
+static uint8_t *s_zmr_data = NULL; /* 整个 .zmr 文件缓冲（流式加载时为 NULL） */
 static size_t s_zmr_size = 0;      /* 文件总字节数 */
 static uint32_t s_file_pos = 0;    /* file.read/file.seek 使用的游标 */
 
 /* 解析出的资源索引（供 zm_fs_get_resource 直接访问） */
 static uint32_t s_resource_count = 0;   /* 资源个数 N */
 static uint32_t *s_offset_table = NULL; /* 长度 N+1，绝对偏移 */
+
+/* 流式 .zmr 的磁盘路径，以及 zm_fs_get_resource 的临时缓冲 */
+static char s_zmr_path[1024] = {0};
+static uint8_t *s_resource_buf = NULL;
+static size_t s_resource_buf_size = 0;
 
 /* 释放偏移表与缓冲，把状态归零（供 reload / shutdown 复用） */
 static void free_state(void) {
@@ -54,6 +59,10 @@ static void free_state(void) {
   free(s_offset_table);
   s_offset_table = NULL;
   s_resource_count = 0;
+  s_zmr_path[0] = '\0';
+  free(s_resource_buf);
+  s_resource_buf = NULL;
+  s_resource_buf_size = 0;
 }
 
 /* ---------- 多文件层（00000405.app） ----------
@@ -64,12 +73,16 @@ static void free_state(void) {
 #define FS_SLOT_STRIDE 0x10
 
 typedef struct {
-  char name[64];       /* basename，查找键 */
-  const uint8_t *data; /* 文件内容（调用方持有，或由 s_owned 持有） */
-  size_t size;         /* 文件字节数 */
-  uint32_t pos;        /* 当前游标 */
-  bool in_use;         /* 是否已打开（fs.open 分配后置 true，close 后 false） */
-  bool registered;     /* 是否已登记（区分空槽与已登记未打开） */
+  char name[64];        /* basename，查找键 */
+  bool is_stream;       /* true：通过 host_path/fp 按需读取磁盘文件
+                         * false：data 指向已载入内存的缓冲 */
+  const uint8_t *data;  /* 非流式：文件内容（调用方持有，或由 s_owned 持有） */
+  FILE *fp;             /* 流式：打开的 FILE*（close 后设为 NULL） */
+  char host_path[1024]; /* 流式：磁盘文件完整路径，用于 reopen */
+  size_t size;          /* 文件字节数 */
+  uint32_t pos;         /* 当前游标 */
+  bool in_use;     /* 是否已打开（fs.open 分配后置 true，close 后 false） */
+  bool registered; /* 是否已登记（区分空槽与已登记未打开） */
 } file_slot_t;
 
 static file_slot_t s_slots[FS_MAX_SLOTS];
@@ -102,7 +115,14 @@ bool zm_fs_register_file(const char *name, const void *data, size_t size) {
   for (int i = 0; i < FS_MAX_SLOTS; i++) {
     if (s_slots[i].registered && strcmp(s_slots[i].name, bn) == 0) {
       /* 已登记：更新内容（reload 场景） */
+      if (s_slots[i].is_stream && s_slots[i].fp) {
+        fclose(s_slots[i].fp);
+        s_slots[i].fp = NULL;
+      }
+      s_slots[i].is_stream = false;
       s_slots[i].data = (const uint8_t *)data;
+      s_slots[i].fp = NULL;
+      s_slots[i].host_path[0] = '\0';
       s_slots[i].size = size;
       s_slots[i].pos = 0;
       s_slots[i].in_use = false;
@@ -113,7 +133,10 @@ bool zm_fs_register_file(const char *name, const void *data, size_t size) {
     if (!s_slots[i].registered) {
       strncpy(s_slots[i].name, bn, sizeof(s_slots[i].name) - 1);
       s_slots[i].name[sizeof(s_slots[i].name) - 1] = '\0';
+      s_slots[i].is_stream = false;
       s_slots[i].data = (const uint8_t *)data;
+      s_slots[i].fp = NULL;
+      s_slots[i].host_path[0] = '\0';
       s_slots[i].size = size;
       s_slots[i].pos = 0;
       s_slots[i].in_use = false;
@@ -189,6 +212,12 @@ void zm_fs_register_default(const char *applet_dir) {
 }
 
 void zm_fs_shutdown(void) {
+  for (int i = 0; i < FS_MAX_SLOTS; i++) {
+    if (s_slots[i].is_stream && s_slots[i].fp) {
+      fclose(s_slots[i].fp);
+      s_slots[i].fp = NULL;
+    }
+  }
   free_state();
   for (int i = 0; i < s_owned_count; i++) {
     free(s_owned[i]);
@@ -199,17 +228,173 @@ void zm_fs_shutdown(void) {
 }
 
 const uint8_t *zm_fs_get_resource(uint32_t index, uint32_t *out_size) {
-  if (!s_zmr_data || !s_offset_table || index >= s_resource_count || !out_size)
+  if (!s_offset_table || index >= s_resource_count || !out_size)
     return NULL;
   uint32_t start = s_offset_table[index];
   uint32_t end = s_offset_table[index + 1];
   if (start > end || end > (uint32_t)s_zmr_size - 4)
     return NULL;
-  *out_size = end - start;
-  return s_zmr_data + start;
+  uint32_t sz = end - start;
+  *out_size = sz;
+
+  /* 旧模式：已把整个 .zmr 预读到 s_zmr_data */
+  if (s_zmr_data)
+    return s_zmr_data + start;
+
+  /* 流式模式：按需从磁盘读取该资源到临时缓冲 */
+  if (s_zmr_path[0] == '\0')
+    return NULL;
+  if (s_resource_buf_size < sz) {
+    uint8_t *p = realloc(s_resource_buf, sz);
+    if (!p)
+      return NULL;
+    s_resource_buf = p;
+    s_resource_buf_size = sz;
+  }
+  FILE *f = fopen(s_zmr_path, "rb");
+  if (!f)
+    return NULL;
+  if (fseek(f, (long)start, SEEK_SET) != 0 ||
+      fread(s_resource_buf, 1, sz, f) != sz) {
+    fclose(f);
+    return NULL;
+  }
+  fclose(f);
+  return s_resource_buf;
 }
 
 uint32_t zm_fs_get_resource_count(void) { return s_resource_count; }
+
+/**
+ * @brief 解析 .zmr 头部并登记为流式文件
+ *
+ * 不预读数据区。只读取 magic / 资源数 / 偏移表（通常 <1KB），然后把文件
+ * 登记为流式槽位。applet 点击时通过 fs.open / read / seek 按自己的顺序
+ * 读取资源；宿主测试时通过 zm_fs_get_resource 按需从磁盘读取单个资源。
+ *
+ * 文件结构：
+ *   0x00  magic "zmr0" (0x30726D7A)
+ *   0x04  资源个数 N
+ *   0x08  偏移表 (N+1) * 4B
+ *   ...   数据区
+ *   末尾  4B CRC（仅记录）
+ */
+bool zm_fs_load_zmr(const char *path) {
+  if (!path || !path[0])
+    return false;
+
+  FILE *f = fopen(path, "rb");
+  if (!f) {
+    log_info("zm_fs_load_zmr: 未找到 %s", path);
+    return false;
+  }
+
+  fseek(f, 0, SEEK_END);
+  long sz = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  if (sz < 20) { /* magic(4) + count(4) + table(8) + crc(4) */
+    log_error("zm_fs_load_zmr: 文件过小 (%ld 字节): %s", sz, path);
+    fclose(f);
+    return false;
+  }
+
+  uint32_t magic, count;
+  if (fread(&magic, 4, 1, f) != 1 || fread(&count, 4, 1, f) != 1) {
+    fclose(f);
+    return false;
+  }
+  if (magic != 0x30726D7Au) {
+    log_error("zm_fs_load_zmr: magic 错误 0x%08X（期望 0x30726D7A）: %s", magic,
+              path);
+    fclose(f);
+    return false;
+  }
+
+  size_t table_bytes = (size_t)(count + 1) * 4;
+  size_t data_start = 8 + table_bytes;
+  if (data_start > (size_t)sz - 4) {
+    log_error("zm_fs_load_zmr: 偏移表越界 (N=%u): %s", count, path);
+    fclose(f);
+    return false;
+  }
+
+  uint32_t *table = malloc(table_bytes);
+  if (!table || fread(table, 4, count + 1, f) != count + 1) {
+    free(table);
+    fclose(f);
+    return false;
+  }
+
+  uint32_t data_end = (uint32_t)((size_t)sz - 4);
+  if (table[0] != data_start)
+    log_warn("zm_fs_load_zmr: entry[0]=%u 与数据区起点=%zu 不一致", table[0],
+             data_start);
+  if (count > 0 && table[count] != data_end)
+    log_warn("zm_fs_load_zmr: entry[N]=%u 与数据区末尾=%u 不一致", table[count],
+             data_end);
+
+  uint32_t stored_crc;
+  if (fseek(f, -4, SEEK_END) == 0)
+    fread(&stored_crc, 4, 1, f);
+  else
+    stored_crc = 0;
+  uint32_t calc_crc = 0; /* 磁盘 CRC 需要再读一遍完整数据，这里不计算 */
+  log_info(".zmr 登记: %s size=%zu N=%u CRC stored=0x%08X（数据区不预读）",
+           path, (size_t)sz, count, stored_crc);
+
+  /* 释放旧 .zmr 状态 */
+  free_state();
+
+  /* 提交新状态 */
+  s_zmr_size = (size_t)sz;
+  s_file_pos = 0;
+  s_resource_count = count;
+  s_offset_table = table;
+  strncpy(s_zmr_path, path, sizeof(s_zmr_path) - 1);
+  s_zmr_path[sizeof(s_zmr_path) - 1] = '\0';
+
+  /* 登记为流式文件槽位 */
+  char bn[64];
+  basename_of(path, bn, sizeof(bn));
+  for (int i = 0; i < FS_MAX_SLOTS; i++) {
+    if (s_slots[i].registered && strcmp(s_slots[i].name, bn) == 0) {
+      if (s_slots[i].is_stream && s_slots[i].fp) {
+        fclose(s_slots[i].fp);
+        s_slots[i].fp = NULL;
+      }
+      s_slots[i].is_stream = true;
+      s_slots[i].data = NULL;
+      s_slots[i].fp = f;
+      strncpy(s_slots[i].host_path, path, sizeof(s_slots[i].host_path) - 1);
+      s_slots[i].host_path[sizeof(s_slots[i].host_path) - 1] = '\0';
+      s_slots[i].size = (size_t)sz;
+      s_slots[i].pos = 0;
+      s_slots[i].in_use = false;
+      return true;
+    }
+  }
+  for (int i = 0; i < FS_MAX_SLOTS; i++) {
+    if (!s_slots[i].registered) {
+      strncpy(s_slots[i].name, bn, sizeof(s_slots[i].name) - 1);
+      s_slots[i].name[sizeof(s_slots[i].name) - 1] = '\0';
+      s_slots[i].is_stream = true;
+      s_slots[i].data = NULL;
+      s_slots[i].fp = f;
+      strncpy(s_slots[i].host_path, path, sizeof(s_slots[i].host_path) - 1);
+      s_slots[i].host_path[sizeof(s_slots[i].host_path) - 1] = '\0';
+      s_slots[i].size = (size_t)sz;
+      s_slots[i].pos = 0;
+      s_slots[i].in_use = false;
+      s_slots[i].registered = true;
+      return true;
+    }
+  }
+
+  /* 槽位已满：保持头部解析状态，但关闭 FILE* */
+  fclose(f);
+  log_warn("zm_fs_load_zmr: 句柄表已满，%s 无法登记为流式文件", bn);
+  return true;
+}
 
 /* ---------- 多文件 fs.open / read / seek / close ----------
  * 句柄 = FILE1 + idx*0x10。idx 由 (file_id - FILE1)/0x10 计算。
@@ -250,6 +435,17 @@ uint32_t zm_fs_open(uc_engine *uc, uint32_t filename_ptr) {
   /* 按 basename 查表 */
   for (int i = 0; i < FS_MAX_SLOTS; i++) {
     if (s_slots[i].registered && strcmp(s_slots[i].name, bn) == 0) {
+      /* 流式文件：确保 FILE* 可用并回到开头 */
+      if (s_slots[i].is_stream) {
+        if (!s_slots[i].fp) {
+          s_slots[i].fp = fopen(s_slots[i].host_path, "rb");
+          if (!s_slots[i].fp) {
+            log_warn("fs.open(\"%s\") 无法打开磁盘文件 -> 返回 0", bn);
+            return 0;
+          }
+        }
+        fseek(s_slots[i].fp, 0, SEEK_SET);
+      }
       s_slots[i].pos = 0;
       s_slots[i].in_use = true;
       uint32_t h = FILE1 + (uint32_t)i * FS_SLOT_STRIDE;
@@ -279,6 +475,10 @@ uint32_t zm_file_close(uc_engine *uc, uint32_t file_id) {
   (void)uc;
   int idx = handle_to_idx(file_id);
   if (idx >= 0 && s_slots[idx].in_use) {
+    if (s_slots[idx].is_stream && s_slots[idx].fp) {
+      fclose(s_slots[idx].fp);
+      s_slots[idx].fp = NULL;
+    }
     s_slots[idx].in_use = false;
     s_slots[idx].pos = 0;
   }
@@ -293,11 +493,28 @@ uint32_t zm_file_read(uc_engine *uc, uint32_t file_id, uint32_t buf,
     uint32_t pos = s->pos;
     uint32_t remain = (s->size >= pos) ? (uint32_t)(s->size - pos) : 0;
     uint32_t n = (length < remain) ? length : remain;
-    if (n > 0) {
+    if (n == 0)
+      return 0;
+
+    if (s->is_stream) {
+      if (!s->fp)
+        return 0;
+      if (fseek(s->fp, (long)pos, SEEK_SET) != 0)
+        return 0;
+      uint8_t *tmp = malloc(n);
+      if (!tmp)
+        return 0;
+      size_t rd = fread(tmp, 1, n, s->fp);
+      if (rd > 0)
+        uc_mem_write(uc, buf, tmp, (uint32_t)rd);
+      free(tmp);
+      s->pos += (uint32_t)rd;
+      return (uint32_t)rd;
+    } else {
       uc_mem_write(uc, buf, s->data + pos, n);
       s->pos += n;
+      return n;
     }
-    return n;
   }
   /* 回退 .zmr 单游标（applet 1：file_id==FILE1，slot 未占用） */
   if (file_id == FILE1 && s_zmr_data) {
@@ -325,6 +542,7 @@ uint32_t zm_file_seek(uc_engine *uc, uint32_t file_id, uint32_t whence,
       s->pos += offset;
     else if (whence == 2)
       s->pos = (uint32_t)s->size + offset;
+    /* 流式文件不在这里 fseek，read 时按 pos 再定位 */
     return 0;
   }
   /* 回退 .zmr 单游标 */

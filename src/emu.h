@@ -146,6 +146,10 @@ extern uint32_t g_handler;
 extern int g_trap_pause;
 extern int g_disasm;
 
+/* 当前载入 applet 的短名称（如 "00000102.app"），由 main.c 设置，
+ * 供 TR_init_callback 写入 applet instance+4。 */
+extern char g_app_name[128];
+
 extern csh cs_handle;
 extern cs_insn *insn;
 extern size_t count;

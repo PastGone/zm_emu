@@ -3,6 +3,7 @@
 #include <inttypes.h>
 #include <string.h>
 
+#include "./emu.h"
 #include "./zmaee/audio/zm_audio.h"
 #include "./zmaee/core/zm_addrs.h"
 #include "./zmaee/core/zm_mem.h"
@@ -36,10 +37,11 @@ void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
     uc_mem_write(uc, INSTANCE, zero_buf, size);
     free(zero_buf);
 
-    char *filename =
-        "00000102.app"; // 这个地方传的是它在文件管理器面显示的名称当然也有可能是路径反正不是他解码之后文件头里面的那个名称
-    uc_mem_write(uc, INSTANCE + 4, filename, strlen(filename) + 1);
-    log_info("filename: %s\n", filename);
+    /* 把当前 applet 短名称写入 instance+4；applet 用它在运行时构造
+     * "<name>.zmr" 等资源文件名。使用短名而非完整路径，避免污染
+     * instance 边界外的堆内存。 */
+    uc_mem_write(uc, INSTANCE + 4, g_app_name, strlen(g_app_name) + 1);
+    log_info("filename: %s\n", g_app_name);
     log_info("  instance=0x%X\n", INSTANCE);
 
     uint32_t stack_ptr = STACK_TOP;
