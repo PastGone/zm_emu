@@ -383,7 +383,8 @@ int zm_emu_add_hooks(uc_engine *uc) {
 }
 
 int zm_emu_start_applet(uc_engine *uc) {
-  uc_reg_write(uc, UC_ARM_REG_LR, &TR_init_callback);
+  uc_reg_write(uc, UC_ARM_REG_LR,
+               &TR_init_callback); // LR 是返回地址，这里写入初始化回调
   uc_reg_write(uc, UC_ARM_REG_R0, &SIZE_SLOT);
   uc_reg_write(uc, UC_ARM_REG_R1, &API_SLOT);
 

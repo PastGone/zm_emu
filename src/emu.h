@@ -10,6 +10,8 @@
 
 // -------------------- 内存布局常量 --------------------
 #define ONE_MB (0x100000)
+#define HALF_MB (0x80000)
+//
 #define BLOB_BASE (0x80000)
 #define BLOB_SIZE (1 * ONE_MB)
 
@@ -22,10 +24,10 @@
 #define HEAP_END (HEAP_BASE + HEAP_SIZE)
 
 #define SHIM_BASE (HEAP_END)
-#define SHIM_SIZE (1 * ONE_MB)
+#define SHIM_SIZE (1 * HALF_MB)
 
 #define TRAMP_BASE (SHIM_BASE + SHIM_SIZE)
-#define TRAMP_SIZE (1 * ONE_MB)
+#define TRAMP_SIZE (1 * HALF_MB)
 
 #define ZMR_BASE (TRAMP_BASE + TRAMP_SIZE)
 #define ZMR_SIZE (2 * ONE_MB)
