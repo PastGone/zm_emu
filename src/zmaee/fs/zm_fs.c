@@ -45,17 +45,6 @@ static uint32_t s_file_pos = 0;    /* file.read/file.seek 使用的游标 */
 static uint32_t s_resource_count = 0;   /* 资源个数 N */
 static uint32_t *s_offset_table = NULL; /* 长度 N+1，绝对偏移 */
 
-/* 标准 CRC32（IEEE 802.3，与 zlib.crc32 一致），仅用于日志比对 */
-static uint32_t crc32_compute(const uint8_t *data, size_t len) {
-  uint32_t crc = 0xFFFFFFFFu;
-  for (size_t i = 0; i < len; i++) {
-    crc ^= data[i];
-    for (int b = 0; b < 8; b++)
-      crc = (crc >> 1) ^ (0xEDB88320u & (uint32_t)(-(int32_t)(crc & 1u)));
-  }
-  return ~crc;
-}
-
 /* 释放偏移表与缓冲，把状态归零（供 reload / shutdown 复用） */
 static void free_state(void) {
   free(s_zmr_data);
@@ -199,95 +188,6 @@ void zm_fs_register_default(const char *applet_dir) {
   zm_fs_register_hostfile(path, "1_32icon.zbmp");
 }
 
-bool zm_fs_load_zmr(const char *path) {
-  FILE *f = fopen(path, "rb");
-  if (!f) {
-    log_error("zm_fs_load_zmr: 无法打开 %s", path);
-    return false;
-  }
-  fseek(f, 0, SEEK_END);
-  long sz = ftell(f);
-  fseek(f, 0, SEEK_SET);
-  if (sz < 0) {
-    fclose(f);
-    return false;
-  }
-  /* 最小长度：magic(4) + count(4) + offset_table(至少 8) + crc(4) */
-  if (sz < 20) {
-    log_error("zm_fs_load_zmr: 文件过小 (%ld 字节)", sz);
-    fclose(f);
-    return false;
-  }
-  uint8_t *buf = malloc((size_t)sz);
-  if (!buf) {
-    fclose(f);
-    return false;
-  }
-  size_t rd = fread(buf, 1, (size_t)sz, f);
-  fclose(f);
-  if (rd != (size_t)sz) {
-    free(buf);
-    return false;
-  }
-
-  /* 解析 magic */
-  uint32_t magic;
-  memcpy(&magic, buf, 4);
-  if (magic != 0x30726D7Au) { /* "zmr0" */
-    log_error("zm_fs_load_zmr: magic 错误 0x%08X（期望 0x30726D7A）", magic);
-    free(buf);
-    return false;
-  }
-
-  /* 解析资源个数 N */
-  uint32_t count;
-  memcpy(&count, buf + 4, 4);
-
-  /* 解析偏移表：N+1 项，每项 4 字节，起始于 0x08 */
-  size_t table_off = 8;
-  size_t table_bytes = (size_t)(count + 1) * 4;
-  size_t data_start = table_off + table_bytes; /* entry[0] 应等于此值 */
-  if (data_start > (size_t)sz - 4) {           /* 至少要留 4 字节 CRC */
-    log_error("zm_fs_load_zmr: 偏移表越界 (N=%u)", count);
-    free(buf);
-    return false;
-  }
-  uint32_t *table = malloc(table_bytes);
-  if (!table) {
-    free(buf);
-    return false;
-  }
-  memcpy(table, buf + table_off, table_bytes);
-
-  /* 边界校验：entry[0]==数据区起点，entry[N]==数据区末尾（CRC 前） */
-  uint32_t data_end = (uint32_t)((size_t)sz - 4);
-  if (table[0] != data_start) {
-    log_warn("zm_fs_load_zmr: entry[0]=%u 与数据区起点=%zu 不一致", table[0],
-             data_start);
-  }
-  if (count > 0 && table[count] != data_end) {
-    log_warn("zm_fs_load_zmr: entry[N]=%u 与数据区末尾=%u 不一致", table[count],
-             data_end);
-  }
-
-  /* CRC 仅记录比对（原始算法未知，不阻断载入） */
-  uint32_t stored_crc;
-  memcpy(&stored_crc, buf + (size_t)sz - 4, 4);
-  uint32_t calc_crc = crc32_compute(buf, (size_t)sz - 4);
-  log_info(
-      ".zmr 载入: %s  size=%zu  N=%u  CRC stored=0x%08X calc=0x%08X（仅记录）",
-      path, (size_t)sz, count, stored_crc, calc_crc);
-
-  /* 提交：释放旧状态，替换为新解析结果 */
-  free_state();
-  s_zmr_data = buf;
-  s_zmr_size = (size_t)sz;
-  s_file_pos = 0;
-  s_resource_count = count;
-  s_offset_table = table;
-  return true;
-}
-
 void zm_fs_shutdown(void) {
   free_state();
   for (int i = 0; i < s_owned_count; i++) {
@@ -370,6 +270,7 @@ uint32_t zm_fs_open(uc_engine *uc, uint32_t filename_ptr) {
              bn[0] ? bn : "<null>");
     return FILE1;
   }
+
   log_warn("fs.open(\"%s\") 未找到匹配文件 -> 返回 0", bn[0] ? bn : "<null>");
   return 0;
 }

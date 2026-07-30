@@ -325,30 +325,6 @@ int zm_emu_load_blob(uc_engine *uc, FILE *fp, long *applet_size) {
   return 0;
 }
 
-void zm_emu_load_zmr_if_exists(uc_engine *uc, const char *app_path) {
-  char zmr_path[1024];
-  strncpy(zmr_path, app_path, sizeof(zmr_path) - 1);
-  zmr_path[sizeof(zmr_path) - 1] = '\0';
-  size_t plen = strlen(zmr_path);
-  if (plen >= 4 && strcmp(zmr_path + plen - 4, ".app") == 0) {
-    strcpy(zmr_path + plen - 4, ".zmr");
-  } else {
-    strncat(zmr_path, ".zmr", sizeof(zmr_path) - plen - 1);
-  }
-
-  FILE *zmr_fp = fopen(zmr_path, "rb");
-  if (zmr_fp) {
-    fclose(zmr_fp);
-    if (!zm_fs_load_zmr(zmr_path)) {
-      log_warn(".zmr 载入失败，跳过: %s", zmr_path);
-    } else {
-      log_info(".zmr 资源载入完成: %s", zmr_path);
-    }
-  } else {
-    log_info("未找到 .zmr 文件，跳过资源载入: %s", zmr_path);
-  }
-}
-
 int zm_emu_add_hooks(uc_engine *uc) {
   uc_hook hook_code_handle;
   uc_hook hook_unmapped_mem_handle;

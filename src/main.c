@@ -121,23 +121,6 @@ int main() {
     }
   }
 
-  // 载入 .zmr 资源
-  // zm_emu_load_zmr_if_exists(uc, filename);
-
-  // // 登记多文件 fs 表（00000405.app：config.b / zmsys006.dll / 图标等）
-  // // 从 filename 取目录部分传给 zm_fs_register_default
-  // {
-  //   char applet_dir[1024];
-  //   strncpy(applet_dir, filename, sizeof(applet_dir) - 1);
-  //   applet_dir[sizeof(applet_dir) - 1] = '\0';
-  //   char *slash = strrchr(applet_dir, '/');
-  //   if (slash)
-  //     *slash = '\0';
-  //   zm_fs_register_default(applet_dir);
-  //   // 登记 applet 自身（applet 可能通过 sprintf("%s%08x.app") 打开）
-  //   zm_fs_register_hostfile(filename, "00000405.app");
-  // }
-
   // 启动 applet（init → 绘制 → 停止）
   zm_emu_start_applet(uc);
 
