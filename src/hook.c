@@ -11,7 +11,7 @@ void hook_code(uc_engine *uc, uint64_t address, uint32_t size,
   if (g_disasm) {
     uc_mem_read(uc, pc, code, size);
 
-    count = cs_disasm(handle, code, size, pc, 0, &insn);
+    count = cs_disasm(cs_handle, code, size, pc, 0, &insn);
     if (count > 0) {
       char line[256];
       for (size_t i = 0; i < count; i++) {

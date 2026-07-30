@@ -8,7 +8,7 @@
 
 /* -------------------- 全局变量定义 -------------------- */
 uc_engine *uc;
-AppHeader header;
+AppletHeader header;
 uint32_t heap_ptr = HEAP_BASE;
 
 uint32_t g_instance = 0;
@@ -16,7 +16,7 @@ uint32_t g_handler = 0;
 int g_trap_pause = 0;
 int g_disasm = 0;
 
-csh handle;
+csh cs_handle;
 cs_insn *insn;
 size_t count;
 uint8_t code[16];
@@ -99,7 +99,9 @@ uint32_t TR_gfx_x4C = TRAP(73); /* GFX_VT[0x4C] */
 /* 00000405.app：FS vtable 缺失槽 */
 uint32_t TR_fs_enum = TRAP(74); /* FS_VT[0x30]：enumFile */
 
-uint32_t TR_init_callback = TRAP(100);
+uint32_t TR_init_callback =
+    TRAP(114514); // 随便写一个位置我想也应该不影响这个叫什么来.初始化回调
+
 uint32_t SIZE_SLOT = SHIM_BASE + 0x700;
 uint32_t API_SLOT = SHIM_BASE + 0x710;
 

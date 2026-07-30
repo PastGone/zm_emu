@@ -63,7 +63,7 @@ typedef struct {
   uint32_t Unknown_0x184;
 
   /* 之后为负载（Payload），不包含在此结构体中 */
-} AppHeader;
+} AppletHeader;
 
 static uint32_t le32_to_host(const uint8_t *buf) {
   return (uint32_t)buf[0] | ((uint32_t)buf[1] << 8) | ((uint32_t)buf[2] << 16) |
@@ -74,7 +74,7 @@ static uint32_t le32_to_host(const uint8_t *buf) {
  * 解析函数：从文件读取头部，填充结构体，并可选返回负载数据和大小
  * ========================================================================= */
 
-bool parse_app_header(FILE *fp, AppHeader *header) {
+bool parse_app_header(FILE *fp, AppletHeader *header) {
 
   uint8_t raw[HEADER_SIZE];
 
@@ -113,7 +113,7 @@ bool parse_app_header(FILE *fp, AppHeader *header) {
 /* =========================================================================
  * 打印函数：输出所有头部字段信息
  * ========================================================================= */
-void print_header(const AppHeader *h) {
+void print_header(const AppletHeader *h) {
   printf("========== .app 头部信息 ==========\n");
   printf("AppletID        : 0x%08X (%u)\n", h->AppletID, h->AppletID);
   printf("Version         : 0x%08X (%u)\n", h->Version, h->Version);

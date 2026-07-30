@@ -60,9 +60,9 @@ typedef struct {
   uint32_t Unknown_0x184;
 
   /* 之后为负载（Payload），不包含在此结构体中 */
-} AppHeader;
+} AppletHeader;
 
-bool parse_app_header(FILE *fp, AppHeader *header);
-void print_header(const AppHeader *header);
+bool parse_app_header(FILE *fp, AppletHeader *header);
+void print_header(const AppletHeader *header);
 
 #endif

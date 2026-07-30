@@ -136,7 +136,7 @@ extern uint32_t TR_cbk_default;
 
 // -------------------- 全局变量 --------------------
 extern uc_engine *uc;
-extern AppHeader header;
+extern AppletHeader header;
 extern uint32_t heap_ptr;
 
 extern uint32_t g_instance;
@@ -144,7 +144,7 @@ extern uint32_t g_handler;
 extern int g_trap_pause;
 extern int g_disasm;
 
-extern csh handle;
+extern csh cs_handle;
 extern cs_insn *insn;
 extern size_t count;
 extern uint8_t code[16];
