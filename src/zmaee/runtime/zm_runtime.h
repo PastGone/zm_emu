@@ -27,15 +27,6 @@ uint32_t zm_rt_queryInterface(uc_engine *uc, uint32_t svc, uint32_t out_ptr);
 uint32_t zm_rt_getSystemInfo(uc_engine *uc, uint32_t out_ptr);
 
 /**
- * @brief 设置屏幕宽高，供 getSystemInfo 返回。
- *        应在解析 AppHeader 后、启动模拟前调用，使 applet 布局与
- *         渲染窗口（AppHeader.ScreenW/ScreenH）一致。
- */
-void zm_rt_set_screen_size(uint32_t w, uint32_t h);
-
-/* ---- 00000405.app 新增 runtime 接口 ---- */
-
-/**
  * @brief RT_VT[+0x58] loadDLL(name_ptr, name_len, out_ptr)
  *
  * sub_85248 调 (*RUNTIME+88)(RUNTIME, "zmsys001.dll", 28, &out)。

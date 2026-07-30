@@ -3,12 +3,10 @@
 #include "./log/log.h"
 //
 #include "./emu.h"
-#include "./event.h"
 #include "./test/test_diag.h"
 #include "./zmaee/audio/zm_audio.h"
 #include "./zmaee/fs/zm_fs.h"
 #include "./zmaee/gfx/zm_gfx.h"
-#include "./zmaee/runtime/zm_runtime.h"
 //
 #include <SDL2/SDL.h>
 #include <capstone/capstone.h>
@@ -67,8 +65,8 @@ int main() {
   }
 
   // 初始化 SDL2 渲染与音频
-  zm_rt_set_screen_size(header.ScreenW, header.ScreenH);
-  if (zm_gfx_init(header.ScreenW, header.ScreenH) != 0) {
+
+  if (zm_gfx_init() != 0) {
     log_warn("zm_gfx_init 失败，渲染将不可用（继续运行）");
   }
   if (zm_audio_init() != 0) {

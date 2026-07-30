@@ -13,7 +13,7 @@
 /* 初始化 SDL 窗口 / 渲染器 / 画布 / 字体。
  * screen_w / screen_h 取自 AppHeader，作为窗口与画布尺寸。
  * 成功返回 0，失败返回 -1。 */
-int zm_gfx_init(uint32_t screen_w, uint32_t screen_h);
+int zm_gfx_init();
 
 /* 释放 SDL 资源（窗口、渲染器、画布、字体） */
 void zm_gfx_shutdown(void);

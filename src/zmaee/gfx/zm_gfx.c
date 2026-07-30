@@ -168,16 +168,16 @@ static void fb_commit(void) {
 
 /* ---------- 生命周期 ---------- */
 
-int zm_gfx_init(uint32_t screen_w, uint32_t screen_h) {
+int zm_gfx_init() {
   if (g_win)
     return 0; /* 已初始化 */
 
-  if (screen_w == 0)
-    screen_w = 240;
-  if (screen_h == 0)
-    screen_h = 240;
-  g_w = (int)screen_w;
-  g_h = (int)screen_h;
+  if (header.ScreenW == 0)
+    header.ScreenW = 240;
+  if (header.ScreenH == 0)
+    header.ScreenH = 240;
+  g_w = (int)header.ScreenW;
+  g_h = (int)header.ScreenH;
 
   if (SDL_Init(SDL_INIT_VIDEO) != 0) {
     log_error("SDL_Init failed: %s", SDL_GetError());
