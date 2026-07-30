@@ -17,6 +17,9 @@
 
 int main() {
   log_info("hello world!");
+  log_set_level(LOG_TRACE);
+  FILE *logfile = fopen("log.txt", "w");
+  log_add_fp(logfile, LOG_TRACE);
 
   // 调试开关：ZM_STEP=1 每个 trap 后等待回车；ZM_DISASM=1 反汇编每条指令
   {

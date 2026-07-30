@@ -35,11 +35,10 @@ void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
     uc_mem_write(uc, INSTANCE, zero_buf, size);
     free(zero_buf);
 
-    char app_name[64];
-    snprintf(app_name, sizeof(app_name), "%.*s.app",
-             (int)sizeof(header.AppName), header.AppName);
-    uc_mem_write(uc, INSTANCE + 4, app_name, strlen(app_name) + 1);
-    log_info("AppName: %s\n", app_name);
+    char *filename =
+        "00000102.app"; // 这个地方传的是它在文件管理器面显示的名称当然也有可能是路径反正不是他解码之后文件头里面的那个名称
+    uc_mem_write(uc, INSTANCE + 4, filename, strlen(filename) + 1);
+    log_info("filename: %s\n", filename);
     log_info("  instance=0x%X\n", INSTANCE);
 
     uint32_t stack_ptr = STACK_TOP;

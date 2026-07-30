@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../../log/log.h"
 #include "zm_addrs.h"
 #include "zm_common.h"
 
@@ -66,6 +67,7 @@ uint32_t zm_sprintf(uc_engine *uc, uint32_t dest_addr, uint32_t fmt_addr,
                     uint32_t args_addr) {
   char fmt[256];
   read_cstr(uc, fmt_addr, fmt, sizeof(fmt));
+  log_debug("格式化字符串为: %s", fmt);
   char out[512];
   size_t oi = 0;
   uint32_t arg_off = 4; /* 第一个参数位于 args_addr + 4 */
@@ -177,6 +179,8 @@ uint32_t zm_sprintf(uc_engine *uc, uint32_t dest_addr, uint32_t fmt_addr,
       break; /* snprintf 出错 */
   }
   out[oi] = '\0';
+  log_debug("最终的拼接结果为: %s", out);
+
   uc_mem_write(uc, dest_addr, out, oi + 1);
   return (uint32_t)oi;
 }
@@ -197,6 +201,7 @@ uint32_t zm_sprintf(uc_engine *uc, uint32_t dest_addr, uint32_t fmt_addr,
 uint32_t zm_str_ctor(uc_engine *uc, uint32_t dest_struct, uint32_t src_str) {
   char cstr[256];
   read_cstr(uc, src_str, cstr, sizeof(cstr));
+  log_debug("源字符串为: %s", cstr);
   uint32_t clen = (uint32_t)strlen(cstr);
   uint32_t inline_buf = dest_struct + 12;
 
