@@ -85,14 +85,14 @@ void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
     ret = zm_sprintf(uc, r0, r1, r2);
     break; /* sprintf */
   case 5:
-    ret = zm_str_ctor(uc, r0, r1);
-    break; /* str_ctor */
+    ret = zm_strcpy_cstr(uc, r0, r1);
+    break; /* str_ctor -> strcpy_cstr */
   case 6:
     ret = zm_spec_lookup(uc, r0);
     break; /* spec_lookup */
   case 7:
-    ret = zm_str_find(uc, r0, r1);
-    break; /* str_find */
+    ret = zm_strchr(uc, r0, r1);
+    break; /* str_find -> strchr */
   /* ---- runtime ---- */
   case 8:
     ret = zm_rt_queryInterface(uc, r1, r2);

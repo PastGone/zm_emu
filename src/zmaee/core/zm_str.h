@@ -17,21 +17,21 @@ uint32_t zm_strcpy(uc_engine *uc, uint32_t src, uint32_t src_len, uint32_t dst,
 uint32_t zm_sprintf(uc_engine *uc, uint32_t dest_addr, uint32_t fmt_addr,
                     uint32_t args_addr);
 
-/* root.str_ctor：把字符串封装成自描述结构体（指针+长度），写回客户机，返回结构体基址 */
-uint32_t zm_str_ctor(uc_engine *uc, uint32_t dest_struct, uint32_t src_str);
+/* root.str_ctor：把源 C 字符串拷贝到客户机目标地址（含 '\0'），返回目标地址 */
+uint32_t zm_strcpy_cstr(uc_engine *uc, uint32_t dest_struct, uint32_t src_str);
 
 /* root.spec_lookup：按单字符查规格，命中则返回存放该字符的客户机地址，否则 0 */
 uint32_t zm_spec_lookup(uc_engine *uc, uint32_t ch_addr);
 
-/* root.str_find：在字符串对象中查找字符，命中返回子指针，否则 0 */
-uint32_t zm_str_find(uc_engine *uc, uint32_t str_obj_ptr, uint32_t ch);
+/* root.str_find：在字符串对象/裸 C 串中查找字符，命中返回子指针，否则 0 */
+uint32_t zm_strchr(uc_engine *uc, uint32_t str_obj_ptr, uint32_t ch);
 
 /**
  * @brief 鲁棒地读取一个"可能是 zmaee 字符串对象"的客户机地址到 buf
  *
  * 兼容两种形态：
  *   (a) zmaee 字符串对象：首 4B 为数据指针（指向内联缓冲 +12 或堆/栈地址），
- *       +4 为长度。str_ctor/str_assign 构造的对象 data_ptr 通常 == ptr+12。
+ *       +4 为长度。strcpy_cstr/str_assign 构造的对象 data_ptr 通常 == ptr+12。
  *   (b) 裸 C 字符串：sprintf 拼出的 "%s%08x.app" 等直接传给 fs.open。
  *
  * 判定：先读 data_ptr=*(u32*)ptr 与 len=*(u32*)(ptr+4)。

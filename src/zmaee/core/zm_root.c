@@ -38,7 +38,7 @@ uint32_t zm_root_memset(uc_engine *uc, uint32_t dst, uint32_t val, uint32_t len)
 /**
  * @brief ROOT[0x78] str_assign(str_obj, cstr_ptr)
  *
- * 把 C 字符串赋值给 zmaee 字符串对象（与 zm_str_ctor 相同的自描述布局）：
+ * 把 C 字符串赋值给 zmaee 字符串对象（与 zm_strcpy_cstr 写回客户机的布局相同）：
  *   +0  : 数据指针（指向 +12 内联缓冲）
  *   +4  : 长度
  *   +8  : 容量

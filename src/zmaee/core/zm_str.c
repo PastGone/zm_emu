@@ -185,37 +185,29 @@ uint32_t zm_sprintf(uc_engine *uc, uint32_t dest_addr, uint32_t fmt_addr,
 }
 
 /**
- * @brief 将客户机字符串封装为一个自描述结构体（指针+长度），并写回客户机
+ * @brief root.str_ctor：把源 C 字符串拷贝到客户机目标地址（含 '\0'）
  *
- * 结构体布局（对应 main.txt.c 中 root.str_ctor 的实现）：
- *   +0  : 数据指针（指向 +12 处的内联缓冲区）
- *   +4  : 字符串长度
- *   +8  : 容量（与长度相同）
- *   +12 : 内联字符串数据（含 '\0'）
+ * 00000102.app 中的实际用法是“扩展名替换”：
+ *   strcpy_cstr(instance+0x214, "00000102.app")  // 复制完整文件名
+ *   strchr(..., '.')                             // 找到 '.'
+ *   strcpy_cstr('.'+1, "zmr")                    // 把 "app" 替换成 "zmr"
  *
- * @param dest_struct 结构体基址（对应 r0）
+ * @param dest_struct 目标地址（对应 r0）
  * @param src_str     源字符串地址（对应 r1）
  * @return 返回 dest_struct（即 r0）
  */
-uint32_t zm_str_ctor(uc_engine *uc, uint32_t dest_struct, uint32_t src_str) {
+uint32_t zm_strcpy_cstr(uc_engine *uc, uint32_t dest_struct, uint32_t src_str) {
   if (dest_struct == 0 || src_str == 0)
     return dest_struct;
 
   char cstr[256];
   read_cstr(uc, src_str, cstr, sizeof(cstr));
-  log_debug("str_ctor 复制: '%s' -> 0x%08X", cstr, dest_struct);
+  log_debug("strcpy_cstr: '%s' -> 0x%08X", cstr, dest_struct);
 
   uint32_t clen = (uint32_t)strlen(cstr);
   if (clen > 255)
     clen = 255;
 
-  /*
-   * 00000102.app 中的实际用法是把扩展名直接写到已有字符串缓冲区里：
-   *   str_ctor(instance+0x214, "00000102.app")   // 复制完整文件名
-   *   str_find(..., '.')                         // 找到 '.'
-   *   str_ctor('.'+1, "zmr")                     // 把 "app" 替换成 "zmr"
-   * 因此这里按 C 字符串拷贝处理，而不是构造带 header 的字符串对象。
-   */
   uc_mem_write(uc, dest_struct, cstr, clen + 1);
 
   return dest_struct;
@@ -242,32 +234,32 @@ uint32_t zm_spec_lookup(uc_engine *uc, uint32_t ch_addr) {
 }
 
 /**
- * @brief root.str_find：在字符串对象中查找字符
+ * @brief root.str_find → zm_strchr：在字符串对象或裸 C 串中查找字符
  *
- * str_obj_ptr 指向一个字符串对象，其首字段（+0）为 C 字符串指针。
- * 在该字符串中查找字符 ch（取低 8 位），命中返回 字符串基址+偏移，
- * 未命中返回 0。
+ * 先按 zmaee 字符串对象（+0=data_ptr, +4=len）解析；解析失败则把
+ * str_obj_ptr 当裸 C 字符串缓冲区处理。
+ * 命中返回字符在客户机中的地址，未命中返回 0。
  *
- * @param str_obj_ptr 字符串对象基址（对应 r0）
+ * @param str_obj_ptr 字符串对象基址或裸 C 串地址（对应 r0）
  * @param ch          待查找字符（对应 r1，取低 8 位）
  * @return 命中返回子指针，未命中返回 0
  */
-uint32_t zm_str_find(uc_engine *uc, uint32_t str_obj_ptr, uint32_t ch) {
+uint32_t zm_strchr(uc_engine *uc, uint32_t str_obj_ptr, uint32_t ch) {
   if (str_obj_ptr == 0)
     return 0;
 
   /*
    * 兼容两种形态：
    *   (a) zmaee 字符串对象：+0=data_ptr，+4=len，data_ptr 可映射。
-   *   (b) 裸 C 字符串缓冲区：str_ctor 把文件名直接复制到 instance+0x214
-   *       后，str_find 需要能直接在缓冲区里查找字符。
+   *   (b) 裸 C 字符串缓冲区：strcpy_cstr 把文件名直接复制到 instance+0x214
+   *       后，strchr 需要能直接在缓冲区里查找字符。
    */
   uint32_t data_ptr = 0, len = 0;
   bool as_obj = false;
   if (uc_mem_read(uc, str_obj_ptr, &data_ptr, 4) == UC_ERR_OK &&
       uc_mem_read(uc, str_obj_ptr + 4, &len, 4) == UC_ERR_OK) {
     if (data_ptr == str_obj_ptr + 12) {
-      as_obj = true; /* str_assign/str_ctor 的内联对象布局 */
+      as_obj = true; /* str_assign/strcpy_cstr 的内联对象布局 */
     } else if (data_ptr != 0 && len < 4096) {
       uint8_t first = 0;
       if (uc_mem_read(uc, data_ptr, &first, 1) == UC_ERR_OK &&
@@ -292,7 +284,7 @@ uint32_t zm_str_find(uc_engine *uc, uint32_t str_obj_ptr, uint32_t ch) {
  * @brief 鲁棒读取"可能是 zmaee 字符串对象"的客户机地址
  *
  * 详见 zm_str.h 注释。判定优先级：
- *   1. data_ptr==ptr+12（str_ctor/str_assign 内联布局）→ 解引用
+ *   1. data_ptr==ptr+12（strcpy_cstr/str_assign 内联布局）→ 解引用
  *   2. data_ptr 可读且首字节可打印/0 且 len<4096 → 解引用
  *   3. 否则按裸 C 串读取 ptr
  *
