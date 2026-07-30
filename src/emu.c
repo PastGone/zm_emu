@@ -360,28 +360,31 @@ void zm_emu_load_zmr_if_exists(uc_engine *uc, const char *app_path) {
   }
 }
 
-int zm_emu_add_hooks(uc_engine *uc, uc_hook *hook_code_h,
-                     uc_hook *hook_unmapped_h, uc_hook *hook_shim_h) {
+int zm_emu_add_hooks(uc_engine *uc) {
+  uc_hook hook_code_handle;
+  uc_hook hook_unmapped_mem_handle;
+  uc_hook hook_shim_mem_handle;
+
   uc_err err;
   log_info("添加钩子");
 
-  err =
-      uc_hook_add(uc, hook_code_h, UC_HOOK_CODE, (void *)hook_code, NULL, 1, 0);
+  err = uc_hook_add(uc, &hook_code_handle, UC_HOOK_CODE, (void *)hook_code,
+                    NULL, 1, 0);
   if (err != UC_ERR_OK) {
     log_error("uc_hook_add failed, err: %d\n", err);
     return -1;
   }
 
-  err = uc_hook_add(uc, hook_unmapped_h, UC_HOOK_MEM_UNMAPPED,
+  err = uc_hook_add(uc, &hook_unmapped_mem_handle, UC_HOOK_MEM_UNMAPPED,
                     (void *)hook_mem_unmapped, NULL, 1, 0);
   if (err != UC_ERR_OK) {
     log_error("uc_hook_add failed, err: %d\n", err);
     return -1;
   }
 
-  err = uc_hook_add(uc, hook_shim_h, UC_HOOK_MEM_READ | UC_HOOK_MEM_WRITE,
-                    (void *)hook_shim_mem, NULL, SHIM_BASE,
-                    SHIM_BASE + SHIM_SIZE);
+  err = uc_hook_add(uc, &hook_shim_mem_handle,
+                    UC_HOOK_MEM_READ | UC_HOOK_MEM_WRITE, (void *)hook_shim_mem,
+                    NULL, SHIM_BASE, SHIM_BASE + SHIM_SIZE);
   if (err != UC_ERR_OK) {
     log_error("uc_hook_add failed, err: %d\n", err);
     return -1;

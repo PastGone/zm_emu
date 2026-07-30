@@ -164,8 +164,7 @@ int zm_emu_load_blob(uc_engine *uc, const char *filename, long *out_size);
 void zm_emu_load_zmr_if_exists(uc_engine *uc, const char *app_path);
 
 /* 注册 Unicorn 钩子（code / unmapped mem / shim mem） */
-int zm_emu_add_hooks(uc_engine *uc, uc_hook *hook_code_h,
-                     uc_hook *hook_unmapped_h, uc_hook *hook_shim_h);
+int zm_emu_add_hooks(uc_engine *uc);
 
 /* 设置初始寄存器，启动 applet（init → 绘制 → 停止） */
 int zm_emu_start_applet(uc_engine *uc);

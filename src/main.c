@@ -4,6 +4,7 @@
 //
 #include "./emu.h"
 #include "./event.h"
+#include "./test/test_diag.h"
 #include "./zmaee/audio/zm_audio.h"
 #include "./zmaee/fs/zm_fs.h"
 #include "./zmaee/gfx/zm_gfx.h"
@@ -13,7 +14,6 @@
 #include <capstone/capstone.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <unicorn/unicorn.h>
 
 int main() {
@@ -40,10 +40,10 @@ int main() {
   uc_err my_uc_err;
 
   // 打开 applet 文件
-  // char *filename = "/home/apollo/文档/古时游戏/zm_emu/applet/00000102/"
-  //                  "00000102.app"; // 测试文件1（向后兼容验证）
-  char *filename = "/home/apollo/文档/古时游戏/zm_emu/applet/00000405/"
-                   "00000405.app"; // 测试文件2（号码归属）
+  char *filename = "/home/apollo/文档/古时游戏/zm_emu/applet/00000102/"
+                   "00000102.app"; // 测试文件1（向后兼容验证）
+  // char *filename = "/home/apollo/文档/古时游戏/zm_emu/applet/00000405/"
+  //                  "00000405.app"; // 测试文件2（号码归属）
   // /home/apollo/文档/古时游戏/zmaee_emu/zemee/0000050c/0000050c.app
   // char *filename = "/home/apollo/文档/古时游戏/zmaee_emu/zemee/0000050c/"
   //                  "0000050c.app"; // 测试文件3
@@ -101,11 +101,8 @@ int main() {
   }
 
   // 注册钩子
-  uc_hook hook_code_handle;
-  uc_hook hook_unmapped_mem_handle;
-  uc_hook hook_shim_mem_handle;
-  if (zm_emu_add_hooks(uc, &hook_code_handle, &hook_unmapped_mem_handle,
-                       &hook_shim_mem_handle) != 0) {
+
+  if (zm_emu_add_hooks(uc) != 0) {
     uc_close(uc);
     cs_close(&cs_handle);
     return 1;
@@ -141,64 +138,11 @@ int main() {
   // 启动 applet（init → 绘制 → 停止）
   zm_emu_start_applet(uc);
 
-  // 调试：ZM_DUMP_BUTTONS=1 时打印 applet 在 init 中计算出的 25 个按钮矩形
-  {
-    const char *db = getenv("ZM_DUMP_BUTTONS");
-    if (db && *db && g_instance) {
-      for (uint32_t i = 0; i < 25; i++) {
-        uint32_t off = g_instance + 124 + i * 16;
-        uint32_t r[4];
-        if (uc_mem_read(uc, off, r, 16) == UC_ERR_OK)
-          log_info("按钮[%2u] rect=(%u,%u,%u,%u) center=(%u,%u)", i, r[0], r[1],
-                   r[2], r[3], r[0] + r[2] / 2, r[1] + r[3] / 2);
-      }
-    }
-  }
-
-  // 音频自测
-  {
-    const char *atest = getenv("ZM_AUDIO_TEST");
-    if (atest && *atest) {
-      uint32_t count = zm_fs_get_resource_count();
-      uint32_t idx = 0;
-      if (strcmp(atest, "random") == 0) {
-        srand((unsigned)time(NULL));
-        idx = count ? (uint32_t)(rand() % count) : 0;
-      } else {
-        idx = (uint32_t)strtoul(atest, NULL, 0);
-      }
-      uint32_t rsize = 0;
-      const uint8_t *rdata = zm_fs_get_resource(idx, &rsize);
-      if (rdata && rsize && rsize <= ZMR_SIZE) {
-        uc_mem_write(uc, ZMR_BASE, rdata, rsize);
-        log_info("音频自测：播放资源 %u/%u  size=%u", idx, count, rsize);
-        zm_ap_play(uc, ZMR_BASE, rsize);
-      } else {
-        log_warn("音频自测：资源 %u 不可用 (count=%u)", idx, count);
-      }
-    }
-  }
-
-  // 自动点击测试
-  {
-    const char *ac = getenv("ZM_AUTO_CLICK");
-    if (ac && *ac) {
-      unsigned ax = 0, ay = 0;
-      if (sscanf(ac, "%u,%u", &ax, &ay) == 2) {
-        log_info("自动点击测试: (%u,%u)", ax, ay);
-        on_touch_click((uint32_t)ax, (uint32_t)ay);
-      }
-    }
-  }
-
-  // 事件循环
-  {
-    uint32_t hold_ms = 0;
-    const char *env = getenv("ZM_GFX_HOLD_MS");
-    if (env && *env)
-      hold_ms = (uint32_t)strtoul(env, NULL, 0);
-    zm_gfx_event_loop(on_touch_click, hold_ms);
-  }
+  // 调试 & 自测（已拆至 test/test_diag.c）//diag 的意思是诊断
+  zm_diag_dump_buttons(uc);
+  zm_diag_audio_test(uc);
+  zm_diag_auto_click();
+  zm_diag_run_event_loop();
 
   // 释放资源
   zm_audio_shutdown();
