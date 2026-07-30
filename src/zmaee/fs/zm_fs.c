@@ -1,5 +1,6 @@
 #include "zm_fs.h"
 
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -200,6 +201,23 @@ void zm_fs_register_default(const char *applet_dir) {
   }
 
   char path[1280];
+
+  /* 先登记同目录下的 .zmr 资源包，让 applet 通过 fs.open 按名打开 */
+  DIR *d = opendir(dir);
+  if (d) {
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+      size_t len = strlen(ent->d_name);
+      if (len > 4 && strcmp(ent->d_name + len - 4, ".zmr") == 0) {
+        snprintf(path, sizeof(path), "%s/%s", dir, ent->d_name);
+        if (zm_fs_load_zmr(path)) {
+          log_info("zm_fs_register_default: 已登记 .zmr %s", path);
+        }
+      }
+    }
+    closedir(d);
+  }
+
   /* app_list 与 res 下的文件；applet 自身 .app 由 main.c 单独登记 */
   snprintf(path, sizeof(path), "%s/app_list/config.b", dir);
   zm_fs_register_hostfile(path, "config.b");

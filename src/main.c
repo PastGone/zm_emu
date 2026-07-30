@@ -132,9 +132,19 @@ int main() {
     }
   }
 
-  // 若存在同名 .zmr 资源文件，则载入并登记到文件系统中，
-  // 让 applet 可以按自己的顺序 open/read/seek 读取资源。
-  // zm_emu_load_zmr_if_exists(uc, filename);
+  // 把 applet 所在目录下的资源文件登记到 fs 表，
+  // 让 applet 通过 fs.open / read / seek 正常访问 .zmr / config.b / dll 等。
+  {
+    char applet_dir[1024];
+    strncpy(applet_dir, filename, sizeof(applet_dir) - 1);
+    applet_dir[sizeof(applet_dir) - 1] = '\0';
+    char *slash = strrchr(applet_dir, '/');
+    if (slash)
+      *slash = '\0';
+    zm_fs_register_default(applet_dir);
+    // 登记 applet 自身，供 sprintf("%s%08x.app") 自打开模式使用
+    zm_fs_register_hostfile(filename, g_app_name);
+  }
 
   // 启动 applet（init → 绘制 → 停止）
   zm_emu_start_applet(uc);
