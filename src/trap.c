@@ -31,6 +31,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
 
     log_info("  size=%d handler=0x%X\n", size, handler);
     uint32_t INSTANCE = host_malloc(&heap_ptr, size);
+
     uint8_t *zero_buf = calloc(1, size);
     uc_mem_write(uc, INSTANCE, zero_buf, size);
     free(zero_buf);
@@ -74,6 +75,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
     ret = host_malloc(&heap_ptr, r0);
     break; /* malloc */
   case 2:
+    log_debug("这里的话是 free(r0=%d)", r0);
     ret = 0;
     break; /* free */
   case 3:

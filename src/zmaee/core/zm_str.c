@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "../../log/log.h"
+#include "../../tool/odds.h"
 #include "zm_addrs.h"
 #include "zm_common.h"
 
@@ -204,7 +205,7 @@ uint32_t zm_str_ctor(uc_engine *uc, uint32_t dest_struct, uint32_t src_str) {
   log_debug("源字符串为: %s", cstr);
   uint32_t clen = (uint32_t)strlen(cstr);
   uint32_t inline_buf = dest_struct + 12;
-
+  pause_console();
   zm_write32(uc, dest_struct, inline_buf); // 数据指针
   zm_write32(uc, dest_struct + 4, clen);   // 长度
   zm_write32(uc, dest_struct + 8, clen);   // 容量
