@@ -13,6 +13,7 @@
 #include "./zmaee/fs/zm_fs.h"
 #include "./zmaee/gfx/zm_gfx.h"
 #include "./zmaee/runtime/zm_runtime.h"
+#include "event.h"
 
 void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
                  uint32_t r2, uint32_t r3, uint32_t sp, uint32_t lr) {
@@ -55,14 +56,23 @@ void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
      * *a3=0≠1、a3[64]=0≠4 → init 继续。 */
     uint32_t init_ctx = INIT_CTX;
     uc_reg_write(uc, UC_ARM_REG_R3, &init_ctx);
-    uint32_t end_addr = STACK_TOP;
-    uc_reg_write(uc, UC_ARM_REG_LR, &end_addr);
+
+    uint32_t callback_addr = TR_event_callback;
+    uc_reg_write(uc, UC_ARM_REG_LR, &callback_addr);
 
     g_instance = INSTANCE;
     g_handler = handler;
 
     uc_reg_write(uc, UC_ARM_REG_PC, &handler);
     return;
+  }
+  if (trap_address == TR_event_callback) {
+    zm_gfx_event_loop(on_touch_click, 0);
+    uint32_t callback_addr = TR_event_callback;
+    uc_reg_write(uc, UC_ARM_REG_LR, &callback_addr);
+
+    ret = 0;
+    /* event */
   }
 
   /* 其余 trap 按 (trap_address - TRAMP_BASE)/4 索引分发 */

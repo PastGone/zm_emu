@@ -90,6 +90,8 @@ extern uint32_t
     TR_fs_enum; /* FS_VT[0x30]：enumFile(FS, index) → 返 0 表无文件 */
 
 extern uint32_t TR_init_callback;
+extern uint32_t TR_event_callback;
+
 extern uint32_t SIZE_SLOT;
 extern uint32_t API_SLOT;
 

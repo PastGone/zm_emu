@@ -99,9 +99,14 @@ uint32_t TR_gfx_x4C = TRAP(73); /* GFX_VT[0x4C] */
 /* 00000405.app：FS vtable 缺失槽 */
 uint32_t TR_fs_enum = TRAP(74); /* FS_VT[0x30]：enumFile */
 
+//
 uint32_t TR_init_callback =
     TRAP(114514); // 随便写一个位置我想也应该不影响这个叫什么来.初始化回调
 
+// 事件回调因为 apple 是没有主循环的所以要用外部来完成这个主循环
+uint32_t TR_event_callback = TRAP(0721);
+
+//
 uint32_t SIZE_SLOT = SHIM_BASE + 0x700; // 其实这个文件大小槽还有待确认
 uint32_t API_SLOT = SHIM_BASE + 0x710;
 

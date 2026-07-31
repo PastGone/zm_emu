@@ -152,10 +152,10 @@ int main() {
   zm_emu_start_applet(uc);
 
   // 调试 & 自测（已拆至 test/test_diag.c）//diag 的意思是诊断
-  zm_diag_dump_buttons(uc);
-  // zm_diag_audio_test(uc);
-  zm_diag_auto_click();
-  zm_diag_run_event_loop();
+  // zm_diag_dump_buttons(uc);
+  // // zm_diag_audio_test(uc);
+  // zm_diag_auto_click();
+  // zm_diag_run_event_loop();
 
   // 释放资源
   zm_audio_shutdown();
