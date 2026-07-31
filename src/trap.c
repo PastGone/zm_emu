@@ -159,124 +159,15 @@ void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
   case 60:
     ret = zm_audio_get_status(uc, r1, r2);
     break; /* AUDIO_VT[0x24] */
-  /* ---- 00000405.app：GFX vtable 缺失槽 ---- */
-  case 61:
-    ret = zm_gfx_stub(uc, 0x18, r0, r1, r2, r3);
-    break; /* GFX_VT[0x18] */
-  case 62:
-    ret = zm_gfx_stub(uc, 0x34, r0, r1, r2, r3);
-    break; /* GFX_VT[0x34] */
-  case 63:
-    ret = zm_gfx_stub(uc, 0x38, r0, r1, r2, r3);
-    break; /* GFX_VT[0x38] */
-  case 64:
-    ret = zm_gfx_stub(uc, 0x44, r0, r1, r2, r3);
-    break; /* GFX_VT[0x44] */
-  case 65:
-    ret = zm_gfx_get_width(uc);
-    break; /* GFX_VT[0x48] */
-  case 66:
-    ret = zm_gfx_stub(uc, 0x54, r0, r1, r2, r3);
-    break; /* GFX_VT[0x54] */
-  case 67:
-    ret = zm_gfx_stub(uc, 0x68, r0, r1, r2, r3);
-    break; /* GFX_VT[0x68] */
-  case 68:
-    ret = zm_gfx_stub(uc, 0x94, r0, r1, r2, r3);
-    break; /* GFX_VT[0x94] */
-  case 69:
-    /* GFX_VT[0xA4]：createImage(gfx, buf, malloc, free, &out_obj)
-     * sub_8081C 用它创建背景位图对象；返回 0（成功）但不写 out_obj 会导致
-     * applet 解引用 null。返回 1（失败）使 applet 跳过位图绘制块，
-     * 直接走文本绘制路径（gfx[0x50] drawText）。 */
-    log_info("gfx[0xA4] createImage -> 1 (fail, skip tile draw)");
-    ret = 1;
-    break; /* GFX_VT[0xA4] */
-  case 70:
-    ret = zm_gfx_stub(uc, 0xB0, r0, r1, r2, r3);
-    break; /* GFX_VT[0xB0] */
-  case 71:
-    ret = zm_gfx_stub(uc, 0x0C, r0, r1, r2, r3);
-    break; /* GFX_VT[0x0C]：setClipRect */
-  case 72:
-    ret = zm_gfx_stub(uc, 0x28, r0, r1, r2, r3);
-    break; /* GFX_VT[0x28]：flush */
+    /* ---- 00000405.app：GFX vtable 缺失槽 ---- */
+
   case 73:
     ret = zm_gfx_measure_char(uc, r0, r1, r2, r3);
     break; /* GFX_VT[0x4C]：measureChar */
   case 74:
     ret = zm_fs_enum(uc, r0, r1);
     break; /* FS_VT[0x30]：enumFile */
-  /* ---- 00000405.app：ROOT vtable 缺失槽 ---- */
-  case 23:
-    ret = zm_root_stub(uc, 0x18, r0, r1, r2, r3);
-    break;
-  case 24:
-    ret = zm_root_stub(uc, 0x1C, r0, r1, r2, r3);
-    break;
-  case 25:
-    ret = zm_root_stub(uc, 0x24, r0, r1, r2, r3);
-    break;
-  case 26:
-    ret = zm_root_stub(uc, 0x50, r0, r1, r2, r3);
-    break;
-  case 27:
-    ret = zm_root_stub(uc, 0x5C, r0, r1, r2, r3);
-    break;
-  case 28:
-    ret = zm_root_memset(uc, r0, r1, r2);
-    break; /* ROOT[0x60] */
-  case 29:
-    ret = zm_root_stub(uc, 0x74, r0, r1, r2, r3);
-    break;
-  case 30:
-    ret = zm_root_str_assign(uc, r0, r1);
-    break; /* ROOT[0x78] */
-  case 31:
-    ret = zm_root_stub(uc, 0x7C, r0, r1, r2, r3);
-    break;
-  case 32:
-    ret = zm_root_stub(uc, 0x80, r0, r1, r2, r3);
-    break;
-  case 33:
-    ret = zm_root_stub(uc, 0x84, r0, r1, r2, r3);
-    break;
-  case 34:
-    ret = zm_root_stub(uc, 0x8C, r0, r1, r2, r3);
-    break;
-  case 35:
-    ret = zm_root_stub(uc, 0x90, r0, r1, r2, r3);
-    break;
-  case 36:
-    ret = zm_root_stub(uc, 0xB0, r0, r1, r2, r3);
-    break;
-  case 37:
-    ret = zm_root_stub(uc, 0xC0, r0, r1, r2, r3);
-    break;
-  case 38:
-    ret = zm_root_stub(uc, 0xC8, r0, r1, r2, r3);
-    break;
-  case 39:
-    ret = zm_root_stub(uc, 0xD0, r0, r1, r2, r3);
-    break;
-  case 40:
-    ret = zm_root_get_tick(uc);
-    break; /* ROOT[0xD8] */
-  case 41:
-    ret = zm_root_stub(uc, 0x12C, r0, r1, r2, r3);
-    break;
-  case 42:
-    ret = zm_root_stub(uc, 0x130, r0, r1, r2, r3);
-    break;
-  case 43:
-    ret = zm_root_stub(uc, 0x140, r0, r1, r2, r3);
-    break;
-  case 44:
-    ret = zm_root_create_cbk(uc);
-    break; /* ROOT[0x154] */
-  case 45:
-    ret = zm_root_stub(uc, 0x16C, r0, r1, r2, r3);
-    break;
+
   /* ---- 服务对象 / FS / RT / DLL / CBK ---- */
   case 46:
     ret = zm_svc_release(uc);
