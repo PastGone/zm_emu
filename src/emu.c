@@ -154,7 +154,6 @@ int zm_emu_map_memory(uc_engine *uc) {
   err = uc_mem_map(uc, HEAP_BASE, HEAP_SIZE, UC_PROT_ALL);
   err = uc_mem_map(uc, SHIM_BASE, SHIM_SIZE, UC_PROT_ALL);
   err = uc_mem_map(uc, TRAMP_BASE, TRAMP_SIZE, UC_PROT_ALL);
-  err = uc_mem_map(uc, ZMR_BASE, ZMR_SIZE, UC_PROT_ALL);
   if (err != UC_ERR_OK) {
     log_error("uc_mem_map failed, err: %d\n", err);
     return -1;

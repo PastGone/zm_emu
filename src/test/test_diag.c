@@ -23,28 +23,28 @@ void zm_diag_dump_buttons(uc_engine *uc) {
   }
 }
 
-void zm_diag_audio_test(uc_engine *uc) {
-  const char *atest = getenv("ZM_AUDIO_TEST");
-  if (atest && *atest) {
-    uint32_t count = zm_fs_get_resource_count();
-    uint32_t idx = 0;
-    if (strcmp(atest, "random") == 0) {
-      srand((unsigned)time(NULL));
-      idx = count ? (uint32_t)(rand() % count) : 0;
-    } else {
-      idx = (uint32_t)strtoul(atest, NULL, 0);
-    }
-    uint32_t rsize = 0;
-    const uint8_t *rdata = zm_fs_get_resource(idx, &rsize);
-    if (rdata && rsize && rsize <= ZMR_SIZE) {
-      uc_mem_write(uc, ZMR_BASE, rdata, rsize);
-      log_info("音频自测：播放资源 %u/%u  size=%u", idx, count, rsize);
-      zm_ap_play(uc, ZMR_BASE, rsize);
-    } else {
-      log_warn("音频自测：资源 %u 不可用 (count=%u)", idx, count);
-    }
-  }
-}
+// void zm_diag_audio_test(uc_engine *uc) {
+//   const char *atest = getenv("ZM_AUDIO_TEST");
+//   if (atest && *atest) {
+//     uint32_t count = zm_fs_get_resource_count();
+//     uint32_t idx = 0;
+//     if (strcmp(atest, "random") == 0) {
+//       srand((unsigned)time(NULL));
+//       idx = count ? (uint32_t)(rand() % count) : 0;
+//     } else {
+//       idx = (uint32_t)strtoul(atest, NULL, 0);
+//     }
+//     uint32_t rsize = 0;
+//     const uint8_t *rdata = zm_fs_get_resource(idx, &rsize);
+//     if (rdata && rsize && rsize <= ZMR_SIZE) {
+//       uc_mem_write(uc, ZMR_BASE, rdata, rsize);
+//       log_info("音频自测：播放资源 %u/%u  size=%u", idx, count, rsize);
+//       zm_ap_play(uc, ZMR_BASE, rsize);
+//     } else {
+//       log_warn("音频自测：资源 %u 不可用 (count=%u)", idx, count);
+//     }
+//   }
+// }
 
 void zm_diag_auto_click(void) {
   const char *ac = getenv("ZM_AUTO_CLICK");

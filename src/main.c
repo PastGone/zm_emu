@@ -16,7 +16,7 @@
 #include <unicorn/unicorn.h>
 
 /* 当前 applet 短名称，供 trap.c 写入 instance+4 */
-char g_app_name[128] = {0};
+char g_app_pathname[4096] = {0};
 
 int main() {
   log_info("hello world!");
@@ -50,16 +50,17 @@ int main() {
   // char *filename = "/home/apollo/文档/古时游戏/zm_emu/applet/00000405/"
   //                  "00000405.app"; // 测试文件2（号码归属）
   // /home/apollo/文档/古时游戏/zmaee_emu/zemee/0000050c/0000050c.app
-  // char *filename = "/home/apollo/文档/古时游戏/zmaee_emu/zemee/0000050c/"
-  //                  "0000050c.app"; // 测试文件3
+  // char *filename = "/home/apollo/文档/古时游戏/zm_emu/applet/theme/00000bb9/"
+  //                  "00000bb9.app"; // 测试文件3
 
   /* 把短名称（如 "00000102.app"）保存给 TR_init_callback 使用 */
-  {
-    const char *bn = strrchr(filename, '/');
-    bn = bn ? bn + 1 : filename;
-    strncpy(g_app_name, bn, sizeof(g_app_name) - 1);
-    g_app_name[sizeof(g_app_name) - 1] = '\0';
-  }
+  // {
+  //   const char *bn = strrchr(filename, '/');
+  //   bn = bn ? bn + 1 : filename;
+  //   strncpy(g_app_pathname, bn, sizeof(g_app_pathname) - 1);
+  //   g_app_pathname[sizeof(g_app_pathname) - 1] = '\0';
+  // }
+  snprintf(g_app_pathname, sizeof(g_app_pathname), "%s", filename);
 
   // 先解析 applet 头（不依赖 uc），以获取屏幕尺寸
   FILE *fp = fopen(filename, "rb");
@@ -143,7 +144,7 @@ int main() {
       *slash = '\0';
     zm_fs_register_default(applet_dir);
     // 登记 applet 自身，供 sprintf("%s%08x.app") 自打开模式使用
-    zm_fs_register_hostfile(filename, g_app_name);
+    zm_fs_register_hostfile(filename, g_app_pathname);
   }
 
   // 启动 applet（init → 绘制 → 停止）
@@ -151,7 +152,7 @@ int main() {
 
   // 调试 & 自测（已拆至 test/test_diag.c）//diag 的意思是诊断
   zm_diag_dump_buttons(uc);
-  zm_diag_audio_test(uc);
+  // zm_diag_audio_test(uc);
   zm_diag_auto_click();
   zm_diag_run_event_loop();
 

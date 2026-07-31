@@ -16,7 +16,7 @@
 #define BLOB_SIZE (1 * ONE_MB)
 
 #define STACK_BASE (BLOB_BASE + BLOB_SIZE)
-#define STACK_SIZE (1 * ONE_MB)
+#define STACK_SIZE (1 * HALF_MB)
 #define STACK_TOP (STACK_BASE + STACK_SIZE)
 
 #define HEAP_BASE (STACK_TOP + ONE_MB / 8)
@@ -28,9 +28,6 @@
 
 #define TRAMP_BASE (SHIM_BASE + SHIM_SIZE)
 #define TRAMP_SIZE (1 * HALF_MB)
-
-#define ZMR_BASE (TRAMP_BASE + TRAMP_SIZE)
-#define ZMR_SIZE (2 * ONE_MB)
 
 #define ROOT_SLOT_OFF 0x180
 
@@ -148,7 +145,9 @@ extern int g_disasm;
 
 /* 当前载入 applet 的短名称（如 "00000102.app"），由 main.c 设置，
  * 供 TR_init_callback 写入 applet instance+4。 */
-extern char g_app_name[128];
+extern char
+    g_app_pathname[4096]; // 4096是 linux
+                          // 的最长文件名,这里设了这么大是为了防止搞什么摇蛾子
 
 extern csh cs_handle;
 extern cs_insn *insn;

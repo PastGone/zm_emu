@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "./emu.h"
+#include "./tool/odds.h"
 #include "./zmaee/audio/zm_audio.h"
 #include "./zmaee/core/zm_addrs.h"
 #include "./zmaee/core/zm_mem.h"
@@ -40,8 +41,9 @@ void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
     /* 把当前 applet 短名称写入 instance+4；applet 用它在运行时构造
      * "<name>.zmr" 等资源文件名。使用短名而非完整路径，避免污染
      * instance 边界外的堆内存。 */
-    uc_mem_write(uc, INSTANCE + 4, g_app_name, strlen(g_app_name) + 1);
-    log_info("filename: %s\n", g_app_name);
+    const char *filename = get_filename_from_fullpath(g_app_pathname);
+    uc_mem_write(uc, INSTANCE + 4, filename, strlen(filename) + 1);
+    log_info("filename: %s\n", filename);
     log_info("  instance=0x%X\n", INSTANCE);
 
     uint32_t stack_ptr = STACK_TOP;
