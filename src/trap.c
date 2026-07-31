@@ -1,6 +1,7 @@
 #include "./trap.h"
 #include "./log/log.h"
 #include <inttypes.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "./emu.h"
@@ -67,12 +68,20 @@ void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
     return;
   }
   if (trap_address == TR_event_callback) {
-    zm_gfx_event_loop(on_touch_click, 0);
-    uint32_t callback_addr = TR_event_callback;
-    uc_reg_write(uc, UC_ARM_REG_LR, &callback_addr);
-
-    ret = 0;
-    /* event */
+    /* 事件循环：阻塞直到用户关窗（SDL_QUIT）或超时（ZM_GFX_HOLD_MS）。
+     * 循环返回 = 模拟应结束。必须 uc_emu_stop + return，否则会
+     * fall-through 到下方 switch：idx = (TR_event_callback - TRAMP_BASE)/4
+     * = 465（0721 八进制 = 465 十进制）命中 default 误报"非法的外部调用
+     * idx=465"，且 PC=LR=TR_event_callback 反复重入导致 0x2001b8 越界。 */
+    /* ZM_GFX_HOLD_MS：仅用于无头/自动化测试时让事件循环超时返回（与
+     * test_diag 一致）。默认 0 = 直到关窗，交互行为不变。 */
+    uint32_t hold_ms = 0;
+    const char *env = getenv("ZM_GFX_HOLD_MS");
+    if (env && *env)
+      hold_ms = (uint32_t)strtoul(env, NULL, 0);
+    zm_gfx_event_loop(on_touch_click, hold_ms);
+    uc_emu_stop(uc);
+    return;
   }
 
   /* 其余 trap 按 (trap_address - TRAMP_BASE)/4 索引分发 */

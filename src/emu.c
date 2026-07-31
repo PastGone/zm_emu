@@ -74,7 +74,7 @@ int zm_emu_build_vtables(uc_engine *uc) {
   uc_err err;
   // root
   err = uc_write32(uc, ROOT, TR_root_queryRuntime);
-  err = uc_write32(uc, ROOT, TR_root_malloc);
+  err = uc_write32(uc, ROOT + 0x008, TR_root_malloc);
   err = uc_write32(uc, ROOT + 0x00C, TR_root_free);
   err = uc_write32(uc, ROOT + 0x020, TR_root_str_copy);
   err = uc_write32(uc, ROOT + 0x06C, TR_root_sprintf);

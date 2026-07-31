@@ -25,3 +25,10 @@ void on_touch_click(uint32_t x, uint32_t y) {
   dispatch_applet_event(9, x, y);
   dispatch_applet_event(10, x, y);
 }
+
+/*evt 跳转目标 含义 说明 0 sub_518 EVT_APP_START (init) ✅确认
+ * 初始化：查接口、画 25 个按钮 1 sub_78C EVT_APP_STOP (cleanup) 推断 释放 init
+ * 中获取的服务对象 2–8 default 未处理 直接返回 1（不关心的事件） 9 sub_824
+ * EVT_PEN_DOWN ✅确认 记录按下点 10 sub_8B4 EVT_PEN_UP ✅确认 判定点击的按钮 →
+ * 读 .zmr 播 MP3 11 sub_198 EVT_PEN_MOVE 推断 更新拖动包围盒 >11 default 未处理
+ * 返回 1 */
