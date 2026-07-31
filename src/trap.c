@@ -19,9 +19,9 @@
 void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
                  uint32_t r2, uint32_t r3, uint32_t sp, uint32_t lr) {
   uint32_t ret = 0;
+  switch (trap_address) {
+  case TR_init_callback: {
 
-  /* TR_init_callback：特殊处理（不写 R0/PC 走通用路径，而是直接跳 handler） */
-  if (trap_address == TR_init_callback) {
     uint32_t size;
     if (uc_mem_read(uc, SIZE_SLOT, &size, 4) != UC_ERR_OK) {
       log_error("Failed to read size");
@@ -66,8 +66,8 @@ void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
 
     uc_reg_write(uc, UC_ARM_REG_PC, &handler);
     return;
-  }
-  if (trap_address == TR_event_callback) {
+  } break;
+  case TR_event_callback: {
     /* 事件循环：阻塞直到用户关窗（SDL_QUIT）或超时（ZM_GFX_HOLD_MS）。
      * 循环返回 = 模拟应结束。必须 uc_emu_stop + return，否则会
      * fall-through 到下方 switch：idx = (TR_event_callback - TRAMP_BASE)/4
@@ -82,145 +82,143 @@ void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
     zm_gfx_event_loop(on_touch_click, hold_ms);
     uc_emu_stop(uc);
     return;
-  }
-
-  /* 其余 trap 按 (trap_address - TRAMP_BASE)/4 索引分发 */
-  int idx = (int)((trap_address - TRAMP_BASE) / 4);
-  switch (idx) {
-  /* ---- ROOT ---- */
-  case 0:
+  } //
+  break;
+    /* ---- ROOT ---- */
+  case TR_root_queryRuntime:
     ret = RUNTIME;
-    break; /* queryRuntime */
-  case 1:
+    break;
+  case TR_root_malloc:
     ret = host_malloc(&heap_ptr, r0);
     break; /* malloc */
-  case 2:
+  case TR_root_free:
     log_debug("这里的话是 free(r0=%d)", r0);
     ret = 0;
     break; /* free */
-  case 3:
+  case TR_root_str_copy:
     ret = zm_strcpy(uc, r0, r1, r2, r3);
     break; /* str_copy */
-  case 4:
+  case TR_root_sprintf:
     ret = zm_sprintf(uc, r0, r1, r2);
     break; /* sprintf */
-  case 5:
+  case TR_root_str_ctor:
     ret = zm_strcpy_cstr(uc, r0, r1);
     break; /* str_ctor -> strcpy_cstr */
-  case 6:
+  case TR_root_spec_lookup:
     ret = zm_spec_lookup(uc, r0);
     break; /* spec_lookup */
-  case 7:
+  case TR_root_str_find:
     ret = zm_strchr(uc, r0, r1);
     break; /* str_find -> strchr */
   /* ---- runtime ---- */
-  case 8:
+  case TR_rt_queryInterface:
     ret = zm_rt_queryInterface(uc, r1, r2);
     break;
-  case 9:
+  case TR_rt_getSystemInfo:
     ret = zm_rt_getSystemInfo(uc, r1);
     break;
   /* ---- gfx ---- */
-  case 10:
+  case TR_gfx_clear:
     ret = zm_gfx_clear(uc, r1);
     break;
-  case 11:
+  case TR_gfx_fillRect:
     ret = zm_gfx_fillRect(uc, r1);
     break;
-  case 12:
+  case TR_gfx_commit:
     ret = zm_gfx_commit(uc);
     break;
-  case 13:
+  case TR_gfx_drawText:
     ret = zm_gfx_drawText(uc, r1, r2, r3, sp);
     break;
-  case 14:
+  case TR_gfx_drawRect:
     ret = zm_gfx_drawRect(uc, r1, r2, r3, sp);
     break;
-  case 15:
+  case TR_gfx_fillRect2:
     ret = zm_gfx_fillRect2(uc, r1, r2, r3, sp);
     break;
   /* ---- fs / file ---- */
-  case 16:
+  case TR_fs_open:
     ret = zm_fs_open(uc, r1);
     break;
-  case 17:
+  case TR_file_close:
     ret = zm_file_close(uc, r0);
     break; /* file.close(r0=this/file_id) */
-  case 18:
+  case TR_file_read:
     ret = zm_file_read(uc, r0, r1, r2);
     break;
-  case 19:
+  case TR_file_seek:
     ret = zm_file_seek(uc, r0, r1, r2);
     break;
-  case 58:
+  case TR_file_size:
     ret = zm_file_size(uc, r0);
     break; /* FILE_VT[0x24] file.size */
   /* ---- audio / ap ---- */
-  case 20:
+  case TR_audio_stop:
     ret = zm_audio_stop(uc);
     break;
-  case 21:
+  case TR_ap_play:
     ret = zm_ap_play(uc, r2, r3);
     break;
-  case 22:
+  case TR_ap_stop:
     ret = zm_ap_stop(uc);
     break;
-  case 60:
+  case TR_audio_get_status:
     ret = zm_audio_get_status(uc, r1, r2);
     break; /* AUDIO_VT[0x24] */
     /* ---- 00000405.app：GFX vtable 缺失槽 ---- */
 
-  case 73:
-    ret = zm_gfx_measure_char(uc, r0, r1, r2, r3);
-    break; /* GFX_VT[0x4C]：measureChar */
-  case 74:
+  case TR_fs_enum:
     ret = zm_fs_enum(uc, r0, r1);
     break; /* FS_VT[0x30]：enumFile */
 
   /* ---- 服务对象 / FS / RT / DLL / CBK ---- */
-  case 46:
+  case TR_svc_release:
     ret = zm_svc_release(uc);
     break;
-  case 47:
+  case TR_svc04_x1C:
     ret = zm_svc04_x1C(uc, r0, r1, r2, r3);
     break;
-  case 48:
+  case TR_svc09_x2C:
     ret = zm_svc09_x2C(uc, r0, r1, r2, r3);
     break;
-  case 49:
+  case TR_svc09_x40:
     ret = zm_svc09_x40(uc, r0, r1, r2, r3);
     break;
-  case 50:
+  case TR_fs_release:
     ret = zm_fs_release(uc);
     break;
-  case 51:
+  case TR_fs_chdir:
     ret = zm_fs_chdir(uc, r1);
     break;
-  case 52:
+  case TR_rt_loadDLL:
     ret = zm_rt_loadDLL(uc, r1, r2, r3);
     break;
-  case 53:
+  case TR_rt_unloadDLL:
     ret = zm_rt_unloadDLL(uc, r1);
     break;
-  case 59:
+  case TR_rt_loadDLL2:
     ret = zm_rt_loadDLL2(uc, r0, r1, r2, r3);
     break; /* RT_VT[0x78] */
-  case 54:
+  case TR_dll_init:
     ret = zm_dll_init(uc);
     break;
-  case 55:
+  case TR_dll_config:
     ret = zm_dll_config(uc, r1, r2, r3);
     break;
-  case 56:
+  case TR_dll_entry:
     ret = zm_dll_entry(uc, r1, r2, r3);
     break;
-  case 57:
+  case TR_cbk_default:
     ret = zm_root_cbk_default(uc, r0, r1, r2, r3);
     break;
   default:
-    log_error("非法的外部调用: 0x%08" PRIx32 " (idx=%d)", trap_address, idx);
+    log_error("非法的外部调用: 0x%08" PRIx32, trap_address);
     break;
   }
+
+  /* TR_init_callback：特殊处理（不写 R0/PC 走通用路径，而是直接跳 handler） */
+
+  /* 其余 trap 按 (trap_address - TRAMP_BASE)/4 索引分发 */
 
   uc_reg_write(uc, UC_ARM_REG_R0, &ret);
   uc_reg_write(uc, UC_ARM_REG_PC, &lr);
