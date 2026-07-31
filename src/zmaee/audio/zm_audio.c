@@ -6,7 +6,7 @@
 #include <stdlib.h>
 
 #include "../../log/log.h"
-#include "../core/zm_common.h"
+#include "../../tool/uc_helper.h"
 
 /* ---------- SDL_mixer 音频后端 ----------
  * ap.play 传入的音频数据一般是 MP3（带 ID3 头），由 SDL_mixer 的
@@ -119,12 +119,12 @@ uint32_t zm_ap_stop(uc_engine *uc) {
  * 与 instance[122..124] 决定是否重初始化。stub：写 0 使比较命中，返 0。 */
 uint32_t zm_audio_get_status(uc_engine *uc, uint32_t out4, uint32_t out_buf) {
   if (out4)
-    zm_write32(uc, out4, 0);
+    uc_write32(uc, out4, 0);
   if (out_buf) {
     /* out_buf 至少 3 个 dword（v7[0..2]） */
-    zm_write32(uc, out_buf, 0);
-    zm_write32(uc, out_buf + 4, 0);
-    zm_write32(uc, out_buf + 8, 0);
+    uc_write32(uc, out_buf, 0);
+    uc_write32(uc, out_buf + 4, 0);
+    uc_write32(uc, out_buf + 8, 0);
   }
   return 0;
 }

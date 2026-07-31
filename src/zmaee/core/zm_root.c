@@ -5,8 +5,8 @@
 #include <string.h>
 
 #include "../../log/log.h"
+#include "../../tool/uc_helper.h"
 #include "zm_addrs.h"
-#include "zm_common.h"
 #include "zm_str.h" /* read_cstr */
 
 /**
@@ -15,7 +15,8 @@
  * sub_841D4 中：MOV R2,#0x214; MOV R1,#0; BL sub_8475C
  * 即 memset(v2, 0, 0x214)。val 取低 8 位按字节填充。
  */
-uint32_t zm_root_memset(uc_engine *uc, uint32_t dst, uint32_t val, uint32_t len) {
+uint32_t zm_root_memset(uc_engine *uc, uint32_t dst, uint32_t val,
+                        uint32_t len) {
   if (len == 0 || dst == 0)
     return dst;
   uint8_t fill = (uint8_t)(val & 0xFF);
@@ -38,14 +39,13 @@ uint32_t zm_root_memset(uc_engine *uc, uint32_t dst, uint32_t val, uint32_t len)
 /**
  * @brief ROOT[0x78] str_assign(str_obj, cstr_ptr)
  *
- * 把 C 字符串赋值给 zmaee 字符串对象（与 zm_strcpy_cstr 写回客户机的布局相同）：
- *   +0  : 数据指针（指向 +12 内联缓冲）
- *   +4  : 长度
- *   +8  : 容量
- *   +12 : 内联字符串数据（含 '\0'）
- * sub_841D4 中：ADR R1,"app_list"; BL sub_84868。
+ * 把 C 字符串赋值给 zmaee 字符串对象（与 zm_strcpy_cstr
+ * 写回客户机的布局相同）： +0  : 数据指针（指向 +12 内联缓冲） +4  : 长度 +8  :
+ * 容量 +12 : 内联字符串数据（含 '\0'） sub_841D4 中：ADR R1,"app_list"; BL
+ * sub_84868。
  */
-uint32_t zm_root_str_assign(uc_engine *uc, uint32_t str_obj, uint32_t cstr_ptr) {
+uint32_t zm_root_str_assign(uc_engine *uc, uint32_t str_obj,
+                            uint32_t cstr_ptr) {
   if (str_obj == 0)
     return str_obj;
   char cstr[256];
@@ -54,9 +54,9 @@ uint32_t zm_root_str_assign(uc_engine *uc, uint32_t str_obj, uint32_t cstr_ptr) 
   if (clen > 255)
     clen = 255;
   uint32_t inline_buf = str_obj + 12;
-  zm_write32(uc, str_obj, inline_buf); /* 数据指针 */
-  zm_write32(uc, str_obj + 4, clen);   /* 长度 */
-  zm_write32(uc, str_obj + 8, clen);   /* 容量 */
+  uc_write32(uc, str_obj, inline_buf); /* 数据指针 */
+  uc_write32(uc, str_obj + 4, clen);   /* 长度 */
+  uc_write32(uc, str_obj + 8, clen);   /* 容量 */
   uc_mem_write(uc, inline_buf, cstr, clen + 1);
   return str_obj;
 }
@@ -82,8 +82,8 @@ uint32_t zm_root_stub(uc_engine *uc, uint32_t offset, uint32_t r0, uint32_t r1,
 }
 
 /* CBK 对象 vt[+8] 默认实现（覆写前若被调用） */
-uint32_t zm_root_cbk_default(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
-                             uint32_t r3) {
+uint32_t zm_root_cbk_default(uc_engine *uc, uint32_t r0, uint32_t r1,
+                             uint32_t r2, uint32_t r3) {
   (void)uc;
   log_info("stub cbk_default r0=%u r1=%u r2=%u r3=%u", r0, r1, r2, r3);
   return 0;

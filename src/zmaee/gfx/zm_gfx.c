@@ -2,7 +2,8 @@
 
 #include "../../emu.h"
 #include "../../log/log.h"
-#include "../core/zm_common.h"
+#include "../../tool/uc_helper.h"
+#include "unicorn/unicorn.h"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
@@ -108,10 +109,10 @@ static void fb_draw_text(uc_engine *uc, uint32_t rect_ptr, const char *text,
   if (!g_ren || !rect_ptr || !text || !text[0])
     return;
 
-  int rx = (int)zm_read32(uc, rect_ptr);
-  int ry = (int)zm_read32(uc, rect_ptr + 4);
-  int rw = (int)zm_read32(uc, rect_ptr + 8);
-  int rh = (int)zm_read32(uc, rect_ptr + 12);
+  int rx = (int)uc_read32(uc, rect_ptr);
+  int ry = (int)uc_read32(uc, rect_ptr + 4);
+  int rw = (int)uc_read32(uc, rect_ptr + 8);
+  int rh = (int)uc_read32(uc, rect_ptr + 12);
 
   TTF_Font *font = get_font(font_size);
   if (!font)
@@ -353,13 +354,13 @@ uint32_t zm_gfx_drawText(uc_engine *uc, uint32_t rect_ptr, uint32_t text_ptr,
     uint32_t n = text_len < (uint32_t)sizeof(text) - 1
                      ? text_len
                      : (uint32_t)sizeof(text) - 1;
-    zm_read_mem(uc, text_ptr, text, n);
+    uc_mem_read(uc, text_ptr, text, n);
     text[n] = '\0';
   } else {
     text[0] = '\0';
   }
-  uint32_t color = zm_read32(uc, sp);
-  uint32_t font_sz = zm_read32(uc, sp + 8);
+  uint32_t color = uc_read32(uc, sp);
+  uint32_t font_sz = uc_read32(uc, sp + 8);
   fb_draw_text(uc, rect_ptr, text, color, (int)font_sz);
   return 0;
 }
@@ -368,8 +369,8 @@ uint32_t zm_gfx_drawText(uc_engine *uc, uint32_t rect_ptr, uint32_t text_ptr,
  * r1=x, r2=y, r3=w, sp=h, sp+4=color */
 uint32_t zm_gfx_drawRect(uc_engine *uc, uint32_t x, uint32_t y, uint32_t w,
                          uint32_t sp) {
-  int h = (int)zm_read32(uc, sp);
-  uint32_t color = zm_read32(uc, sp + 4);
+  int h = (int)uc_read32(uc, sp);
+  uint32_t color = uc_read32(uc, sp + 4);
   fb_draw_rect((int)x, (int)y, (int)w, h, color);
   return 0;
 }
@@ -378,8 +379,8 @@ uint32_t zm_gfx_drawRect(uc_engine *uc, uint32_t x, uint32_t y, uint32_t w,
  * r1=x, r2=y, r3=w, sp=h, sp+4=color */
 uint32_t zm_gfx_fillRect2(uc_engine *uc, uint32_t x, uint32_t y, uint32_t w,
                           uint32_t sp) {
-  int h = (int)zm_read32(uc, sp);
-  uint32_t color = zm_read32(uc, sp + 4);
+  int h = (int)uc_read32(uc, sp);
+  uint32_t color = uc_read32(uc, sp + 4);
   fb_fill_rect((int)x, (int)y, (int)w, h, color);
   return 0;
 }
@@ -430,6 +431,6 @@ uint32_t zm_gfx_measure_char(uc_engine *uc, uint32_t gfx, uint32_t char_ptr,
   (void)count;
   /* 写入固定字符宽度（约 font_size 的 60%），使文本不致全叠在同一位置 */
   if (width_out)
-    zm_write32(uc, width_out, 8);
+    uc_write32(uc, width_out, 8);
   return 0;
 }

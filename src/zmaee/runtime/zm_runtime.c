@@ -1,7 +1,7 @@
 #include "zm_runtime.h"
 #include "../../log/log.h"
+#include "../../tool/uc_helper.h"
 #include "../core/zm_addrs.h"
-#include "../core/zm_common.h"
 #include "../core/zm_str.h" /* read_cstr */
 #include <stdint.h>
 
@@ -48,7 +48,7 @@ uint32_t zm_rt_queryInterface(uc_engine *uc, uint32_t svc, uint32_t out_ptr) {
     break;
   }
   if (out_ptr)
-    zm_write32(uc, out_ptr, outobj);
+    uc_write32(uc, out_ptr, outobj);
   log_info("queryInterface(0x%X) -> 0x%X", svc, outobj);
   return 0;
 }
@@ -61,10 +61,10 @@ uint32_t zm_rt_queryInterface(uc_engine *uc, uint32_t svc, uint32_t out_ptr) {
  * 保证 applet 布局与渲染窗口一致。
  */
 uint32_t zm_rt_getSystemInfo(uc_engine *uc, uint32_t out_ptr) {
-  zm_write32(uc, out_ptr, 0);
-  zm_write32(uc, out_ptr + 4, 0);
-  zm_write32(uc, out_ptr + 8, header.ScreenW);
-  zm_write32(uc, out_ptr + 12, header.ScreenH);
+  uc_write32(uc, out_ptr, 0);
+  uc_write32(uc, out_ptr + 4, 0);
+  uc_write32(uc, out_ptr + 8, header.ScreenW);
+  uc_write32(uc, out_ptr + 12, header.ScreenH);
   return 0;
 }
 
@@ -79,7 +79,7 @@ uint32_t zm_rt_loadDLL(uc_engine *uc, uint32_t name_ptr, uint32_t name_len,
   name[n] = '\0';
   log_info("loadDLL(\"%s\", len=%u) -> DLL_OBJ (stub)", name, name_len);
   if (out_ptr)
-    zm_write32(uc, out_ptr, DLL_OBJ);
+    uc_write32(uc, out_ptr, DLL_OBJ);
   return DLL_OBJ; /* 非 0 表成功 */
 }
 
@@ -104,7 +104,7 @@ uint32_t zm_rt_loadDLL2(uc_engine *uc, uint32_t r0, uint32_t buf, uint32_t size,
   (void)size;
   (void)uc;
   if (out_obj_ptr)
-    zm_write32(uc, out_obj_ptr, 0); /* DLL_OBJ=0 → sub_83E24 判定失败 */
+    uc_write32(uc, out_obj_ptr, 0); /* DLL_OBJ=0 → sub_83E24 判定失败 */
   log_info("loadDLL2(out_ptr=0x%X, size=%u) -> 0 (fail, applet 自绘 UI)",
            out_obj_ptr, size);
   return 0; /* 0 表失败 → applet 走自带绘制路径 */

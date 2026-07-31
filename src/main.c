@@ -53,13 +53,6 @@ int main() {
   // char *filename = "/home/apollo/文档/古时游戏/zm_emu/applet/theme/00000bb9/"
   //                  "00000bb9.app"; // 测试文件3
 
-  /* 把短名称（如 "00000102.app"）保存给 TR_init_callback 使用 */
-  // {
-  //   const char *bn = strrchr(filename, '/');
-  //   bn = bn ? bn + 1 : filename;
-  //   strncpy(g_app_pathname, bn, sizeof(g_app_pathname) - 1);
-  //   g_app_pathname[sizeof(g_app_pathname) - 1] = '\0';
-  // }
   snprintf(g_app_pathname, sizeof(g_app_pathname), "%s", filename);
 
   // 先解析 applet 头（不依赖 uc），以获取屏幕尺寸
