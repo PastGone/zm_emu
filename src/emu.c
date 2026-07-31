@@ -358,6 +358,9 @@ int zm_emu_add_hooks(uc_engine *uc) {
 }
 
 int zm_emu_start_applet(uc_engine *uc) {
+  uint32_t stack_ptr = STACK_TOP;
+  uc_reg_write(uc, UC_ARM_REG_SP, &stack_ptr);
+
   uc_reg_write(uc, UC_ARM_REG_LR,
                &TR_init_callback); // LR 是返回地址，这里写入初始化回调
   uc_reg_write(uc, UC_ARM_REG_R0, &SIZE_SLOT);
@@ -369,21 +372,4 @@ int zm_emu_start_applet(uc_engine *uc) {
   uc_emu_start(uc, APPLET_ENTRY_POINT, STACK_TOP, 0, 0);
   log_info("unicorn engine启动完成");
   return 0;
-}
-
-void zm_emu_load_zmr_if_exists(uc_engine *uc, const char *app_path) {
-  (void)uc;
-  char zmr_path[1024];
-  strncpy(zmr_path, app_path, sizeof(zmr_path) - 1);
-  zmr_path[sizeof(zmr_path) - 1] = '\0';
-  size_t plen = strlen(zmr_path);
-  if (plen >= 4 && strcmp(zmr_path + plen - 4, ".app") == 0) {
-    strcpy(zmr_path + plen - 4, ".zmr");
-  } else {
-    strncat(zmr_path, ".zmr", sizeof(zmr_path) - plen - 1);
-  }
-
-  if (!zm_fs_load_zmr(zmr_path)) {
-    log_warn("未找到或无法载入 .zmr 资源: %s", zmr_path);
-  }
 }

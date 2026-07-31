@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "../../log/log.h"
+#include "../../tool/odds.h"
 #include "../core/zm_addrs.h"
 #include "../core/zm_common.h"
 #include "../core/zm_str.h" /* read_cstr */
@@ -447,8 +448,12 @@ uint32_t zm_fs_open(uc_engine *uc, uint32_t filename_ptr) {
   char name[256];
   read_filename(uc, filename_ptr, name, sizeof(name));
   char bn[64];
+  log_debug("zm_fs_open: %s", name);
   basename_of(name, bn, sizeof(bn));
   log_debug("applet 调用文件打开函数打开文件: %s", bn);
+  //
+  char dir[1024];
+  get_dir_from_fullpath(name, dir, sizeof(dir));
 
   /* 按 basename 查表 */
   for (int i = 0; i < FS_MAX_SLOTS; i++) {

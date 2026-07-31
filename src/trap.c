@@ -46,9 +46,6 @@ void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
     log_info("filename: %s\n", filename);
     log_info("  instance=0x%X\n", INSTANCE);
 
-    uint32_t stack_ptr = STACK_TOP;
-    uc_reg_write(uc, UC_ARM_REG_SP, &stack_ptr);
-
     uc_reg_write(uc, UC_ARM_REG_R0, &INSTANCE);
     uint32_t zero = 0;
     uc_reg_write(uc, UC_ARM_REG_R1, &zero);

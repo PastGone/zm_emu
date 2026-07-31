@@ -133,8 +133,9 @@ int main() {
     }
   }
 
-  // 把 applet 所在目录下的资源文件登记到 fs 表，
-  // 让 applet 通过 fs.open / read / seek 正常访问 .zmr / config.b / dll 等。
+  // 把 applet 所在目录下的资源文件登记到 fs 表， 让 applet 通过 fs.open / read
+  // /
+  //     seek 正常访问.zmr / config.b / dll 等。
   {
     char applet_dir[1024];
     strncpy(applet_dir, filename, sizeof(applet_dir) - 1);
