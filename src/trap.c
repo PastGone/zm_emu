@@ -15,8 +15,19 @@
 #include "./zmaee/runtime/zm_runtime.h"
 #include "event.h"
 
-void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
-                 uint32_t r2, uint32_t r3, uint32_t sp, uint32_t lr) {
+void handle_trap(uc_engine *uc, uint32_t trap_address) {
+
+  uint32_t r0, r1, r2, r3, sp, lr;
+  uc_reg_read(uc, UC_ARM_REG_R0, &r0);
+  uc_reg_read(uc, UC_ARM_REG_R1, &r1);
+  uc_reg_read(uc, UC_ARM_REG_R2, &r2);
+  uc_reg_read(uc, UC_ARM_REG_R3, &r3);
+  uc_reg_read(uc, UC_ARM_REG_SP, &sp);
+  uc_reg_read(uc, UC_ARM_REG_LR, &lr);
+
+  log_debug("trap pc: %d, r0: %d, r1: %d, r2: %d, r3: %d, sp: %d, lr: %d\n",
+            trap_address, r0, r1, r2, r3, sp, lr);
+
   uint32_t ret = 0;
   switch (trap_address) {
   case TR_init_callback: {
@@ -218,6 +229,10 @@ void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
   /* TR_init_callback：特殊处理（不写 R0/PC 走通用路径，而是直接跳 handler） */
 
   /* 其余 trap 按 (trap_address - TRAMP_BASE)/4 索引分发 */
+  if (g_trap_pause) {
+    log_info("按回车键继续...");
+    scanf("%*c");
+  }
 
   uc_reg_write(uc, UC_ARM_REG_R0, &ret);
   uc_reg_write(uc, UC_ARM_REG_PC, &lr);

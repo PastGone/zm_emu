@@ -16,7 +16,6 @@
  * @param r0..r3       当前寄存器值
  * @param sp, lr       当前 SP / LR 值
  */
-void handle_trap(uc_engine *uc, uint32_t trap_address, uint32_t r0, uint32_t r1,
-                 uint32_t r2, uint32_t r3, uint32_t sp, uint32_t lr);
+void handle_trap(uc_engine *uc, uint32_t trap_address);
 
 #endif
