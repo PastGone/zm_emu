@@ -8,7 +8,6 @@
 #include "../../emu.h"
 #include "../../log/log.h"
 #include "../../tool/odds.h"
-#include "../core/zm_addrs.h"
 #include "../core/zm_str.h" /* read_cstr */
 
 /* ---------- .zmr 资源文件处理 ----------

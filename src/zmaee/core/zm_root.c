@@ -6,7 +6,6 @@
 
 #include "../../log/log.h"
 #include "../../tool/uc_helper.h"
-#include "zm_addrs.h"
 #include "zm_str.h" /* read_cstr */
 
 /**

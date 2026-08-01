@@ -1,7 +1,6 @@
 #include "zm_runtime.h"
 #include "../../log/log.h"
 #include "../../tool/uc_helper.h"
-#include "../core/zm_addrs.h"
 #include "../core/zm_str.h" /* read_cstr */
 #include <stdint.h>
 

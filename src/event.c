@@ -1,6 +1,5 @@
 #include "./event.h"
 #include "./log/log.h"
-#include "./zmaee/core/zm_addrs.h" /* INIT_CTX */
 
 void dispatch_applet_event(uint32_t evt, uint32_t x, uint32_t y) {
   if (!g_instance || !g_handler)

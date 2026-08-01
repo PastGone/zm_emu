@@ -7,7 +7,6 @@
 
 #include "../../emu.h"
 #include "../../log/log.h"
-#include "zm_addrs.h"
 
 /* 读取客户机地址 addr 处的 C 字符串到宿主机 buf，最多 maxlen-1 字符 */
 char *read_cstr(uc_engine *uc, uint32_t addr, char *buf, size_t maxlen) {

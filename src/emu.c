@@ -41,91 +41,45 @@ int zm_emu_map_memory(uc_engine *uc) {
 
 int zm_emu_build_vtables(uc_engine *uc) {
   uc_err err;
+  // shim 和 tramp 是对射关系,先假设它全部是这样然后后面再做修补修改
+  // 假设它全部是函数指针实际上是有对象的后面会进行修补
+  // 一个函数指针是四字节所以这里是加四字节
+  for (uint32_t i = 0; i < SHIM_SIZE; i += 4) {
+    err = uc_write32(uc, SHIM_BASE + i, TRAMP_BASE + i);
+    if (err != UC_ERR_OK) {
+      log_error("shim映射到tramp时出现了错误, err: %d\n", err);
+      return -1;
+    }
+  }
   // root
   err = uc_write32(uc, ROOT, TR_root_queryRuntime);
-  err = uc_write32(uc, ROOT + 0x008, TR_root_malloc);
-  err = uc_write32(uc, ROOT + 0x00C, TR_root_free);
-  err = uc_write32(uc, ROOT + 0x020, TR_root_str_copy);
-  err = uc_write32(uc, ROOT + 0x06C, TR_root_sprintf);
-  err = uc_write32(uc, ROOT + 0x088, TR_root_str_ctor);
-  err = uc_write32(uc, ROOT + 0x0A4, TR_root_spec_lookup);
-  err = uc_write32(uc, ROOT + 0x0A8, TR_root_str_find);
 
   // runtime
   err = uc_write32(uc, RUNTIME, RT_VT);
-  err = uc_write32(uc, RT_VT + 0x08, TR_rt_queryInterface);
-  err = uc_write32(uc, RT_VT + 0x10, TR_rt_getSystemInfo);
+
   // gfx
   err = uc_write32(uc, GFX, GFX_VT);
-  err = uc_write32(uc, GFX_VT + 0x04, TR_svc_release);
-  err = uc_write32(uc, GFX_VT + 0x20, TR_gfx_clear);
-  err = uc_write32(uc, GFX_VT + 0x2C, TR_gfx_fillRect);
-  err = uc_write32(uc, GFX_VT + 0x40, TR_gfx_commit);
-  err = uc_write32(uc, GFX_VT + 0x50, TR_gfx_drawText);
-  err = uc_write32(uc, GFX_VT + 0x6C, TR_gfx_drawRect);
-  err = uc_write32(uc, GFX_VT + 0x70, TR_gfx_fillRect2);
 
   /* FS_VT[0x30]：enumFile — sub_82584 枚举 app_list 下文件 */
   err = uc_write32(uc, FS_VT + 0x30, TR_fs_enum);
 
   // fs
   err = uc_write32(uc, FS, FS_VT);
-  err = uc_write32(uc, FS_VT + 0x08, TR_fs_open);
-  err = uc_write32(uc, FILE1, FILE_VT);
-  err = uc_write32(uc, FILE_VT + 0x04, TR_file_close);
-  err = uc_write32(uc, FILE_VT + 0x08, TR_file_read);
-  err = uc_write32(uc, FILE_VT + 0x20, TR_file_seek);
-  err = uc_write32(uc, FILE_VT + 0x24, TR_file_size);
+
   // audio
   err = uc_write32(uc, AUDIO, AUDIO_VT);
-  err = uc_write32(uc, AUDIO_VT + 0x04, TR_svc_release);
-  err = uc_write32(uc, AUDIO_VT + 0x14, TR_audio_stop);
-  err = uc_write32(uc, AUDIO_VT + 0x24, TR_audio_get_status);
   err = uc_write32(uc, AP, AP_VT);
-  err = uc_write32(uc, AP_VT + 0x04, TR_svc_release);
-  err = uc_write32(uc, AP_VT + 0x10, TR_ap_play);
-  err = uc_write32(uc, AP_VT + 0x14, TR_ap_stop);
-
-  /* ---- 00000405.app：补全 ROOT vtable 缺失槽（.lst 已验证偏移） ---- */
-
-  err = uc_write32(uc, ROOT + 0x060, TR_root_memset);
-  err = uc_write32(uc, ROOT + 0x074, TR_root_x74);
-  err = uc_write32(uc, ROOT + 0x078, TR_root_str_assign);
-  err = uc_write32(uc, ROOT + 0x0D8, TR_root_get_tick);
-  err = uc_write32(uc, ROOT + 0x12C, TR_root_x12C);
-  err = uc_write32(uc, ROOT + 0x130, TR_root_x130);
-  err = uc_write32(uc, ROOT + 0x140, TR_root_x140);
-  err = uc_write32(uc, ROOT + 0x154, TR_root_create_cbk);
-  err = uc_write32(uc, ROOT + 0x16C, TR_root_x16C);
 
   /* ---- 新增 runtime 服务对象 SVC04 / SVC09 ---- */
   err = uc_write32(uc, SVC04, SVC04_VT);
-  err = uc_write32(uc, SVC04_VT + 0x04, TR_svc_release);
-  err = uc_write32(uc, SVC04_VT + 0x1C, TR_svc04_x1C);
-  err = uc_write32(uc, SVC09, SVC09_VT);
-  err = uc_write32(uc, SVC09_VT + 0x04, TR_svc_release);
-  err = uc_write32(uc, SVC09_VT + 0x2C, TR_svc09_x2C);
-  err = uc_write32(uc, SVC09_VT + 0x40, TR_svc09_x40);
-
-  /* ---- FS 补 release 与 chdir 槽 ---- */
-  err = uc_write32(uc, FS_VT + 0x04, TR_fs_release);
-  err = uc_write32(uc, FS_VT + 0x14, TR_fs_chdir);
-
-  /* ---- RUNTIME 补 loadDLL / unloadDLL / loadDLL2 ---- */
-  err = uc_write32(uc, RT_VT + 0x58, TR_rt_loadDLL);
-  err = uc_write32(uc, RT_VT + 0x5C, TR_rt_unloadDLL);
-  err = uc_write32(uc, RT_VT + 0x78, TR_rt_loadDLL2);
 
   /* ---- CBK 回调对象（sub_84E04 返回，vt[+8] 会被 applet 覆写为 sub_82FF8）
    * ---- */
   err = uc_write32(uc, CBK_OBJ, CBK_OBJ_VT);
-  err = uc_write32(uc, CBK_OBJ_VT + 0x08, TR_cbk_default);
+  // err = uc_write32(uc, CBK_OBJ_VT + 0x08, TR_cbk_default);
 
   /* ---- stub DLL 对象（loadDLL 返回） ---- */
   err = uc_write32(uc, DLL_OBJ, DLL_OBJ_VT);
-  err = uc_write32(uc, DLL_OBJ_VT + 0x08, TR_dll_init);
-  err = uc_write32(uc, DLL_OBJ_VT + 0x0C, TR_dll_config);
-  err = uc_write32(uc, DLL_OBJ_VT + 0x10, TR_dll_entry);
 
   /* INIT_CTX 显式零填充（Unicorn 默认零，此处双保险，确保 r3+0x100 可读） */
   {
