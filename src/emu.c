@@ -17,10 +17,10 @@ uint32_t g_handler = 0;
 int g_trap_pause = 0;
 int g_disasm = 0;
 
-csh cs_handle;
-cs_insn *insn;
-size_t count;
-uint8_t code[16];
+csh g_cs_handle;
+cs_insn *g_sc_insn;
+size_t g_sc_count;
+uint8_t g_cscode[16];
 
 /* -------------------- 实现 -------------------- */
 

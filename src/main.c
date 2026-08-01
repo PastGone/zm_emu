@@ -37,7 +37,7 @@ int main() {
   // g_disasm = 1; // 用 ZM_DISASM=1 环境变量开启
 
   // 初始化 Capstone，使用 ARM-32 架构（CS_ARCH_ARM，CS_MODE_ARM）
-  if (cs_open(CS_ARCH_ARM, CS_MODE_ARM, &cs_handle) != CS_ERR_OK) {
+  if (cs_open(CS_ARCH_ARM, CS_MODE_ARM, &g_cs_handle) != CS_ERR_OK) {
     fprintf(stderr, "Failed to open Capstone\n");
     return 1;
   }
@@ -62,7 +62,7 @@ int main() {
   {
     if (fp == NULL) {
       log_error("fopen failed");
-      cs_close(&cs_handle);
+      cs_close(&g_cs_handle);
       return 1;
     }
     applet_size = get_file_size(fp);
@@ -85,7 +85,7 @@ int main() {
     my_uc_err = uc_open(UC_ARCH_ARM, UC_MODE_ARM, &uc);
     if (my_uc_err != UC_ERR_OK) {
       log_error("uc_open failed, err: %d\n", my_uc_err);
-      cs_close(&cs_handle);
+      cs_close(&g_cs_handle);
       fclose(fp);
       return 1;
     }
@@ -95,7 +95,7 @@ int main() {
   // 内存映射
   if (zm_emu_map_memory(uc) != 0) {
     uc_close(uc);
-    cs_close(&cs_handle);
+    cs_close(&g_cs_handle);
     fclose(fp);
     return 1;
   }
@@ -103,7 +103,7 @@ int main() {
   // 构建虚表
   if (zm_emu_build_vtables(uc) != 0) {
     uc_close(uc);
-    cs_close(&cs_handle);
+    cs_close(&g_cs_handle);
     fclose(fp);
     return 1;
   }
@@ -112,7 +112,7 @@ int main() {
 
   if (zm_emu_add_hooks(uc) != 0) {
     uc_close(uc);
-    cs_close(&cs_handle);
+    cs_close(&g_cs_handle);
     fclose(fp);
     return 1;
   }
@@ -121,7 +121,7 @@ int main() {
   {
     if (zm_emu_load_blob(uc, fp, &applet_size) != 0) {
       uc_close(uc);
-      cs_close(&cs_handle);
+      cs_close(&g_cs_handle);
       return 1;
     }
   }
@@ -154,7 +154,7 @@ int main() {
   zm_audio_shutdown();
   zm_gfx_shutdown();
   zm_fs_shutdown();
-  cs_close(&cs_handle);
+  cs_close(&g_cs_handle);
   uc_close(uc);
 
   return 0;

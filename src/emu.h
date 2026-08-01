@@ -167,10 +167,11 @@ extern char
     g_app_pathname[4096]; // 4096是 linux
                           // 的最长文件名,这里设了这么大是为了防止搞什么摇蛾子
 
-extern csh cs_handle;
-extern cs_insn *insn;
-extern size_t count;
-extern uint8_t code[16];
+// 用来反汇编用的一组全局变量，之所以是全局变量是因为要不停的复用
+extern csh g_cs_handle;
+extern cs_insn *g_sc_insn;
+extern size_t g_sc_count;
+extern uint8_t g_cscode[16];
 
 // -------------------- 函数声明 --------------------
 

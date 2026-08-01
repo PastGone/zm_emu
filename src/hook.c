@@ -1,45 +1,19 @@
 #include "./hook.h"
 #include "./log/log.h"
+#include "./tool/disasm_log.h"
 #include "./trap.h"
 #include <inttypes.h>
 #include <stdio.h>
 
 void hook_code(uc_engine *uc, uint64_t address, uint32_t size,
                void *user_data) {
-  uint32_t pc = address;
+  // 这个地方好像不对,因为啥来ARM32的规定，pc=address+8
 
   if (g_disasm) {
-    uc_mem_read(uc, pc, code, size);
-
-    count = cs_disasm(cs_handle, code, size, pc, 0, &insn);
-    if (count > 0) {
-      char line[256];
-      for (size_t i = 0; i < count; i++) {
-        int offset =
-            snprintf(line, sizeof(line), "0x%08" PRIx64 ":  ", insn[i].address);
-
-        for (int j = 0; j < 4; j++) {
-          if (j < insn[i].size) {
-            offset += snprintf(line + offset, sizeof(line) - offset, "%02x ",
-                               insn[i].bytes[j]);
-          } else {
-            offset += snprintf(line + offset, sizeof(line) - offset, "   ");
-          }
-        }
-
-        snprintf(line + offset, sizeof(line) - offset, "%-8s %s",
-                 insn[i].mnemonic, insn[i].op_str);
-
-        log_trace("%s\n", line);
-      }
-      cs_free(insn, count);
-
-    } else {
-      fprintf(stderr, "Disassembly failed\n");
-    }
+    disassemble_and_log(uc, address, size);
   }
 
-  if (pc >= TRAMP_BASE && pc < TRAMP_BASE + TRAMP_SIZE) {
+  if (address >= TRAMP_BASE && address < TRAMP_BASE + TRAMP_SIZE) {
     uint32_t r0, r1, r2, r3, sp, lr;
     uc_reg_read(uc, UC_ARM_REG_R0, &r0);
     uc_reg_read(uc, UC_ARM_REG_R1, &r1);
@@ -49,9 +23,9 @@ void hook_code(uc_engine *uc, uint64_t address, uint32_t size,
     uc_reg_read(uc, UC_ARM_REG_LR, &lr);
 
     log_debug("trap pc: %d, r0: %d, r1: %d, r2: %d, r3: %d, sp: %d, lr: %d\n",
-              pc, r0, r1, r2, r3, sp, lr);
+              address, r0, r1, r2, r3, sp, lr);
 
-    handle_trap(uc, pc, r0, r1, r2, r3, sp, lr);
+    handle_trap(uc, address, r0, r1, r2, r3, sp, lr);
 
     if (g_trap_pause) {
       log_info("按回车键继续...");
