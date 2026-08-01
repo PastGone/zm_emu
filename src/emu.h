@@ -149,7 +149,7 @@
   TRAP(ROOT + 0x118cU) // 随便写一个位置我想也应该不影响这个叫什么来.初始化回调
 
 // 事件回调因为 apple 是没有主循环的所以要用外部来完成这个主循环
-#define TR_event_callback TRAP(ROOT + 0x1180U)
+#define TR_enter_event_loop TRAP(ROOT + 0x1180U)
 
 // -------------------- 全局变量 --------------------
 extern uc_engine *uc;

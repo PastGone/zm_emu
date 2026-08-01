@@ -597,24 +597,3 @@ uint32_t zm_fs_release(uc_engine *uc) {
   (void)uc;
   return 0;
 }
-
-/* FS_VT[+0x14] chdir(str_obj)：stub，仅日志，返 0。
- * sub_841D4 中 FS.chdir("app_list") 调用。
- * str_obj 为 zmaee 字符串对象（+0=数据指针，+4=长度）。 */
-uint32_t zm_fs_chdir(uc_engine *uc, uint32_t str_obj) {
-  char dir[128];
-  zm_read_str_obj(uc, str_obj, dir, sizeof(dir));
-  log_info("fs.chdir(\"%s\") stub", dir[0] ? dir : "<null>");
-  return 0;
-}
-
-/* FS_VT[+0x30] enumFile(FS, index)：枚举目录下第 index 个文件。
- * sub_82584 调用，期望返回非 0 表找到文件并把文件名写入某个输出。
- * stub 返回 0（无更多文件）使枚举循环立即退出，applet 继续后续流程。
- * 真实实现需遍历 app_list 目录。 */
-uint32_t zm_fs_enum(uc_engine *uc, uint32_t fs_obj, uint32_t index) {
-  (void)uc;
-  (void)fs_obj;
-  log_info("fs.enum(%u) -> 0 (no more files)", index);
-  return 0;
-}

@@ -25,12 +25,13 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   uc_reg_read(uc, UC_ARM_REG_SP, &sp);
   uc_reg_read(uc, UC_ARM_REG_LR, &lr);
 
-  log_debug("trap pc: %d, r0: %d, r1: %d, r2: %d, r3: %d, sp: %d, lr: %d\n",
+  log_debug("trap addr: %d, r0: %d, r1: %d, r2: %d, r3: %d, sp: %d, lr: %d\n",
             trap_address, r0, r1, r2, r3, sp, lr);
 
   uint32_t ret = 0;
   switch (trap_address) {
-  case TR_init_callback: {
+  case TR_init_callback: { //  /* TR_init_callback：特殊处理（不写 R0/PC
+                           //  走通用路径，而是直接跳 handler） */
 
     uint32_t size;
     if (uc_mem_read(uc, SIZE_SLOT, &size, 4) != UC_ERR_OK) {
@@ -68,7 +69,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     uint32_t init_ctx = INIT_CTX;
     uc_reg_write(uc, UC_ARM_REG_R3, &init_ctx);
 
-    uint32_t callback_addr = TR_event_callback;
+    uint32_t callback_addr = TR_enter_event_loop;
     uc_reg_write(uc, UC_ARM_REG_LR, &callback_addr);
 
     g_instance = INSTANCE;
@@ -77,7 +78,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     uc_reg_write(uc, UC_ARM_REG_PC, &handler);
     return;
   } break;
-  case TR_event_callback: {
+  case TR_enter_event_loop: {
     /* 事件循环：阻塞直到用户关窗（SDL_QUIT）或超时（ZM_GFX_HOLD_MS）。
      * 循环返回 = 模拟应结束。必须 uc_emu_stop + return，否则会
      * fall-through 到下方 switch：idx = (TR_event_callback - TRAMP_BASE)/4
@@ -177,10 +178,6 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break; /* AUDIO_VT[0x24] */
     /* ---- 00000405.app：GFX vtable 缺失槽 ---- */
 
-  case TR_fs_enum:
-    ret = zm_fs_enum(uc, r0, r1);
-    break; /* FS_VT[0x30]：enumFile */
-
   /* ---- 服务对象 / FS / RT / DLL / CBK ---- */
   case TR_svc_release:
     ret = zm_svc_release(uc);
@@ -196,9 +193,6 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break;
   case TR_fs_release:
     ret = zm_fs_release(uc);
-    break;
-  case TR_fs_chdir:
-    ret = zm_fs_chdir(uc, r1);
     break;
   case TR_rt_loadDLL:
     ret = zm_rt_loadDLL(uc, r1, r2, r3);
@@ -223,15 +217,9 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break;
   default:
     log_error("非法的外部调用: 0x%08" PRIx32, trap_address);
-    break;
-  }
-
-  /* TR_init_callback：特殊处理（不写 R0/PC 走通用路径，而是直接跳 handler） */
-
-  /* 其余 trap 按 (trap_address - TRAMP_BASE)/4 索引分发 */
-  if (g_trap_pause) {
     log_info("按回车键继续...");
     scanf("%*c");
+    break;
   }
 
   uc_reg_write(uc, UC_ARM_REG_R0, &ret);
