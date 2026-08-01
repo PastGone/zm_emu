@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../../emu.h"
 #include "../../log/log.h"
 #include "zm_addrs.h"
 

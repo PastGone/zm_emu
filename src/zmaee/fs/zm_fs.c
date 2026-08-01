@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../../emu.h"
 #include "../../log/log.h"
 #include "../../tool/odds.h"
 #include "../core/zm_addrs.h"
@@ -474,7 +475,7 @@ uint32_t zm_fs_open(uc_engine *uc, uint32_t filename_ptr) {
       /* 把 FILE_VT 写入 handle 首字段，使 applet 可通过
        * (*handle)->vt[off] 调用 file 方法（slot0 的 FILE1 已在
        * build_vtables 初始化，其余 slot 需在此补写）。 */
-      uc_mem_write(uc, h, &FILE_VT, 4);
+      uc_mem_write(uc, h, &(uint32_t){FILE_VT}, 4);
       log_info("fs.open(\"%s\") -> handle 0x%X (slot %d, size=%zu)", bn, h, i,
                s_slots[i].size);
       return h;

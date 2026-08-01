@@ -62,10 +62,10 @@ uint32_t zm_root_str_assign(uc_engine *uc, uint32_t str_obj,
 }
 
 /* ROOT[0x154]：返回 CBK_OBJ。applet 随后会覆写 CBK_OBJ_VT[+8] 为 sub_82FF8。 */
-uint32_t zm_root_create_cbk(uc_engine *uc) {
-  (void)uc;
-  return CBK_OBJ;
-}
+// uint32_t zm_root_create_cbk(uc_engine *uc) {
+//   (void)uc;
+//   return CBK_OBJ;
+// }
 
 /* ROOT[0xD8]：返回 SDL_GetTicks() 时间戳 */
 uint32_t zm_root_get_tick(uc_engine *uc) {

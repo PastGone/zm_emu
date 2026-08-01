@@ -22,37 +22,6 @@ cs_insn *insn;
 size_t count;
 uint8_t code[16];
 
-/* -------------------- shim 虚表地址定义 -------------------- */
-uint32_t ROOT = SHIM_BASE + 0x000;
-uint32_t RUNTIME = SHIM_BASE + 0x100;
-uint32_t RT_VT = SHIM_BASE + 0x180;
-uint32_t GFX = SHIM_BASE + 0x200;
-uint32_t GFX_VT = SHIM_BASE + 0x280;
-uint32_t FS = SHIM_BASE + 0x300;
-uint32_t FS_VT = SHIM_BASE + 0x380;
-uint32_t FILE1 = SHIM_BASE + 0x400;
-uint32_t FILE_VT = SHIM_BASE + 0x480;
-uint32_t AUDIO = SHIM_BASE + 0x500;
-uint32_t AUDIO_VT = SHIM_BASE + 0x580;
-uint32_t AP = SHIM_BASE + 0x600;
-uint32_t AP_VT = SHIM_BASE + 0x680;
-uint32_t DUMMY_BUF = SHIM_BASE + 0x750;
-
-/* 00000405.app 新增 shim 对象地址（0x800 起，与 DUMMY_BUF@0x750 不冲突） */
-uint32_t INIT_CTX = SHIM_BASE + 0x800; /* 256B 零填充：init 事件 r3 上下文 */
-uint32_t SVC04 = SHIM_BASE + 0x900;    /* 0x1000004 服务对象 */
-uint32_t SVC04_VT = SHIM_BASE + 0x910;
-uint32_t SVC09 = SHIM_BASE + 0x940; /* 0x1000009 服务对象 */
-uint32_t SVC09_VT = SHIM_BASE + 0x950;
-uint32_t CBK_OBJ = SHIM_BASE + 0x980;    /* sub_84E04 返回的回调对象 */
-uint32_t CBK_OBJ_VT = SHIM_BASE + 0x990; /* 可写：applet 覆写 vt[+8] */
-uint32_t DLL_OBJ = SHIM_BASE + 0x9C0;    /* loadDLL 返回的 stub DLL 对象 */
-uint32_t DLL_OBJ_VT = SHIM_BASE + 0x9D0;
-
-//
-uint32_t SIZE_SLOT = SHIM_BASE + 0x700; // 其实这个文件大小槽还有待确认
-uint32_t API_SLOT = SHIM_BASE + 0x710;
-
 /* -------------------- 实现 -------------------- */
 
 int zm_emu_map_memory(uc_engine *uc) {
@@ -83,7 +52,7 @@ int zm_emu_build_vtables(uc_engine *uc) {
   err = uc_write32(uc, ROOT + 0x0A8, TR_root_str_find);
 
   // runtime
-  err = uc_mem_write(uc, RUNTIME, &RT_VT, 4);
+  err = uc_write32(uc, RUNTIME, RT_VT);
   err = uc_write32(uc, RT_VT + 0x08, TR_rt_queryInterface);
   err = uc_write32(uc, RT_VT + 0x10, TR_rt_getSystemInfo);
   // gfx
@@ -245,8 +214,8 @@ int zm_emu_start_applet(uc_engine *uc) {
   uc_reg_write(
       uc, UC_ARM_REG_LR,
       &(uint32_t){TR_init_callback}); // LR 是返回地址，这里写入初始化回调
-  uc_reg_write(uc, UC_ARM_REG_R0, &SIZE_SLOT);
-  uc_reg_write(uc, UC_ARM_REG_R1, &API_SLOT);
+  uc_reg_write(uc, UC_ARM_REG_R0, &(uint32_t){SIZE_SLOT});
+  uc_reg_write(uc, UC_ARM_REG_R1, &(uint32_t){API_SLOT});
 
   uc_write32(uc, BLOB_BASE + ROOT_SLOT_OFF, (uint32_t)ROOT);
 
