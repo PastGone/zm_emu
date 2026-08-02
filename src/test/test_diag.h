@@ -1,5 +1,5 @@
-#ifndef __TEST_DIAG_H__
-#define __TEST_DIAG_H__
+#ifndef TEST_DIAG_H
+#define TEST_DIAG_H
 
 #include <unicorn/unicorn.h>
 

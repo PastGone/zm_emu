@@ -1,5 +1,5 @@
-#ifndef __ZM_AUDIO_H__
-#define __ZM_AUDIO_H__
+#ifndef ZM_AUDIO_H
+#define ZM_AUDIO_H
 
 // -------------------- audio / ap 相关 trap 处理函数声明 --------------------
 // 基于 SDL2_mixer 的真实音频播放实现：

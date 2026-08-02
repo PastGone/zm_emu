@@ -1,5 +1,5 @@
-#ifndef __EXAMPLE_H__
-#define __EXAMPLE_H__
+#ifndef EXAMPLE_H
+#define EXAMPLE_H
 
 // -------------------- 在这里放声明 --------------------
 // 1. 函数声明

@@ -1,5 +1,5 @@
-#ifndef _ZM_KEY_CODE_H_
-#define _ZM_KEY_CODE_H_
+#ifndef ZM_KEY_CODE_H
+#define ZM_KEY_CODE_H
 
 /**
  * @file zm_key_code.h
@@ -41,4 +41,4 @@ enum ZMAEE_KEYCODE {
 
 };
 
-#endif /* _ZMAEE_KEYS_H_ */
+#endif /* ZM_KEY_CODE_H_ */

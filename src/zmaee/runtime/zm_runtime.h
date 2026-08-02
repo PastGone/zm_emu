@@ -1,5 +1,5 @@
-#ifndef __ZM_RUNTIME_H__
-#define __ZM_RUNTIME_H__
+#ifndef ZM_RUNTIME_H
+#define ZM_RUNTIME_H
 
 // -------------------- runtime 相关 trap 处理函数声明 --------------------
 #include <stdint.h>

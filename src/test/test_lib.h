@@ -1,5 +1,5 @@
-#ifndef __TEST_LIB_H__
-#define __TEST_LIB_H__
+#ifndef TEST_LIB_H
+#define TEST_LIB_H
 
 // -------------------- 在这里放声明 --------------------
 // 1. 函数声明

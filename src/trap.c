@@ -45,7 +45,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     }
 
     log_info("  size=%d handler=0x%X\n", size, handler);
-    uint32_t INSTANCE = host_malloc(&heap_ptr, size);
+    uint32_t INSTANCE = host_malloc(&g_heap_ptr, size);
 
     uint8_t *zero_buf = calloc(1, size);
     uc_mem_write(uc, INSTANCE, zero_buf, size);
@@ -100,7 +100,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     ret = RUNTIME;
     break;
   case TR_root_malloc:
-    ret = host_malloc(&heap_ptr, r0);
+    ret = host_malloc(&g_heap_ptr, r0);
     break; /* malloc */
   case TR_root_free:
     log_debug("这里的话是 free(r0=%d)", r0);
@@ -148,8 +148,15 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     ret = zm_gfx_fillRect2(uc, r1, r2, r3, sp);
     break;
   /* ---- fs / file ---- */
-  case TR_fs_open:
-    ret = zm_fs_open(uc, r1);
+  case TR_fileMgr_open_file:
+    log_debug("fs_open(r0=0x%X)", r0); // 此处的 r0 是 FileMgr的地址
+    log_debug("FileMgr=0x%X", FileMgr);
+
+    if (r0 == 0) {
+      ret = 0;
+    } else {
+      ret = zm_fileMgr_open_file(uc, r1); // 这地方为什么是r1呀
+    }
     break;
   case TR_file_close:
     ret = zm_file_close(uc, r0);
@@ -217,11 +224,13 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break;
   default:
     log_error("非法的外部调用: 0x%08" PRIx32, trap_address);
-    log_info("按回车键继续...");
-    scanf("%*c");
+    pause_console();
     break;
   }
 
+  log_debug("applet 调用外部的返回值是 r0等于0x%X", ret);
+
   uc_reg_write(uc, UC_ARM_REG_R0, &ret);
+
   uc_reg_write(uc, UC_ARM_REG_PC, &lr);
 }

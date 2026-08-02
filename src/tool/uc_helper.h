@@ -1,5 +1,5 @@
-#ifndef __UC_HELPER_H__
-#define __UC_HELPER_H__
+#ifndef UC_HELPER_H
+#define UC_HELPER_H
 
 // -------------------- 通用内存读写辅助函数 --------------------
 // 这些函数对 Unicorn 客户机内存做轻量封装，供各 trap 处理模块复用。

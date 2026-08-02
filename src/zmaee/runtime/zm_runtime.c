@@ -28,8 +28,8 @@ uint32_t zm_rt_queryInterface(uc_engine *uc, uint32_t svc, uint32_t out_ptr) {
     outobj = GFX;
     break; // GFX
   case 0x1000003:
-    outobj = FS;
-    break; // FS
+    outobj = FileMgr;
+    break; // FileMgr
   case 0x100000B:
     outobj = AUDIO;
     break; // AUDIO
@@ -62,8 +62,8 @@ uint32_t zm_rt_queryInterface(uc_engine *uc, uint32_t svc, uint32_t out_ptr) {
 uint32_t zm_rt_getSystemInfo(uc_engine *uc, uint32_t out_ptr) {
   uc_write32(uc, out_ptr, 0);
   uc_write32(uc, out_ptr + 4, 0);
-  uc_write32(uc, out_ptr + 8, header.ScreenW);
-  uc_write32(uc, out_ptr + 12, header.ScreenH);
+  uc_write32(uc, out_ptr + 8, g_header.ScreenW);
+  uc_write32(uc, out_ptr + 12, g_header.ScreenH);
   return 0;
 }
 

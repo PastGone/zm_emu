@@ -1,5 +1,5 @@
-#ifndef __HOOK_H__
-#define __HOOK_H__
+#ifndef HOOK_H
+#define HOOK_H
 
 #include "./emu.h"
 // -------------------- Unicorn 钩子回调函数 --------------------

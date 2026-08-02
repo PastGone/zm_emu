@@ -55,7 +55,7 @@ int main() {
 
   snprintf(g_app_pathname, sizeof(g_app_pathname), "%s", filename);
 
-  // 先解析 applet 头（不依赖 uc），以获取屏幕尺寸
+  // 先解析 applet 头（不依赖 g_uc），以获取屏幕尺寸
   FILE *fp = fopen(filename, "rb");
   long applet_size;
 
@@ -67,8 +67,8 @@ int main() {
     }
     applet_size = get_file_size(fp);
     log_info("文件大小: %ld\n", applet_size);
-    parse_app_header(fp, &header);
-    print_header(&header);
+    parse_app_header(fp, &g_header);
+    print_header(&g_header);
   }
 
   // 初始化 SDL2 渲染与音频
@@ -82,7 +82,7 @@ int main() {
 
   // 初始化 unicorn 引擎
   {
-    my_uc_err = uc_open(UC_ARCH_ARM, UC_MODE_ARM, &uc);
+    my_uc_err = uc_open(UC_ARCH_ARM, UC_MODE_ARM, &g_uc);
     if (my_uc_err != UC_ERR_OK) {
       log_error("uc_open failed, err: %d\n", my_uc_err);
       cs_close(&g_cs_handle);
@@ -93,16 +93,16 @@ int main() {
   }
 
   // 内存映射
-  if (zm_emu_map_memory(uc) != 0) {
-    uc_close(uc);
+  if (zm_emu_map_memory() != 0) {
+    uc_close(g_uc);
     cs_close(&g_cs_handle);
     fclose(fp);
     return 1;
   }
 
   // 构建虚表
-  if (zm_emu_build_vtables(uc) != 0) {
-    uc_close(uc);
+  if (zm_emu_build_vtables() != 0) {
+    uc_close(g_uc);
     cs_close(&g_cs_handle);
     fclose(fp);
     return 1;
@@ -110,8 +110,8 @@ int main() {
 
   // 注册钩子
 
-  if (zm_emu_add_hooks(uc) != 0) {
-    uc_close(uc);
+  if (zm_emu_add_hooks() != 0) {
+    uc_close(g_uc);
     cs_close(&g_cs_handle);
     fclose(fp);
     return 1;
@@ -119,34 +119,24 @@ int main() {
 
   // 载入 blob 数据到客户机内存, 并关闭文件
   {
-    if (zm_emu_load_blob(uc, fp, &applet_size) != 0) {
-      uc_close(uc);
+    if (zm_emu_load_blob(fp, &applet_size) != 0) {
+      uc_close(g_uc);
       cs_close(&g_cs_handle);
       return 1;
     }
   }
 
-  // 把 applet 所在目录下的资源文件登记到 fs 表， 让 applet 通过 fs.open / read
-  // /
-  //     seek 正常访问.zmr / config.b / dll 等。
-  {
-    char applet_dir[1024];
-    strncpy(applet_dir, filename, sizeof(applet_dir) - 1);
-    applet_dir[sizeof(applet_dir) - 1] = '\0';
-    char *slash = strrchr(applet_dir, '/');
-    if (slash)
-      *slash = '\0';
-    zm_fs_register_default(applet_dir);
-    // 登记 applet 自身，供 sprintf("%s%08x.app") 自打开模式使用
-    zm_fs_register_hostfile(filename, g_app_pathname);
-  }
+  //
+  char applet_dir[1024] = {0};
+  get_dir_from_fullpath(filename, applet_dir, sizeof(applet_dir));
+  zm_fs_set_data_dir(applet_dir);
 
   // 启动 applet（init → 绘制 → 停止）
-  zm_emu_start_applet(uc);
+  zm_emu_start_applet();
 
   // 调试 & 自测（已拆至 test/test_diag.c）//diag 的意思是诊断
-  // zm_diag_dump_buttons(uc);
-  // // zm_diag_audio_test(uc);
+  // zm_diag_dump_buttons(g_uc);
+  // // zm_diag_audio_test(g_uc);
   // zm_diag_auto_click();
   // zm_diag_run_event_loop();
 
@@ -155,7 +145,7 @@ int main() {
   zm_gfx_shutdown();
   zm_fs_shutdown();
   cs_close(&g_cs_handle);
-  uc_close(uc);
+  uc_close(g_uc);
 
   return 0;
 }

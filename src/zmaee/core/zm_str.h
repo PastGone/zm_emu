@@ -1,5 +1,5 @@
-#ifndef __ZM_STR_H__
-#define __ZM_STR_H__
+#ifndef ZM_STR_H
+#define ZM_STR_H
 
 // -------------------- 字符串相关 trap 处理函数声明 --------------------
 #include <stddef.h>

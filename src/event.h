@@ -1,5 +1,5 @@
-#ifndef __EVENT_H__
-#define __EVENT_H__
+#ifndef EVENT_H
+#define EVENT_H
 
 #include "./emu.h"
 

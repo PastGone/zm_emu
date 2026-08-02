@@ -1,5 +1,5 @@
-#ifndef __TRAP_H__
-#define __TRAP_H__
+#ifndef TRAP_H
+#define TRAP_H
 
 #include "./emu.h"
 
@@ -13,8 +13,6 @@
  * @param uc           Unicorn 引擎
  * @param trap_address 当前 PC 地址（应在 TRAMP_BASE ~ TRAMP_BASE+TRAMP_SIZE
  * 范围内）
- * @param r0..r3       当前寄存器值
- * @param sp, lr       当前 SP / LR 值
  */
 void handle_trap(uc_engine *uc, uint32_t trap_address);
 

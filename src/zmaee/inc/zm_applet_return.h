@@ -1,5 +1,5 @@
-#ifndef _ZM_APPLET_RETURN_H_
-#define _ZM_APPLET_RETURN_H_
+#ifndef ZM_APPLET_RETURN_H
+#define ZM_APPLET_RETURN_H
 
 /**
  * @file zm_applet_return.h

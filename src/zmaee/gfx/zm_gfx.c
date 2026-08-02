@@ -173,12 +173,12 @@ int zm_gfx_init() {
   if (g_win)
     return 0; /* 已初始化 */
 
-  if (header.ScreenW == 0)
-    header.ScreenW = 240;
-  if (header.ScreenH == 0)
-    header.ScreenH = 240;
-  g_w = (int)header.ScreenW;
-  g_h = (int)header.ScreenH;
+  if (g_header.ScreenW == 0)
+    g_header.ScreenW = 240;
+  if (g_header.ScreenH == 0)
+    g_header.ScreenH = 240;
+  g_w = (int)g_header.ScreenW;
+  g_h = (int)g_header.ScreenH;
 
   if (SDL_Init(SDL_INIT_VIDEO) != 0) {
     log_error("SDL_Init failed: %s", SDL_GetError());
@@ -191,7 +191,7 @@ int zm_gfx_init() {
 
   char window_title[128];
   char *ext_char = " (zm_emu)";
-  snprintf(window_title, sizeof(window_title), "%s%s", header.AppName,
+  snprintf(window_title, sizeof(window_title), "%s%s", g_header.AppName,
            ext_char);
 
   g_win =

@@ -8,14 +8,14 @@
 #include <string.h>
 
 /* -------------------- 全局变量定义 -------------------- */
-uc_engine *uc;
-AppletHeader header;
-uint32_t heap_ptr = HEAP_BASE;
+uc_engine *g_uc;
+AppletHeader g_header;
+uint32_t g_heap_ptr = HEAP_BASE;
 
 uint32_t g_instance = 0;
 uint32_t g_handler = 0;
 int g_trap_pause = 0;
-int g_disasm = 0;
+int g_disasm = 1;
 
 csh g_cs_handle;
 cs_insn *g_sc_insn;
@@ -24,13 +24,13 @@ uint8_t g_cscode[16];
 
 /* -------------------- 实现 -------------------- */
 
-int zm_emu_map_memory(uc_engine *uc) {
+int zm_emu_map_memory() {
   uc_err err;
-  err = uc_mem_map(uc, BLOB_BASE, BLOB_SIZE, UC_PROT_ALL);
-  err = uc_mem_map(uc, STACK_BASE, STACK_SIZE, UC_PROT_ALL);
-  err = uc_mem_map(uc, HEAP_BASE, HEAP_SIZE, UC_PROT_ALL);
-  err = uc_mem_map(uc, SHIM_BASE, SHIM_SIZE, UC_PROT_ALL);
-  err = uc_mem_map(uc, TRAMP_BASE, TRAMP_SIZE, UC_PROT_ALL);
+  err = uc_mem_map(g_uc, BLOB_BASE, BLOB_SIZE, UC_PROT_ALL);
+  err = uc_mem_map(g_uc, STACK_BASE, STACK_SIZE, UC_PROT_ALL);
+  err = uc_mem_map(g_uc, HEAP_BASE, HEAP_SIZE, UC_PROT_ALL);
+  err = uc_mem_map(g_uc, SHIM_BASE, SHIM_SIZE, UC_PROT_ALL);
+  err = uc_mem_map(g_uc, TRAMP_BASE, TRAMP_SIZE, UC_PROT_ALL);
   if (err != UC_ERR_OK) {
     log_error("uc_mem_map failed, err: %d\n", err);
     return -1;
@@ -39,52 +39,53 @@ int zm_emu_map_memory(uc_engine *uc) {
   return 0;
 }
 
-int zm_emu_build_vtables(uc_engine *uc) {
+int zm_emu_build_vtables() {
   uc_err err;
   // shim 和 tramp 是对射关系,先假设它全部是这样然后后面再做修补修改
   // 假设它全部是函数指针实际上是有对象的后面会进行修补
   // 一个函数指针是四字节所以这里是加四字节
   for (uint32_t i = 0; i < SHIM_SIZE; i += 4) {
-    err = uc_write32(uc, SHIM_BASE + i, TRAMP_BASE + i);
+    err = uc_write32(g_uc, SHIM_BASE + i, TRAMP_BASE + i);
     if (err != UC_ERR_OK) {
       log_error("shim映射到tramp时出现了错误, err: %d\n", err);
       return -1;
     }
   }
   // root
-  err = uc_write32(uc, ROOT, TR_root_queryRuntime);
+  err = uc_write32(g_uc, ROOT, TR_root_queryRuntime);
 
   // runtime
-  err = uc_write32(uc, RUNTIME, RT_VT);
+  err = uc_write32(g_uc, RUNTIME, RT_VT);
 
   // gfx
-  err = uc_write32(uc, GFX, GFX_VT);
+  err = uc_write32(g_uc, GFX, GFX_VT);
 
-  /* FS_VT[0x30]：enumFile — sub_82584 枚举 app_list 下文件 */
-  err = uc_write32(uc, FS_VT + 0x30, TR_fs_enum);
+  /* FileMgr_VT[0x30]：enumFile — sub_82584 枚举 app_list 下文件 */
+  // err = uc_write32(g_uc, FileMgr_VT + 0x30, TR_fileMgr_enum);
 
   // fs
-  err = uc_write32(uc, FS, FS_VT);
+  err = uc_write32(g_uc, FileMgr, FileMgr_VT);
+  err = uc_write32(g_uc, FILE1, FILE_VT);
 
   // audio
-  err = uc_write32(uc, AUDIO, AUDIO_VT);
-  err = uc_write32(uc, AP, AP_VT);
+  err = uc_write32(g_uc, AUDIO, AUDIO_VT);
+  err = uc_write32(g_uc, AP, AP_VT);
 
   /* ---- 新增 runtime 服务对象 SVC04 / SVC09 ---- */
-  err = uc_write32(uc, SVC04, SVC04_VT);
+  err = uc_write32(g_uc, SVC04, SVC04_VT);
 
   /* ---- CBK 回调对象（sub_84E04 返回，vt[+8] 会被 applet 覆写为 sub_82FF8）
    * ---- */
-  err = uc_write32(uc, CBK_OBJ, CBK_OBJ_VT);
-  // err = uc_write32(uc, CBK_OBJ_VT + 0x08, TR_cbk_default);
+  err = uc_write32(g_uc, CBK_OBJ, CBK_OBJ_VT);
+  // err = uc_write32(g_uc, CBK_OBJ_VT + 0x08, TR_cbk_default);
 
   /* ---- stub DLL 对象（loadDLL 返回） ---- */
-  err = uc_write32(uc, DLL_OBJ, DLL_OBJ_VT);
+  err = uc_write32(g_uc, DLL_OBJ, DLL_OBJ_VT);
 
   /* INIT_CTX 显式零填充（Unicorn 默认零，此处双保险，确保 r3+0x100 可读） */
   {
     uint8_t zeros[256] = {0};
-    err = uc_mem_write(uc, INIT_CTX, zeros, sizeof(zeros));
+    err = uc_mem_write(g_uc, INIT_CTX, zeros, sizeof(zeros));
   }
 
   if (err != UC_ERR_OK) {
@@ -95,7 +96,7 @@ int zm_emu_build_vtables(uc_engine *uc) {
   return 0;
 }
 
-int zm_emu_load_blob(uc_engine *uc, FILE *fp, long *applet_size) {
+int zm_emu_load_blob(FILE *fp, const long *applet_size) {
 
   log_info("开始载入blob数据");
   unsigned char *buf = malloc(*applet_size);
@@ -114,7 +115,7 @@ int zm_emu_load_blob(uc_engine *uc, FILE *fp, long *applet_size) {
     return -1;
   }
 
-  uc_err err = uc_mem_write(uc, BLOB_BASE, buf, *applet_size);
+  uc_err err = uc_mem_write(g_uc, BLOB_BASE, buf, *applet_size);
   if (err != UC_ERR_OK) {
     log_error("uc_mem_write failed, err: %d\n", err);
     free(buf);
@@ -128,29 +129,28 @@ int zm_emu_load_blob(uc_engine *uc, FILE *fp, long *applet_size) {
   return 0;
 }
 
-int zm_emu_add_hooks(uc_engine *uc) {
+int zm_emu_add_hooks() {
   uc_hook hook_code_handle;
   uc_hook hook_unmapped_mem_handle;
   uc_hook hook_shim_mem_handle;
 
   uc_err err;
   log_info("添加钩子");
-
-  err = uc_hook_add(uc, &hook_code_handle, UC_HOOK_CODE, (void *)hook_code,
+  err = uc_hook_add(g_uc, &hook_code_handle, UC_HOOK_CODE, (void *)hook_code,
                     NULL, 1, 0);
   if (err != UC_ERR_OK) {
     log_error("uc_hook_add failed, err: %d\n", err);
     return -1;
   }
 
-  err = uc_hook_add(uc, &hook_unmapped_mem_handle, UC_HOOK_MEM_UNMAPPED,
+  err = uc_hook_add(g_uc, &hook_unmapped_mem_handle, UC_HOOK_MEM_UNMAPPED,
                     (void *)hook_mem_unmapped, NULL, 1, 0);
   if (err != UC_ERR_OK) {
     log_error("uc_hook_add failed, err: %d\n", err);
     return -1;
   }
 
-  err = uc_hook_add(uc, &hook_shim_mem_handle,
+  err = uc_hook_add(g_uc, &hook_shim_mem_handle,
                     UC_HOOK_MEM_READ | UC_HOOK_MEM_WRITE, (void *)hook_shim_mem,
                     NULL, SHIM_BASE, SHIM_BASE + SHIM_SIZE);
   if (err != UC_ERR_OK) {
@@ -161,20 +161,20 @@ int zm_emu_add_hooks(uc_engine *uc) {
   return 0;
 }
 
-int zm_emu_start_applet(uc_engine *uc) {
+int zm_emu_start_applet() {
   uint32_t stack_ptr = STACK_TOP;
-  uc_reg_write(uc, UC_ARM_REG_SP, &stack_ptr);
+  uc_reg_write(g_uc, UC_ARM_REG_SP, &stack_ptr);
 
   uc_reg_write(
-      uc, UC_ARM_REG_LR,
+      g_uc, UC_ARM_REG_LR,
       &(uint32_t){TR_init_callback}); // LR 是返回地址，这里写入初始化回调
-  uc_reg_write(uc, UC_ARM_REG_R0, &(uint32_t){SIZE_SLOT});
-  uc_reg_write(uc, UC_ARM_REG_R1, &(uint32_t){API_SLOT});
+  uc_reg_write(g_uc, UC_ARM_REG_R0, &(uint32_t){SIZE_SLOT});
+  uc_reg_write(g_uc, UC_ARM_REG_R1, &(uint32_t){API_SLOT});
 
-  uc_write32(uc, BLOB_BASE + ROOT_SLOT_OFF, (uint32_t)ROOT);
+  uc_write32(g_uc, BLOB_BASE + ROOT_SLOT_OFF, (uint32_t)ROOT);
 
   log_info("启动unicorn engine...");
-  uc_emu_start(uc, APPLET_ENTRY_POINT, STACK_TOP, 0, 0);
+  uc_emu_start(g_uc, APPLET_ENTRY_POINT, STACK_TOP, 0, 0);
   log_info("unicorn engine启动完成");
   return 0;
 }

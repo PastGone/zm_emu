@@ -1,5 +1,5 @@
-#ifndef __TEST_PARSE_H__
-#define __TEST_PARSE_H__
+#ifndef TEST_PARSE_H
+#define TEST_PARSE_H
 
 // -------------------- 在这里放声明 --------------------
 // 1. 函数声明

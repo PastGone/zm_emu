@@ -1,5 +1,5 @@
-#ifndef _ZM_EVENT_CODE_H_
-#define _ZM_EVENT_CODE_H_
+#ifndef ZM_EVENT_CODE_H
+#define ZM_EVENT_CODE_H
 
 /* ZM 框架标准事件码
  * 来源：zmsys001.dll.lst 中 charge 模块事件处理器 (sub_1AC4)
@@ -24,4 +24,4 @@ enum ZMAEE_EVENT {
                            // AEE_IShell_SetTimer 产生)
 };
 
-#endif /* _ZMAEE_EVENTS_H_ */
+#endif /* ZM_EVENT_CODE_H_ */

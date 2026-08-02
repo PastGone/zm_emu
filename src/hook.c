@@ -21,10 +21,12 @@ void hook_code(uc_engine *uc, uint64_t address, uint32_t size,
 void hook_shim_mem(uc_engine *uc, uc_mem_type type, uint64_t address, int size,
                    int64_t value, void *user_data) {
   if (type == UC_MEM_READ) {
-    log_debug("[HOOK] 读取 地址:0x%016lx 大小:%d\n", address, size);
+    log_debug("[HOOK] 从 0x%016lx 地址处读取大小为:%d的数据，值为:0x%016lx\n",
+              address, size, value);
+
   } else if (type == UC_MEM_WRITE) {
-    log_debug("[HOOK] 写入 地址:0x%016lx 大小:%d 值:0x%016lx\n", address, size,
-              value);
+    log_debug("[HOOK] 向 0x%016lx 地址处写入大小为:%d的数据，值为:0x%016lx\n",
+              address, size, value);
   } else {
     log_debug("[HOOK] 其他内存操作 (type=%d)\n", type);
   }

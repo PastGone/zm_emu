@@ -1,5 +1,5 @@
-#ifndef __ZM_GFX_H__
-#define __ZM_GFX_H__
+#ifndef ZM_GFX_H
+#define ZM_GFX_H
 
 // -------------------- gfx 相关 trap 处理函数声明 --------------------
 // 基于 SDL2 + SDL_ttf 的真实渲染实现：

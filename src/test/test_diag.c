@@ -23,7 +23,7 @@ void zm_diag_dump_buttons(uc_engine *uc) {
   }
 }
 
-// void zm_diag_audio_test(uc_engine *uc) {
+// void zm_diag_audio_test(uc_engine *g_uc) {
 //   const char *atest = getenv("ZM_AUDIO_TEST");
 //   if (atest && *atest) {
 //     uint32_t count = zm_fs_get_resource_count();
@@ -37,9 +37,9 @@ void zm_diag_dump_buttons(uc_engine *uc) {
 //     uint32_t rsize = 0;
 //     const uint8_t *rdata = zm_fs_get_resource(idx, &rsize);
 //     if (rdata && rsize && rsize <= ZMR_SIZE) {
-//       uc_mem_write(uc, ZMR_BASE, rdata, rsize);
+//       uc_mem_write(g_uc, ZMR_BASE, rdata, rsize);
 //       log_info("音频自测：播放资源 %u/%u  size=%u", idx, count, rsize);
-//       zm_ap_play(uc, ZMR_BASE, rsize);
+//       zm_ap_play(g_uc, ZMR_BASE, rsize);
 //     } else {
 //       log_warn("音频自测：资源 %u 不可用 (count=%u)", idx, count);
 //     }

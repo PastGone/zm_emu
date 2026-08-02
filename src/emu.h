@@ -1,5 +1,5 @@
-#ifndef __EMU_H__
-#define __EMU_H__
+#ifndef EMU_H
+#define EMU_H
 
 #include <stddef.h>
 #include <stdint.h>
@@ -40,8 +40,8 @@
 #define RT_VT (SHIM_BASE + 0x180U)
 #define GFX (SHIM_BASE + 0x200U)
 #define GFX_VT (SHIM_BASE + 0x280U)
-#define FS (SHIM_BASE + 0x300U)
-#define FS_VT (SHIM_BASE + 0x380U)
+#define FileMgr (SHIM_BASE + 0x300U)
+#define FileMgr_VT (SHIM_BASE + 0x380U)
 #define FILE1 (SHIM_BASE + 0x400U)
 #define FILE_VT (SHIM_BASE + 0x480U)
 #define AUDIO (SHIM_BASE + 0x500U)
@@ -102,7 +102,7 @@
 #define TR_gfx_fillRect2 TRAP(GFX_VT + 0x70U)
 // fs
 
-#define TR_fs_open TRAP(FS_VT + 0x08U)
+#define TR_fileMgr_open_file TRAP(FileMgr_VT + 0x08U)
 #define TR_file_close TRAP(FILE_VT + 0x04U)
 #define TR_file_read TRAP(FILE_VT + 0x08U)
 #define TR_file_seek TRAP(FILE_VT + 0x20U)
@@ -152,9 +152,9 @@
 #define TR_enter_event_loop TRAP(ROOT + 0x1180U)
 
 // -------------------- 全局变量 --------------------
-extern uc_engine *uc;
-extern AppletHeader header;
-extern uint32_t heap_ptr;
+extern uc_engine *g_uc;
+extern AppletHeader g_header;
+extern uint32_t g_heap_ptr;
 
 extern uint32_t g_instance;
 extern uint32_t g_handler;
@@ -176,18 +176,18 @@ extern uint8_t g_cscode[16];
 // -------------------- 函数声明 --------------------
 
 /* 构建所有虚表：把 trap 地址写入客户机虚拟内存中的 shim 区 */
-int zm_emu_build_vtables(uc_engine *uc);
+int zm_emu_build_vtables();
 
 /* Unicorn 内存映射（blob/stack/heap/shim/tramp/zmr） */
-int zm_emu_map_memory(uc_engine *uc);
+int zm_emu_map_memory();
 
 /* 载入 applet blob 到 BLOB_BASE */
-int zm_emu_load_blob(uc_engine *uc, FILE *fp, long *applet_size);
+int zm_emu_load_blob(FILE *fp, const long *applet_size);
 
 /* 注册 Unicorn 钩子（code / unmapped mem / shim mem） */
-int zm_emu_add_hooks(uc_engine *uc);
+int zm_emu_add_hooks();
 
 /* 设置初始寄存器，启动 applet（init → 绘制 → 停止） */
-int zm_emu_start_applet(uc_engine *uc);
+int zm_emu_start_applet();
 
 #endif

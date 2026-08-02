@@ -1,100 +1,33 @@
 #include "zm_fs.h"
 
-#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "../../emu.h"
 #include "../../log/log.h"
-#include "../../tool/odds.h"
 #include "../core/zm_str.h" /* read_cstr */
 
-/* ---------- .zmr 资源文件处理 ----------
+/* ---------- 通用单文件系统（无槽位、无注册、无 .zmr 绑定） ----------
  *
- * 1. applet 端读取流程（见反编译 sub_1DC）：
- *      fs.open(filename, 1)            -> 返回文件对象（本实现固定 FILE1）
- *      file.read(buf, 4)               -> 读 magic，校验 == 0x30726D7A ("zmr0")
- *      file.read(buf, 4)               -> 读资源个数 N
- *      file.seek(ABS, 4*idx + 8)       -> 定位到偏移表第 idx 项
- *      file.read(buf, 8)               -> 读
- * entry[idx]、entry[idx+1]（起止偏移） file.seek(ABS, entry[idx])      ->
- * 定位到资源数据起始 file.read(buf, entry[idx+1]-entry[idx]) -> 读出资源
- *      file.close()
- *    即 applet 自行解析头部，宿主只需按游标提供原始字节即可。
+ *  - 只同时支持一个打开的文件
+ *  - fs.open 会在宿主机磁盘上找到同名文件并读入内存，返回固定句柄 FILE1
+ *  - 若再次调用 fs.open，会自动关闭前一个文件并打开新文件
+ *  - 不需要预先注册任何文件
  *
- * 2. 本模块在载入时额外解析 magic / 资源数 / 偏移表：
- *    - 早期校验 magic，避免误载非 .zmr 文件；
- *    - 暴露 zm_fs_get_resource() 供宿主直接按索引取资源（如音频自测），
- *      不必再走 trap 游标。
- *
- * 文件结构：
- *   0x00  4B   magic (0x30726D7A)
- *   0x04  4B   资源个数 N
- *   0x08  4B*(N+1)  偏移表：entry[i]=第 i 个资源起始绝对偏移，
- *                   entry[N]=数据区末尾（即 CRC 前）
- *   数据区 N 个资源块连续存放
- *   末尾-4 4B  CRC32（原始算法未知，仅记录不参与拆分）
+ * 使用方式：
+ *   1. 调用 zm_fs_set_data_dir("/path/to/applet") 设置文件搜索根目录
+ *   2. applet 调用 fs.open("xxx") 时，会尝试打开 "/path/to/applet/xxx"
+ *   3. 调用 fs.close 或 shutdown 时释放内存
  */
 
-/* ---------- 模块内部状态 ---------- */
-static uint8_t *s_zmr_data = NULL; /* 整个 .zmr 文件缓冲（流式加载时为 NULL） */
-static size_t s_zmr_size = 0;      /* 文件总字节数 */
-static uint32_t s_file_pos = 0;    /* file.read/file.seek 使用的游标 */
+/* ========== 全局单文件状态 ========== */
+static uint8_t *g_file_data = NULL; // 当前打开文件的内容
+static size_t g_file_size = 0;      // 文件大小
+static uint32_t g_file_pos = 0;     // 读写游标
+static char s_data_dir[1024] = {0}; // 文件查找根目录
 
-/* 解析出的资源索引（供 zm_fs_get_resource 直接访问） */
-static uint32_t s_resource_count = 0;   /* 资源个数 N */
-static uint32_t *s_offset_table = NULL; /* 长度 N+1，绝对偏移 */
-
-/* 流式 .zmr 的磁盘路径，以及 zm_fs_get_resource 的临时缓冲 */
-static char s_zmr_path[1024] = {0};
-static uint8_t *s_resource_buf = NULL;
-static size_t s_resource_buf_size = 0;
-
-/* 释放偏移表与缓冲，把状态归零（供 reload / shutdown 复用） */
-static void free_state(void) {
-  free(s_zmr_data);
-  s_zmr_data = NULL;
-  s_zmr_size = 0;
-  s_file_pos = 0;
-  free(s_offset_table);
-  s_offset_table = NULL;
-  s_resource_count = 0;
-  s_zmr_path[0] = '\0';
-  free(s_resource_buf);
-  s_resource_buf = NULL;
-  s_resource_buf_size = 0;
-}
-
-/* ---------- 多文件层（00000405.app） ----------
- * 句柄 = FILE1 + idx*0x10（idx 0..7）。applet 1 的 .zmr 单游标路径在
- * 句柄未占用时自动回退（file_id==FILE1 且 slot 0 未占用且 .zmr 已载入）。
- */
-#define FS_MAX_SLOTS 8
-#define FS_SLOT_STRIDE 0x10
-
-typedef struct {
-  char name[64];        /* basename，查找键 */
-  bool is_stream;       /* true：通过 host_path/fp 按需读取磁盘文件
-                         * false：data 指向已载入内存的缓冲 */
-  const uint8_t *data;  /* 非流式：文件内容（调用方持有，或由 s_owned 持有） */
-  FILE *fp;             /* 流式：打开的 FILE*（close 后设为 NULL） */
-  char host_path[1024]; /* 流式：磁盘文件完整路径，用于 reopen */
-  size_t size;          /* 文件字节数 */
-  uint32_t pos;         /* 当前游标 */
-  bool in_use;     /* 是否已打开（fs.open 分配后置 true，close 后 false） */
-  bool registered; /* 是否已登记（区分空槽与已登记未打开） */
-} file_slot_t;
-
-static file_slot_t s_slots[FS_MAX_SLOTS];
-
-/* register_default 读入磁盘文件持有的缓冲，shutdown 时统一释放 */
-#define FS_MAX_OWNED 8
-static uint8_t *s_owned[FS_MAX_OWNED];
-static int s_owned_count = 0;
-
-/* 从完整路径取 basename（最后一个 '/' 或 '\\' 之后），写入 out（不超
- * out_cap-1） */
+/* ========== 内部工具 ========== */
 static void basename_of(const char *path, char *out, size_t out_cap) {
   const char *base = path;
   for (const char *p = path; *p; p++) {
@@ -108,492 +41,158 @@ static void basename_of(const char *path, char *out, size_t out_cap) {
   out[n] = '\0';
 }
 
-bool zm_fs_register_file(const char *name, const void *data, size_t size) {
-  if (!name || !data || size == 0)
-    return false;
-  char bn[64];
-  basename_of(name, bn, sizeof(bn));
-  for (int i = 0; i < FS_MAX_SLOTS; i++) {
-    if (s_slots[i].registered && strcmp(s_slots[i].name, bn) == 0) {
-      /* 已登记：更新内容（reload 场景） */
-      if (s_slots[i].is_stream && s_slots[i].fp) {
-        fclose(s_slots[i].fp);
-        s_slots[i].fp = NULL;
-      }
-      s_slots[i].is_stream = false;
-      s_slots[i].data = (const uint8_t *)data;
-      s_slots[i].fp = NULL;
-      s_slots[i].host_path[0] = '\0';
-      s_slots[i].size = size;
-      s_slots[i].pos = 0;
-      s_slots[i].in_use = false;
-      return true;
-    }
-  }
-  for (int i = 0; i < FS_MAX_SLOTS; i++) {
-    if (!s_slots[i].registered) {
-      strncpy(s_slots[i].name, bn, sizeof(s_slots[i].name) - 1);
-      s_slots[i].name[sizeof(s_slots[i].name) - 1] = '\0';
-      s_slots[i].is_stream = false;
-      s_slots[i].data = (const uint8_t *)data;
-      s_slots[i].fp = NULL;
-      s_slots[i].host_path[0] = '\0';
-      s_slots[i].size = size;
-      s_slots[i].pos = 0;
-      s_slots[i].in_use = false;
-      s_slots[i].registered = true;
-      return true;
-    }
-  }
-  log_warn("zm_fs_register_file: 句柄表已满，无法登记 %s", bn);
-  return false;
-}
-
-/* 从磁盘读入一个文件到 malloc 缓冲（由 s_owned 持有），成功返回 true。
- * 缓冲在 zm_fs_shutdown 释放。 */
-bool zm_fs_register_hostfile(const char *host_path, const char *reg_name) {
-  FILE *f = fopen(host_path, "rb");
-  if (!f) {
-    log_info("zm_fs: 跳过未找到的文件 %s", host_path);
-    return false;
-  }
-  fseek(f, 0, SEEK_END);
-  long sz = ftell(f);
-  fseek(f, 0, SEEK_SET);
-  if (sz <= 0) {
-    fclose(f);
-    return false;
-  }
-  uint8_t *buf = malloc((size_t)sz);
-  if (!buf) {
-    fclose(f);
-    return false;
-  }
-  size_t rd = fread(buf, 1, (size_t)sz, f);
-  fclose(f);
-  if (rd != (size_t)sz) {
-    free(buf);
-    return false;
-  }
-  if (s_owned_count < FS_MAX_OWNED) {
-    s_owned[s_owned_count++] = buf;
-  } else {
-    /* 超出持有上限：仍登记但无法在 shutdown 释放（不应发生） */
-    log_warn("zm_fs: owned 缓冲已满，%s 内存可能泄漏", host_path);
-  }
-  zm_fs_register_file(reg_name, buf, (size_t)sz);
-  log_info("zm_fs: 已登记 %s (size=%ld) <- %s", reg_name, sz, host_path);
-  return true;
-}
-
-void zm_fs_register_default(const char *applet_dir) {
-  /* 推导 applet 目录（去掉末尾的 '/'） */
-  char dir[1024];
-  strncpy(dir, applet_dir ? applet_dir : ".", sizeof(dir) - 1);
-  dir[sizeof(dir) - 1] = '\0';
-  size_t dl = strlen(dir);
-  while (dl > 0 && (dir[dl - 1] == '/' || dir[dl - 1] == '\\'))
-    dir[--dl] = '\0';
-  if (dl == 0) {
-    strncpy(dir, ".", sizeof(dir) - 1);
-    dir[sizeof(dir) - 1] = '\0';
-    dl = strlen(dir);
-  }
-
-  char path[1280];
-
-  /* 先登记同目录下的 .zmr 资源包，让 applet 通过 fs.open 按名打开 */
-  DIR *d = opendir(dir);
-  if (d) {
-    struct dirent *ent;
-    while ((ent = readdir(d)) != NULL) {
-      size_t len = strlen(ent->d_name);
-      if (len > 4 && strcmp(ent->d_name + len - 4, ".zmr") == 0) {
-        snprintf(path, sizeof(path), "%s/%s", dir, ent->d_name);
-        if (zm_fs_load_zmr(path)) {
-          log_info("zm_fs_register_default: 已登记 .zmr %s", path);
-        }
-      }
-    }
-    closedir(d);
-  }
-
-  /* app_list 与 res 下的文件；applet 自身 .app 由 main.c 单独登记 */
-  snprintf(path, sizeof(path), "%s/app_list/config.b", dir);
-  zm_fs_register_hostfile(path, "config.b");
-  snprintf(path, sizeof(path), "%s/app_list/zmsys006.dll", dir);
-  zm_fs_register_hostfile(path, "zmsys006.dll");
-  snprintf(path, sizeof(path), "%s/app_list/zmsys001.dll", dir);
-  zm_fs_register_hostfile(path, "zmsys001.dll");
-  snprintf(path, sizeof(path), "%s/app_list/1_32icon.zbmp", dir);
-  zm_fs_register_hostfile(path, "1_32icon.zbmp");
-}
-
-void zm_fs_shutdown(void) {
-  for (int i = 0; i < FS_MAX_SLOTS; i++) {
-    if (s_slots[i].is_stream && s_slots[i].fp) {
-      fclose(s_slots[i].fp);
-      s_slots[i].fp = NULL;
-    }
-  }
-  free_state();
-  for (int i = 0; i < s_owned_count; i++) {
-    free(s_owned[i]);
-    s_owned[i] = NULL;
-  }
-  s_owned_count = 0;
-  memset(s_slots, 0, sizeof(s_slots));
-}
-
-const uint8_t *zm_fs_get_resource(uint32_t index, uint32_t *out_size) {
-  if (!s_offset_table || index >= s_resource_count || !out_size)
-    return NULL;
-  uint32_t start = s_offset_table[index];
-  uint32_t end = s_offset_table[index + 1];
-  if (start > end || end > (uint32_t)s_zmr_size - 4)
-    return NULL;
-  uint32_t sz = end - start;
-  *out_size = sz;
-
-  /* 旧模式：已把整个 .zmr 预读到 s_zmr_data */
-  if (s_zmr_data)
-    return s_zmr_data + start;
-
-  /* 流式模式：按需从磁盘读取该资源到临时缓冲 */
-  if (s_zmr_path[0] == '\0')
-    return NULL;
-  if (s_resource_buf_size < sz) {
-    uint8_t *p = realloc(s_resource_buf, sz);
-    if (!p)
-      return NULL;
-    s_resource_buf = p;
-    s_resource_buf_size = sz;
-  }
-  FILE *f = fopen(s_zmr_path, "rb");
-  if (!f)
-    return NULL;
-  if (fseek(f, (long)start, SEEK_SET) != 0 ||
-      fread(s_resource_buf, 1, sz, f) != sz) {
-    fclose(f);
-    return NULL;
-  }
-  fclose(f);
-  return s_resource_buf;
-}
-
-uint32_t zm_fs_get_resource_count(void) { return s_resource_count; }
-
-/**
- * @brief 解析 .zmr 头部并登记为流式文件
- *
- * 不预读数据区。只读取 magic / 资源数 / 偏移表（通常 <1KB），然后把文件
- * 登记为流式槽位。applet 点击时通过 fs.open / read / seek 按自己的顺序
- * 读取资源；宿主测试时通过 zm_fs_get_resource 按需从磁盘读取单个资源。
- *
- * 文件结构：
- *   0x00  magic "zmr0" (0x30726D7A)
- *   0x04  资源个数 N
- *   0x08  偏移表 (N+1) * 4B
- *   ...   数据区
- *   末尾  4B CRC（仅记录）
- */
-bool zm_fs_load_zmr(const char *path) {
-  if (!path || !path[0])
-    return false;
-
-  FILE *f = fopen(path, "rb");
-  if (!f) {
-    log_info("zm_fs_load_zmr: 未找到 %s", path);
-    return false;
-  }
-
-  fseek(f, 0, SEEK_END);
-  long sz = ftell(f);
-  fseek(f, 0, SEEK_SET);
-  if (sz < 20) { /* magic(4) + count(4) + table(8) + crc(4) */
-    log_error("zm_fs_load_zmr: 文件过小 (%ld 字节): %s", sz, path);
-    fclose(f);
-    return false;
-  }
-
-  uint32_t magic, count;
-  if (fread(&magic, 4, 1, f) != 1 || fread(&count, 4, 1, f) != 1) {
-    fclose(f);
-    return false;
-  }
-  if (magic != 0x30726D7Au) {
-    log_error("zm_fs_load_zmr: magic 错误 0x%08X（期望 0x30726D7A）: %s", magic,
-              path);
-    fclose(f);
-    return false;
-  }
-
-  size_t table_bytes = (size_t)(count + 1) * 4;
-  size_t data_start = 8 + table_bytes;
-  if (data_start > (size_t)sz - 4) {
-    log_error("zm_fs_load_zmr: 偏移表越界 (N=%u): %s", count, path);
-    fclose(f);
-    return false;
-  }
-
-  uint32_t *table = malloc(table_bytes);
-  if (!table || fread(table, 4, count + 1, f) != count + 1) {
-    free(table);
-    fclose(f);
-    return false;
-  }
-
-  uint32_t data_end = (uint32_t)((size_t)sz - 4);
-  if (table[0] != data_start)
-    log_warn("zm_fs_load_zmr: entry[0]=%u 与数据区起点=%zu 不一致", table[0],
-             data_start);
-  if (count > 0 && table[count] != data_end)
-    log_warn("zm_fs_load_zmr: entry[N]=%u 与数据区末尾=%u 不一致", table[count],
-             data_end);
-
-  uint32_t stored_crc;
-  if (fseek(f, -4, SEEK_END) == 0)
-    fread(&stored_crc, 4, 1, f);
-  else
-    stored_crc = 0;
-  uint32_t calc_crc = 0; /* 磁盘 CRC 需要再读一遍完整数据，这里不计算 */
-  log_info(".zmr 登记: %s size=%zu N=%u CRC stored=0x%08X（数据区不预读）",
-           path, (size_t)sz, count, stored_crc);
-
-  /* 释放旧 .zmr 状态 */
-  free_state();
-
-  /* 提交新状态 */
-  s_zmr_size = (size_t)sz;
-  s_file_pos = 0;
-  s_resource_count = count;
-  s_offset_table = table;
-  strncpy(s_zmr_path, path, sizeof(s_zmr_path) - 1);
-  s_zmr_path[sizeof(s_zmr_path) - 1] = '\0';
-
-  /* 登记为流式文件槽位 */
-  char bn[64];
-  basename_of(path, bn, sizeof(bn));
-  for (int i = 0; i < FS_MAX_SLOTS; i++) {
-    if (s_slots[i].registered && strcmp(s_slots[i].name, bn) == 0) {
-      if (s_slots[i].is_stream && s_slots[i].fp) {
-        fclose(s_slots[i].fp);
-        s_slots[i].fp = NULL;
-      }
-      s_slots[i].is_stream = true;
-      s_slots[i].data = NULL;
-      s_slots[i].fp = f;
-      strncpy(s_slots[i].host_path, path, sizeof(s_slots[i].host_path) - 1);
-      s_slots[i].host_path[sizeof(s_slots[i].host_path) - 1] = '\0';
-      s_slots[i].size = (size_t)sz;
-      s_slots[i].pos = 0;
-      s_slots[i].in_use = false;
-      return true;
-    }
-  }
-  for (int i = 0; i < FS_MAX_SLOTS; i++) {
-    if (!s_slots[i].registered) {
-      strncpy(s_slots[i].name, bn, sizeof(s_slots[i].name) - 1);
-      s_slots[i].name[sizeof(s_slots[i].name) - 1] = '\0';
-      s_slots[i].is_stream = true;
-      s_slots[i].data = NULL;
-      s_slots[i].fp = f;
-      strncpy(s_slots[i].host_path, path, sizeof(s_slots[i].host_path) - 1);
-      s_slots[i].host_path[sizeof(s_slots[i].host_path) - 1] = '\0';
-      s_slots[i].size = (size_t)sz;
-      s_slots[i].pos = 0;
-      s_slots[i].in_use = false;
-      s_slots[i].registered = true;
-      return true;
-    }
-  }
-
-  /* 槽位已满：保持头部解析状态，但关闭 FILE* */
-  fclose(f);
-  log_warn("zm_fs_load_zmr: 句柄表已满，%s 无法登记为流式文件", bn);
-  return true;
-}
-
-/* ---------- 多文件 fs.open / read / seek / close ----------
- * 句柄 = FILE1 + idx*0x10。idx 由 (file_id - FILE1)/0x10 计算。
- * 当 file_id==FILE1 且 slot 0 未占用且 .zmr 已载入时，回退旧单游标路径
- * （applet 1 兼容）。
- */
-
-/* 把客户机 filename_ptr 处的文件名解析到 host buf。
- * 兼容两种形态：
- *   (a) zmaee 字符串对象（str_ctor/str_assign 构造：+0=数据指针，+4=长度）
- *   (b) 裸 C 字符串缓冲（sub_84FD8 用 sprintf 拼出的 "%s%08x.app"）
- * 委托 zm_read_str_obj 鲁棒判定，避免把 str_obj 的指针字节误当裸串。
- */
 static void read_filename(uc_engine *uc, uint32_t ptr, char *buf, size_t cap) {
   zm_read_str_obj(uc, ptr, buf, cap);
 }
 
-/* 句柄 <-> slot 索引转换 */
-static int handle_to_idx(uint32_t file_id) {
-  if (file_id < FILE1)
-    return -1;
-  uint32_t off = file_id - FILE1;
-  if (off % FS_SLOT_STRIDE != 0)
-    return -1;
-  int idx = (int)(off / FS_SLOT_STRIDE);
-  if (idx < 0 || idx >= FS_MAX_SLOTS)
-    return -1;
-  return idx;
+/* ========== 对外 API ========== */
+
+/**
+ * 设置文件搜索根目录（通常为 applet 所在文件夹）。
+ * 需要在第一次 fs.open 之前调用。
+ */
+void zm_fs_set_data_dir(const char *dir) {
+  if (dir && dir[0]) {
+    strncpy(s_data_dir, dir, sizeof(s_data_dir) - 1);
+    s_data_dir[sizeof(s_data_dir) - 1] = '\0';
+    /* 去掉末尾斜杠 */
+    size_t len = strlen(s_data_dir);
+    while (len > 0 &&
+           (s_data_dir[len - 1] == '/' || s_data_dir[len - 1] == '\\'))
+      s_data_dir[--len] = '\0';
+  } else {
+    s_data_dir[0] = '\0';
+  }
 }
 
-uint32_t zm_fs_open(uc_engine *uc, uint32_t filename_ptr) {
+/**
+ * 打开文件 —— 自动关闭前一个文件，加载新文件到内存，返回 FILE1。
+ * 成功返回 FILE1，失败返回 0。
+ */
+uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr) {
   char name[256];
   read_filename(uc, filename_ptr, name, sizeof(name));
   char bn[64];
-  log_debug("zm_fs_open: %s", name);
   basename_of(name, bn, sizeof(bn));
-  log_debug("applet 调用文件打开函数打开文件: %s", bn);
-  //
-  char dir[1024];
-  get_dir_from_fullpath(name, dir, sizeof(dir));
 
-  /* 按 basename 查表 */
-  for (int i = 0; i < FS_MAX_SLOTS; i++) {
-    if (s_slots[i].registered && strcmp(s_slots[i].name, bn) == 0) {
-      /* 流式文件：确保 FILE* 可用并回到开头 */
-      if (s_slots[i].is_stream) {
-        if (!s_slots[i].fp) {
-          s_slots[i].fp = fopen(s_slots[i].host_path, "rb");
-          if (!s_slots[i].fp) {
-            log_warn("fs.open(\"%s\") 无法打开磁盘文件 -> 返回 0", bn);
-            return 0;
-          }
-        }
-        fseek(s_slots[i].fp, 0, SEEK_SET);
-      }
-      s_slots[i].pos = 0;
-      s_slots[i].in_use = true;
-      uint32_t h = FILE1 + (uint32_t)i * FS_SLOT_STRIDE;
-      /* 把 FILE_VT 写入 handle 首字段，使 applet 可通过
-       * (*handle)->vt[off] 调用 file 方法（slot0 的 FILE1 已在
-       * build_vtables 初始化，其余 slot 需在此补写）。 */
-      uc_mem_write(uc, h, &(uint32_t){FILE_VT}, 4);
-      log_info("fs.open(\"%s\") -> handle 0x%X (slot %d, size=%zu)", bn, h, i,
-               s_slots[i].size);
-      return h;
-    }
+  /* 先关闭之前打开的文件 */
+  if (g_file_data) {
+    free(g_file_data);
+    g_file_data = NULL;
+    g_file_size = 0;
+    g_file_pos = 0;
   }
 
-  /* 未命中：若 .zmr 已载入则回退旧单游标（applet 1） */
-  if (s_zmr_data) {
-    s_file_pos = 0;
-    log_info("fs.open(\"%s\") -> FILE1 (回退 .zmr 单游标)",
-             bn[0] ? bn : "<null>");
-    return FILE1;
+  if (s_data_dir[0] == '\0') {
+    log_error("zm_fs_open: 未设置数据目录，无法打开 \"%s\"", bn);
+    return 0;
   }
 
-  log_warn("fs.open(\"%s\") 未找到匹配文件 -> 返回 0", bn[0] ? bn : "<null>");
-  return 0;
+  char full_path[1280];
+  snprintf(full_path, sizeof(full_path), "%s/%s", s_data_dir, bn);
+
+  FILE *fp = fopen(full_path, "rb");
+  if (!fp) {
+    log_warn("zm_fs_open: 找不到文件 \"%s\" (全路径: %s)", bn, full_path);
+    return 0;
+  }
+
+  fseek(fp, 0, SEEK_END);
+  long sz = ftell(fp);
+  fseek(fp, 0, SEEK_SET);
+  if (sz < 0) {
+    fclose(fp);
+    return 0;
+  }
+
+  uint8_t *buf = malloc((size_t)sz);
+  if (!buf) {
+    fclose(fp);
+    return 0;
+  }
+  if (fread(buf, 1, (size_t)sz, fp) != (size_t)sz) {
+    free(buf);
+    fclose(fp);
+    return 0;
+  }
+  fclose(fp);
+
+  g_file_data = buf;
+  g_file_size = (size_t)sz;
+  g_file_pos = 0;
+
+  log_info("fs.open(\"%s\") -> FILE1 (size=%zu)", bn, g_file_size);
+  return FILE1; // FILE1 是预定义的虚拟句柄地址
 }
 
 uint32_t zm_file_close(uc_engine *uc, uint32_t file_id) {
   (void)uc;
-  int idx = handle_to_idx(file_id);
-  if (idx >= 0 && s_slots[idx].in_use) {
-    if (s_slots[idx].is_stream && s_slots[idx].fp) {
-      fclose(s_slots[idx].fp);
-      s_slots[idx].fp = NULL;
-    }
-    s_slots[idx].in_use = false;
-    s_slots[idx].pos = 0;
+  if (file_id == FILE1 && g_file_data) {
+    free(g_file_data);
+    g_file_data = NULL;
+    g_file_size = 0;
+    g_file_pos = 0;
+    log_debug("file.close");
   }
   return 0;
 }
 
 uint32_t zm_file_read(uc_engine *uc, uint32_t file_id, uint32_t buf,
                       uint32_t length) {
-  int idx = handle_to_idx(file_id);
-  if (idx >= 0 && s_slots[idx].in_use) {
-    file_slot_t *s = &s_slots[idx];
-    uint32_t pos = s->pos;
-    uint32_t remain = (s->size >= pos) ? (uint32_t)(s->size - pos) : 0;
-    uint32_t n = (length < remain) ? length : remain;
-    if (n == 0)
-      return 0;
+  if (file_id != FILE1 || !g_file_data)
+    return 0;
 
-    if (s->is_stream) {
-      if (!s->fp)
-        return 0;
-      if (fseek(s->fp, (long)pos, SEEK_SET) != 0)
-        return 0;
-      uint8_t *tmp = malloc(n);
-      if (!tmp)
-        return 0;
-      size_t rd = fread(tmp, 1, n, s->fp);
-      if (rd > 0)
-        uc_mem_write(uc, buf, tmp, (uint32_t)rd);
-      free(tmp);
-      s->pos += (uint32_t)rd;
-      return (uint32_t)rd;
-    } else {
-      uc_mem_write(uc, buf, s->data + pos, n);
-      s->pos += n;
-      return n;
-    }
+  uint32_t pos = g_file_pos;
+  uint32_t remain = (g_file_size >= pos) ? (uint32_t)(g_file_size - pos) : 0;
+  uint32_t n = (length < remain) ? length : remain;
+  if (n > 0) {
+    uc_mem_write(uc, buf, g_file_data + pos, n);
+    g_file_pos += n;
   }
-  /* 回退 .zmr 单游标（applet 1：file_id==FILE1，slot 未占用） */
-  if (file_id == FILE1 && s_zmr_data) {
-    uint32_t pos = s_file_pos;
-    uint32_t remain = (s_zmr_size >= pos) ? (uint32_t)(s_zmr_size - pos) : 0;
-    uint32_t n = (length < remain) ? length : remain;
-    if (n > 0) {
-      uc_mem_write(uc, buf, s_zmr_data + pos, n);
-      s_file_pos += n;
-    }
-    return n;
-  }
-  return 0;
+  return n;
 }
 
 uint32_t zm_file_seek(uc_engine *uc, uint32_t file_id, uint32_t whence,
                       uint32_t offset) {
   (void)uc;
-  int idx = handle_to_idx(file_id);
-  if (idx >= 0 && s_slots[idx].in_use) {
-    file_slot_t *s = &s_slots[idx];
-    if (whence == 0)
-      s->pos = offset;
-    else if (whence == 1)
-      s->pos += offset;
-    else if (whence == 2)
-      s->pos = (uint32_t)s->size + offset;
-    /* 流式文件不在这里 fseek，read 时按 pos 再定位 */
+  if (file_id != FILE1 || !g_file_data)
     return 0;
-  }
-  /* 回退 .zmr 单游标 */
-  if (file_id == FILE1 && s_zmr_data) {
-    if (whence == 0)
-      s_file_pos = offset;
-    else if (whence == 1)
-      s_file_pos += offset;
-    else if (whence == 2)
-      s_file_pos = (uint32_t)s_zmr_size + offset;
-  }
+
+  if (whence == 0)
+    g_file_pos = offset;
+  else if (whence == 1)
+    g_file_pos += offset;
+  else if (whence == 2)
+    g_file_pos = (uint32_t)g_file_size + offset;
   return 0;
 }
 
-/* FILE_VT[0x24] file.size(file_id)：返回文件总大小
- * sub_83F90 用 (*FILE_VT[0x24])(handle) 取 config.b 大小并与 0x50 比较。 */
 uint32_t zm_file_size(uc_engine *uc, uint32_t file_id) {
   (void)uc;
-  int idx = handle_to_idx(file_id);
-  if (idx >= 0 && s_slots[idx].in_use)
-    return (uint32_t)s_slots[idx].size;
-  /* 回退 .zmr 单游标 */
-  if (file_id == FILE1 && s_zmr_data)
-    return (uint32_t)s_zmr_size;
+  if (file_id == FILE1 && g_file_data)
+    return (uint32_t)g_file_size;
   return 0;
 }
 
-/* FS_VT[+0x04] release：无操作返 0 */
 uint32_t zm_fs_release(uc_engine *uc) {
   (void)uc;
   return 0;
+}
+
+/* ---------- 默认初始化（仅设置数据目录，不扫描任何文件） ---------- */
+void zm_fs_register_default(const char *applet_dir) {
+  zm_fs_set_data_dir(applet_dir);
+  log_info("zm_fs: 数据目录 = \"%s\"（文件将在 fs.open 时按需加载）",
+           s_data_dir);
+}
+
+/* ---------- 清理 ---------- */
+void zm_fs_shutdown(void) {
+  if (g_file_data) {
+    free(g_file_data);
+    g_file_data = NULL;
+  }
+  g_file_size = 0;
+  g_file_pos = 0;
+  s_data_dir[0] = '\0';
 }
