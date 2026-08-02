@@ -45,13 +45,13 @@ int main() {
   uc_err my_uc_err;
 
   // 打开 applet 文件
+  //  测试文件1（向后兼容验证）,已测试通过
+  // 整个框架就是在这个这个东西就是起点,如果这个东西不通过那就是破坏了兼容性
   char *filename = "/home/apollo/文档/古时游戏/zm_emu/applet/00000102/"
-                   "00000102.app"; // 测试文件1（向后兼容验证）
-  // char *filename = "/home/apollo/文档/古时游戏/zm_emu/applet/00000405/"
-  //                  "00000405.app"; // 测试文件2（号码归属）
-  // /home/apollo/文档/古时游戏/zmaee_emu/zemee/0000050c/0000050c.app
-  // char *filename = "/home/apollo/文档/古时游戏/zm_emu/applet/theme/00000bb9/"
-  //                  "00000bb9.app"; // 测试文件3
+                   "00000102.app"; //
+
+  // char *filename = "/home/apollo/文档/古时游戏/zm_emu/applet/00000001/"
+  //                  "00000001.app"; // 测试文件1（向后兼容验证）
 
   snprintf(g_app_pathname, sizeof(g_app_pathname), "%s", filename);
 

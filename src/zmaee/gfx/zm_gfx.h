@@ -7,6 +7,7 @@
 //   - 颜色格式为 ARGB8888（0xAARRGGBB），与 applet 一致
 //   - 以一张 ARGB8888 的 RenderTarget 纹理作为持久画布，
 //     fb_commit 时把画布拷到屏幕并 Present
+#include <stdbool.h>
 #include <stdint.h>
 #include <unicorn/unicorn.h>
 
@@ -27,11 +28,13 @@ void zm_gfx_hold(uint32_t timeout_ms);
  * @brief 事件循环：保持窗口显示，处理关闭与鼠标点击
  * @param on_click  鼠标按下回调（传入画布坐标）；NULL 则不处理点击
  * @param timeout_ms 0=直到窗口关闭；>0 停留指定毫秒后返回
+ * @return true  已派发点击事件，调用者应让模拟器继续执行 handler
+ * @return false 用户关窗(SDL_QUIT)或超时，调用者应停止模拟器
  *
- * on_click 内部通常会调用 uc_emu_start 把点击转发给 applet 的触摸 handler，
- * 注意该回调执行期间会阻塞 SDL 事件处理。
+ * on_click 内部设置寄存器（PC=g_handler 等），事件循环返回后
+ * 由调用者（handle_trap）让模拟器继续执行 handler。
  */
-void zm_gfx_event_loop(void (*on_click)(uint32_t x, uint32_t y),
+bool zm_gfx_event_loop(void (*on_click)(uint32_t x, uint32_t y),
                        uint32_t timeout_ms);
 
 /* gfx.clear：以 color 清屏。r1=color */

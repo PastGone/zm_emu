@@ -1,13 +1,22 @@
 #include "./event.h"
 #include "./log/log.h"
+#include "unicorn/arm.h"
+#include <stdbool.h>
+
+/* 待处理的触摸事件队列（仅支持 1 个，case 10 penUp 跟在 case 9 之后） */
+static struct {
+  bool has_pending;
+  uint32_t evt;
+  uint32_t x, y;
+} g_pending_touch = {false, 0, 0, 0};
 
 void dispatch_applet_event(uint32_t evt, uint32_t x, uint32_t y) {
   if (!g_instance || !g_handler)
     return;
-  uint32_t sp = STACK_TOP;
-  uint32_t lr = STACK_TOP;
-  uc_reg_write(g_uc, UC_ARM_REG_SP, &sp);
+
+  uint32_t lr = TR_enter_event_loop;
   uc_reg_write(g_uc, UC_ARM_REG_LR, &lr);
+
   uc_reg_write(g_uc, UC_ARM_REG_R0, &g_instance);
   uc_reg_write(g_uc, UC_ARM_REG_R1, &evt);
   uc_reg_write(g_uc, UC_ARM_REG_R2, &x);
@@ -15,19 +24,27 @@ void dispatch_applet_event(uint32_t evt, uint32_t x, uint32_t y) {
    * 否则 sub_8433C 解引用 r3+0x100 触发 MEM unmapped。其它事件 r3=y。 */
   uint32_t r3 = (evt == 0) ? INIT_CTX : y;
   uc_reg_write(g_uc, UC_ARM_REG_R3, &r3);
-  uc_emu_start(g_uc, g_handler, STACK_TOP, 0, 0);
+
+  uc_reg_write(g_uc, UC_ARM_REG_PC, &g_handler);
 }
 
 void on_touch_click(uint32_t x, uint32_t y) {
   log_info("触摸事件: (%u, %u) -> handler=0x%X instance=0x%X", x, y, g_handler,
            g_instance);
+  /* 派发 case 9 (penDown)：记录按下点到 INSTANCE[25..26] */
   dispatch_applet_event(9, x, y);
-  dispatch_applet_event(10, x, y);
+  /* 排队 case 10 (penUp)：等 handler 执行完 case 9 后，下一轮事件循环再派发 */
+  g_pending_touch.has_pending = true;
+  g_pending_touch.evt = 10;
+  g_pending_touch.x = x;
+  g_pending_touch.y = y;
 }
 
-/*evt 跳转目标 含义 说明 0 sub_518 EVT_APP_START (init) ✅确认
- * 初始化：查接口、画 25 个按钮 1 sub_78C EVT_APP_STOP (cleanup) 推断 释放 init
- * 中获取的服务对象 2–8 default 未处理 直接返回 1（不关心的事件） 9 sub_824
- * EVT_PEN_DOWN ✅确认 记录按下点 10 sub_8B4 EVT_PEN_UP ✅确认 判定点击的按钮 →
- * 读 .zmr 播 MP3 11 sub_198 EVT_PEN_MOVE 推断 更新拖动包围盒 >11 default 未处理
- * 返回 1 */
+bool zm_event_dispatch_pending(void) {
+  if (!g_pending_touch.has_pending)
+    return false;
+  dispatch_applet_event(g_pending_touch.evt, g_pending_touch.x,
+                        g_pending_touch.y);
+  g_pending_touch.has_pending = false;
+  return true;
+}

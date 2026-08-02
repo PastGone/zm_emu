@@ -1,6 +1,7 @@
 #include "zm_gfx.h"
 
 #include "../../emu.h"
+#include "../../event.h"
 #include "../../log/log.h"
 #include "../../tool/uc_helper.h"
 #include "unicorn/unicorn.h"
@@ -281,10 +282,15 @@ void zm_gfx_hold(uint32_t timeout_ms) {
   }
 }
 
-void zm_gfx_event_loop(void (*on_click)(uint32_t x, uint32_t y),
+bool zm_gfx_event_loop(void (*on_click)(uint32_t x, uint32_t y),
                        uint32_t timeout_ms) {
   if (!g_win)
-    return;
+    return false;
+
+  /* 先检查是否有待处理的触摸事件（case 10 penUp 跟在 case 9 之后） */
+  if (zm_event_dispatch_pending())
+    return true; /* 已设置寄存器 → 让模拟器执行 handler */
+
   /* present 最终画布（init 绘制内容）让用户看到界面 */
   SDL_SetRenderTarget(g_ren, NULL);
   SDL_RenderCopy(g_ren, g_canvas, NULL, NULL);
@@ -299,22 +305,22 @@ void zm_gfx_event_loop(void (*on_click)(uint32_t x, uint32_t y),
   for (;;) {
     while (SDL_PollEvent(&e)) {
       if (e.type == SDL_QUIT)
-        return;
+        return false; /* 用户关窗 → 模拟结束 */
       if (e.type == SDL_MOUSEBUTTONDOWN && on_click) {
         uint32_t cx = (win_w > 0) ? (uint32_t)(e.button.x * g_w / win_w)
                                   : (uint32_t)e.button.x;
         uint32_t cy = (win_h > 0) ? (uint32_t)(e.button.y * g_h / win_h)
                                   : (uint32_t)e.button.y;
-        /* 回调内会 uc_emu_start 调用 applet handler，期间阻塞事件处理 */
         on_click(cx, cy);
         /* applet 的 touch handler 通常不重绘，但保险起见 present 一次 */
         SDL_SetRenderTarget(g_ren, NULL);
         SDL_RenderCopy(g_ren, g_canvas, NULL, NULL);
         SDL_RenderPresent(g_ren);
+        return true; /* 已派发点击事件 → 让模拟器执行 handler */
       }
     }
     if (timeout_ms != 0 && SDL_GetTicks() - start >= timeout_ms)
-      return;
+      return false; /* 超时 → 模拟结束 */
     SDL_Delay(16);
   }
 }

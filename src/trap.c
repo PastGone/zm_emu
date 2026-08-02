@@ -14,6 +14,7 @@
 #include "./zmaee/gfx/zm_gfx.h"
 #include "./zmaee/runtime/zm_runtime.h"
 #include "event.h"
+#include "zmaee/inc/zm_event_code.h"
 
 void handle_trap(uc_engine *uc, uint32_t trap_address) {
 
@@ -33,7 +34,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_init_callback: { //  /* TR_init_callback：特殊处理（不写 R0/PC
                            //  走通用路径，而是直接跳 handler） */
 
-    uint32_t size;
+    uint32_t size; // 从这个槽里面读出它要申请的堆大小
     if (uc_mem_read(uc, SIZE_SLOT, &size, 4) != UC_ERR_OK) {
       log_error("Failed to read size");
       return;
@@ -60,9 +61,12 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     log_info("  instance=0x%X\n", INSTANCE);
 
     uc_reg_write(uc, UC_ARM_REG_R0, &INSTANCE);
-    uint32_t zero = 0;
-    uc_reg_write(uc, UC_ARM_REG_R1, &zero);
-    uc_reg_write(uc, UC_ARM_REG_R2, &zero);
+    // 参数一是事件类型码
+    uint32_t event_code = ZMAEE_EV_CREATE;
+    uc_reg_write(uc, UC_ARM_REG_R1, &event_code);
+    // 零表示常规启动
+    uint32_t init_type = 0;
+    uc_reg_write(uc, UC_ARM_REG_R2, &init_type); //
     /* 00000405.app：init wrapper sub_8433C 在 a2==0 时解引用
      * a3[64]（r3+0x100）。 传入 INIT_CTX（256B 零填充）使其可读且
      * *a3=0≠1、a3[64]=0≠4 → init 继续。 */
@@ -80,18 +84,16 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   } break;
   case TR_enter_event_loop: {
     /* 事件循环：阻塞直到用户关窗（SDL_QUIT）或超时（ZM_GFX_HOLD_MS）。
-     * 循环返回 = 模拟应结束。必须 uc_emu_stop + return，否则会
-     * fall-through 到下方 switch：idx = (TR_event_callback - TRAMP_BASE)/4
-     * = 465（0721 八进制 = 465 十进制）命中 default 误报"非法的外部调用
-     * idx=465"，且 PC=LR=TR_event_callback 反复重入导致 0x2001b8 越界。 */
-    /* ZM_GFX_HOLD_MS：仅用于无头/自动化测试时让事件循环超时返回（与
-     * test_diag 一致）。默认 0 = 直到关窗，交互行为不变。 */
+     * 返回 false → 模拟应结束；返回 true → 已派发点击，模拟器继续执行
+     * handler。必须 uc_emu_stop + return，否则会 fall-through 到 default
+     * 误报"非法的外部调用"，且 PC 继续执行 TRAMP 区下一条指令导致越界。 */
     uint32_t hold_ms = 0;
     const char *env = getenv("ZM_GFX_HOLD_MS");
     if (env && *env)
       hold_ms = (uint32_t)strtoul(env, NULL, 0);
-    zm_gfx_event_loop(on_touch_click, hold_ms);
-    uc_emu_stop(uc);
+    if (!zm_gfx_event_loop(on_touch_click, hold_ms)) {
+      uc_emu_stop(uc);
+    }
     return;
   } //
   break;
