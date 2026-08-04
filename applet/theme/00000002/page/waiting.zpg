@@ -1,0 +1,4 @@
+﻿<popupBox class="popwaiting">
+<picture src="img\waiting.gif"/>
+<popupBoxSecondMenuItem onAction="cancel">取消</popupBoxSecondMenuItem>
+</popupBox>

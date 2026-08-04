@@ -1,0 +1,11 @@
+﻿<screen style="align:center;" title="在线帮助">
+	<scrollPane>
+		<textarea style="align:left;margin: 0 10 0 0;gap:0 4">
+			\c#ff0000#\u【产品简介】\u\c\n    觉得手机不够潮？拿不出手？让您很没面子？快来加入时尚锁屏吧，多款时尚锁屏任你筛选，定制自己的锁屏界面 ，找到属于自己的锁屏世界，让您从此成为时尚的焦点，争做时尚潮人！\n
+		</textarea>
+		<textarea style="align:left;margin: 0 10 0 0">
+			\c#ff0000#\u【操作指南】\u\c\n    导航OK键确定，上下左右键控制光标，支持触笔操作，在触屏上点击图标或链接。\n 
+   		</textarea>
+	</scrollPane>
+	<screenSecondMenu onAction="back">返回</screenSecondMenu>
+</screen>

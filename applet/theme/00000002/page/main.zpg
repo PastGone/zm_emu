@@ -1,0 +1,49 @@
+﻿<screen style="align:center;" title="梦幻锁屏">
+<scrollPane id="sp_only">
+<button class="titlebar" onAction="visit(more.zpg,/lock/more)">
+<text class="titlebar_txt1">精品推荐</text>
+<text class="titlebar_txt2">更多</text>
+</button>
+<container class="theme_container">
+
+</container>
+
+<container class="titlebar">
+  <text class="titlebar_txt1">本地列表</text>
+</container>
+<list class="theme_container">
+<_renderer><![CDATA[
+<button class="theme_item" onAction="download(${clsId})">
+<container>
+<picture class="icon" src="${iconPath}" />
+<picture class="status">
+<_bitmap>${statloc}</_bitmap>
+</picture>
+</container>
+<text>${appName}</text>
+</button>
+]]></_renderer>
+<_items>@{localApps}</_items>
+</list>
+  <container style="layout:inlinelayout(true, center|fill); align:center;">
+    <text style="margin:0 20 0 20;">
+      <_visible>@{localmore_empty}</_visible>
+      空的本地列表
+    </text>
+    <button class="theme_item" onAction="localmore(open)">
+      <_visible>@{localmore_not_empty}</_visible>
+      <text>下一页</text>
+    </button>
+  </container>
+</scrollPane>
+<screenfirstmenu>选项<menupopup>
+<menuitem onAction="open"><picture src="img\i_open.png"/>打开</menuitem>
+<menuitem onAction="visit(ac_home.zpg)"><picture src="img\i_achome.png"/>账户中心</menuitem> 
+<menuitem onAction="check"><picture src="img\i_check.png"/>检查更新</menuitem>
+<menuitem onAction="visit(help.zpg)"><picture src="img\i_help.png"/>在线帮助</menuitem>
+<menuitem onAction="visit(about.zpg)"><picture src="img\i_about.png"/>关于我们</menuitem>
+<menuitem onAction="exit"><picture src="img\i_exit.png"/>退出</menuitem>
+</menupopup>
+</screenfirstmenu>
+<screenSecondMenu onAction="exit">退出</screenSecondMenu>
+</screen>

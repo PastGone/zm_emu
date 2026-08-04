@@ -1,0 +1,12 @@
+﻿<popupBox style="border:2 0 2 2;border-brush:solid #0D4BBA; grayed-color:#000000; align:fill|center;layout:inlinelayout(false,fill);bg-brush:solid #f2f7fd;layout-data:sld(bottom,1,-1);" >
+	<container style="min-size:0 15; bg-brush: stretch url(img\popbar_bg.png) | image url(img\popbar_line.png) top;"></container>
+	<container style=" align: center;min-size:0 28;border:0 0 0 1; border-brush: hatch #bcbcbc;">
+		<text id="progress_text" style="align:center;">正在下载</text>
+	</container>
+	<container style="min-size:0 28;align:fill|center;layout:inlinelayout(false,fill);bg-brush:solid #d5e2e8; margin:0 1 0 0;padding: 16 0 16 0">
+		<gauge id="gauge1" value="0" style="min-size:0 6;bg-brush: border url(img\gbg.png) 3 6 3 0;padding: 2 0 2 0" focusable="false">
+			<gaugebar style="min-size:0 4;bg-brush: border url(img\gbar.png) 2 4 2 0" />
+    </gauge>
+	</container>
+	<popupBoxSecondMenuItem onAction = "cancel">取消</popupBoxSecondMenuItem>
+</popupBox>

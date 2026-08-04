@@ -1,0 +1,11 @@
+﻿<screen style="align:center;" title="在线帮助">
+	<scrollPane>
+		<textarea style="align:left;margin: 0 10 0 0;gap:0 4">
+			\c#ff0000#\u【产品简介】\u\c\n    如果静态桌面已经不能符合您的品味，如果您觉得自己的桌面太没灵气，如果您想让您的手机充满活力，那么 您就加入我们，在这里，我们为您准备了最新、最好的动态桌面，让您的桌面从此动起来，充满生命力，不再单调乏味!\n
+		</textarea>
+		<textarea style="align:left;margin: 0 10 0 0">
+			\c#ff0000#\u【操作指南】\u\c\n    导航OK键确定，上下左右键控制光标，支持触笔操作，在触屏上点击图标或链接。\n 
+   		</textarea>
+	</scrollPane>
+	<screenSecondMenu onAction="back">返回</screenSecondMenu>
+</screen>

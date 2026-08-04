@@ -1,0 +1,13 @@
+﻿<screen style="align:center;" title="关于我们">
+	<scrollPane>
+		<textarea style="align:left;margin: 0 10 0 0;gap:0 4">
+      \c#ff0000#\u【版权所有】\u\c\n
+杭州掌盟软件技术有限公司\n\c#ff0000#\u【官方网站】\u\c\n
+www.mz30.cn\n\c#ff0000#\u【客服电话】\u\c\n
+0571-87380215\n
+0571-88076321\n\c#ff0000#\u【版本】\u\c\n
+${hallVersion}\n
+    </textarea>
+	</scrollPane>
+  <screenSecondMenu onAction="back">返回</screenSecondMenu>
+</screen>

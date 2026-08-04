@@ -1,0 +1,252 @@
+<screen style="align:center;" title="互动壁纸">
+<scrollPane id="sp_only">
+<button class="titlebar" onAction="visit(wp_c2_1.zpg,/lock/wp_c2?page=1)">
+<text class="titlebar_txt1">奇思妙想</text>
+<text class="titlebar_txt2">更多</text>
+</button>
+<container class="theme_container">
+<button class="theme_item" onAction="download(3089)">
+<container>
+<picture class="icon" src="img\3089.png" />
+<picture class="status">
+<_bitmap>${stat_3089}</_bitmap>
+</picture>
+</container>
+<text>繁花绽放</text>
+</button>
+<button class="theme_item" onAction="download(3085)">
+<container>
+<picture class="icon" src="img\3085.png" />
+<picture class="status">
+<_bitmap>${stat_3085}</_bitmap>
+</picture>
+</container>
+<text>记忆卡片</text>
+</button>
+<button class="theme_item" onAction="download(3001)">
+<container>
+<picture class="icon" src="img\3001.png" />
+<picture class="status">
+<_bitmap>${stat_3001}</_bitmap>
+</picture>
+</container>
+<text>妄撮美女</text>
+</button>
+<button class="theme_item" onAction="download(3015)">
+<container>
+<picture class="icon" src="img\3015.png" />
+<picture class="status">
+<_bitmap>${stat_3015}</_bitmap>
+</picture>
+</container>
+<text>让裙子飞</text>
+</button>
+<button class="theme_item" onAction="download(3017)">
+<container>
+<picture class="icon" src="img\3017.png" />
+<picture class="status">
+<_bitmap>${stat_3017}</_bitmap>
+</picture>
+</container>
+<text>守卫夜空</text>
+</button>
+<button class="theme_item" onAction="download(3054)">
+<container>
+<picture class="icon" src="img\3054.png" />
+<picture class="status">
+<_bitmap>${stat_3054}</_bitmap>
+</picture>
+</container>
+<text>蜗兔赛跑</text>
+</button>
+</container>
+<button class="titlebar" onAction="visit(wp_c1_1.zpg,/lock/wp_c1?page=1)">
+<text class="titlebar_txt1">艳丽风光</text>
+<text class="titlebar_txt2">更多</text>
+</button>
+<container class="theme_container">
+<button class="theme_item" onAction="download(3090)">
+<container>
+<picture class="icon" src="img\3090.png" />
+<picture class="status">
+<_bitmap>${stat_3090}</_bitmap>
+</picture>
+</container>
+<text>秋天枫叶</text>
+</button>
+<button class="theme_item" onAction="download(3092)">
+<container>
+<picture class="icon" src="img\3092.png" />
+<picture class="status">
+<_bitmap>${stat_3092}</_bitmap>
+</picture>
+</container>
+<text>欢快沙滩</text>
+</button>
+<button class="theme_item" onAction="download(3063)">
+<container>
+<picture class="icon" src="img\3063.png" />
+<picture class="status">
+<_bitmap>${stat_3063}</_bitmap>
+</picture>
+</container>
+<text>乱花丛蝶</text>
+</button>
+<button class="theme_item" onAction="download(3002)">
+<container>
+<picture class="icon" src="img\3002.png" />
+<picture class="status">
+<_bitmap>${stat_3002}</_bitmap>
+</picture>
+</container>
+<text>冬季飘雪</text>
+</button>
+<button class="theme_item" onAction="download(3003)">
+<container>
+<picture class="icon" src="img\3003.png" />
+<picture class="status">
+<_bitmap>${stat_3003}</_bitmap>
+</picture>
+</container>
+<text>樱花飞舞</text>
+</button>
+<button class="theme_item" onAction="download(3004)">
+<container>
+<picture class="icon" src="img\3004.png" />
+<picture class="status">
+<_bitmap>${stat_3004}</_bitmap>
+</picture>
+</container>
+<text>水墨梅花</text>
+</button>
+</container>
+<button class="titlebar" onAction="visit(wp_c3_1.zpg,/lock/wp_c3?page=1)">
+<text class="titlebar_txt1">炫酷都市</text>
+<text class="titlebar_txt2">更多</text>
+</button>
+<container class="theme_container">
+<button class="theme_item" onAction="download(3011)">
+<container>
+<picture class="icon" src="img\3011.png" />
+<picture class="status">
+<_bitmap>${stat_3011}</_bitmap>
+</picture>
+</container>
+<text>粒子光线</text>
+</button>
+<button class="theme_item" onAction="download(3080)">
+<container>
+<picture class="icon" src="img\3080.png" />
+<picture class="status">
+<_bitmap>${stat_3080}</_bitmap>
+</picture>
+</container>
+<text>飞萤流光</text>
+</button>
+<button class="theme_item" onAction="download(3081)">
+<container>
+<picture class="icon" src="img\3081.png" />
+<picture class="status">
+<_bitmap>${stat_3081}</_bitmap>
+</picture>
+</container>
+<text>蓝星冲天</text>
+</button>
+<button class="theme_item" onAction="download(3066)">
+<container>
+<picture class="icon" src="img\3066.png" />
+<picture class="status">
+<_bitmap>${stat_3066}</_bitmap>
+</picture>
+</container>
+<text>水仙礼花</text>
+</button>
+<button class="theme_item" onAction="download(3052)">
+<container>
+<picture class="icon" src="img\3052.png" />
+<picture class="status">
+<_bitmap>${stat_3052}</_bitmap>
+</picture>
+</container>
+<text>清新水露</text>
+</button>
+<button class="theme_item" onAction="download(3064)">
+<container>
+<picture class="icon" src="img\3064.png" />
+<picture class="status">
+<_bitmap>${stat_3064}</_bitmap>
+</picture>
+</container>
+<text>蝴蝶风铃</text>
+</button>
+</container>
+<button class="titlebar" onAction="visit(wp_c0_1.zpg,/lock/wp_c0?page=1)">
+<text class="titlebar_txt1">嗨乐一族</text>
+<text class="titlebar_txt2">更多</text>
+</button>
+<container class="theme_container">
+<button class="theme_item" onAction="download(3031)">
+<container>
+<picture class="icon" src="img\3031.png" />
+<picture class="status">
+<_bitmap>${stat_3031}</_bitmap>
+</picture>
+</container>
+<text>动感泡泡</text>
+</button>
+<button class="theme_item" onAction="download(3032)">
+<container>
+<picture class="icon" src="img\3032.png" />
+<picture class="status">
+<_bitmap>${stat_3032}</_bitmap>
+</picture>
+</container>
+<text>消灭害虫</text>
+</button>
+<button class="theme_item" onAction="download(3068)">
+<container>
+<picture class="icon" src="img\3068.png" />
+<picture class="status">
+<_bitmap>${stat_3068}</_bitmap>
+</picture>
+</container>
+<text>豌豆夹开</text>
+</button>
+<button class="theme_item" onAction="download(3047)">
+<container>
+<picture class="icon" src="img\3047.png" />
+<picture class="status">
+<_bitmap>${stat_3047}</_bitmap>
+</picture>
+</container>
+<text>帽子戏法</text>
+</button>
+<button class="theme_item" onAction="download(3010)">
+<container>
+<picture class="icon" src="img\3010.png" />
+<picture class="status">
+<_bitmap>${stat_3010}</_bitmap>
+</picture>
+</container>
+<text>喷吐烟圈</text>
+</button>
+<button class="theme_item" onAction="download(3014)">
+<container>
+<picture class="icon" src="img\3014.png" />
+<picture class="status">
+<_bitmap>${stat_3014}</_bitmap>
+</picture>
+</container>
+<text>泡泡网兜</text>
+</button>
+</container>
+</scrollPane>
+<screenfirstmenu>选项<menupopup>
+<menuitem onAction="open"><picture src="img\i_open.png"/>打开</menuitem>
+<menuitem onAction="visit(help.zpg)"><picture src="img\i_help.png"/>在线帮助</menuitem>
+<menuitem onAction="visit(about.zpg)"><picture src="img\i_about.png"/>关于我们</menuitem>
+<menuitem onAction="exit"><picture src="img\i_exit.png"/>退出</menuitem>
+</menupopup>
+</screenfirstmenu>
+<screenSecondMenu onAction="back">返回</screenSecondMenu>
+</screen>

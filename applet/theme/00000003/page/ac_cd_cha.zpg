@@ -1,0 +1,50 @@
+﻿<screen style="align:fill|top;" title="点卡充值">
+  
+  <scrollpane id="sp_only">
+
+    <container style="layout:borderlayout;margin:0 10 0 0;" >
+    <text style="margin:7;layout-data:bld(west);">类型</text>
+      
+    <button id="btn_cardtype" class="cdcharge" >
+      <button class="arrow_left" focusable="false" shortcuts="left" onAction="ac_cd_cha(left)"></button>
+      <text id="cardtype_text" style="align:center">@{cdcha_name}</text>
+      <button class="arrow_right" focusable="false" shortcuts="right" onAction="ac_cd_cha(right)"></button>
+    </button>
+    </container>
+
+    <container style="layout:borderlayout;margin:0 10 0 0;" >
+    <text style="margin:7;layout-data:bld(west);">卡号</text>
+    <textfield id="tf_cardnum" constraints="(abc)"></textfield>
+    </container>
+
+    <container style="layout:borderlayout;margin:0 10 0 0;" >
+    <text style="margin:7;layout-data:bld(west);">密码</text>
+    <textfield id="tf_cardpsw" constraints="(password,abc)"></textfield>
+    </container>
+
+
+    <container style="layout:borderlayout;margin:0 10 0 0;" >
+    <text style="margin:7;layout-data:bld(west);">金额</text>
+    <button  id="btn_amount" class="cdcharge">
+      <button class="arrow_left" focusable="false" onAction="ac_cd_cha(left)"></button>
+      <text id="amount_text" style="align:center">@{cdcha_amount}</text>
+      <button class="arrow_right" focusable="false" onAction="ac_cd_cha(right)"></button>
+    </button>
+    </container>
+
+    <textarea style="margin:7 10 0 7;">
+      重要提醒：\n
+      请选择正确的充值卡类型，务必选择与充值卡面额相同的金额，否则引起的交易金额差错不予退还。
+    </textarea>
+
+
+    
+	</scrollpane>
+
+  <screenfirstmenu onAction="ac_cd_cha(cha)">充值</screenfirstmenu>
+  <screenSecondMenu onAction="back">返回</screenSecondMenu>
+  
+  
+ 
+
+</screen>

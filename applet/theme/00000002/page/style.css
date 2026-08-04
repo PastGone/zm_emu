@@ -1,0 +1,267 @@
+desktop {
+	bg-brush: tile url(img\bg_tile.png);
+	color: #FFFFFF;
+}
+
+screen {
+	bg-transition: fade(30);
+}
+
+screentopbar {
+	min-size: 0 29;
+	bg-brush: stretch url(img\banner.png);
+}
+
+screentopbar text {
+	layout-data: sld(left, 1, -1);
+	color: white;
+	align: center;
+}
+
+screenbottombar, popupboxbottombar {
+	min-size: 0 29;
+	bg-brush: stretch url(img\banner.png);
+	color: white;
+}
+/*screenfirstmenuinternal*/
+screenfirstmenu, popupboxfirstmenuitem {
+	min-size: 0 29;
+	padding: 4 0 4 0;
+	align: left;
+}
+/*screensecondmenuinternal*/
+screensecondmenu, popupboxsecondmenuitem {
+	min-size: 0 29;
+	padding: 4 0 4 0;
+	align: right;
+}
+
+scrollpane scrollpanecontainer {
+	padding: 2 0 2 0;
+}
+
+textarea {
+	gap: 0 4;
+}
+
+picture.icon {
+	layout-data: sld(center,-1,-1);
+}
+
+picture.status {
+	layout-data: sld(right|bottom,-1,-1);
+}
+
+.titlebar {
+	layout: borderlayout;
+	min-size: 0 28;
+	padding: 26 0 4 0;
+	bg-brush: stretch url(img\bar_bg.png) | image url(img\bar_head.png) left;
+	margin: 0 4 0 0;
+	color:white;
+	border: 1 1 1 1;
+	border-brush: solid #5AAAF5;
+}
+
+button.titlebar:hover {
+	color: #ff2222;
+}
+
+button.theme_item {
+	margin: 4;
+	min-size: 56 0;
+	layout: inlinelayout(false, center);
+}
+
+button.theme_item picture {
+	margin: 0 3 0 0
+}
+
+button.theme_item text {
+	margin: 0 3 0 3;
+	padding: 2 1 2 1;
+}
+
+button.theme_item container {
+	layout: staticlayout;
+}
+
+button.theme_item:hover text {
+	bg-brush: solid #4a93d4;
+  color: #ffffff;
+}
+
+button:hover {
+	color: #ff2222;
+}
+
+button:hover.preview {
+	border-brush: solid #ff8a00;
+	color: blue;
+}
+
+.titlebar_txt1 {
+	layout-data: bld(west);
+	color: white;
+	align: center;
+}
+.titlebar_txt2 {
+	layout-data: bld(east);
+	align: center;
+}
+
+.theme_container {
+	align: top|left;
+	layout: gridlayout(0,0);
+	border: 1 0 1 1;
+	border-brush: solid #5AAAF5;
+}
+
+
+.separator {
+	min-size: 0 1;
+	bg-brush: solid #325455;
+	margin: 2 0 2 0;
+}
+
+
+
+menupopup {
+	border: 1;
+	border-brush: solid #5AAAF5;
+	bg-brush: solid #D5E2E7;
+	color: black;
+}
+
+menupopup.separator {
+	min-size: 0 1;
+	bg-brush: solid #62676c;
+	margin: 0 1 0 1;
+}
+
+menuitem {
+	padding: 4 2 2 4;
+	min-size: 86 18;
+	align: left;
+}
+
+menu {
+	border: 1;
+	border-brush: solid #F2F6FD;
+	bg-brush: solid #D5E2E7;
+	color: black;
+	align: fill;
+}
+
+menu:hover, menuitem:hover {
+	bg-brush: solid #70D2F2;
+	color: #ff2222;
+}
+
+menupopup picture{
+	margin:0 0 7 0;
+}
+popupbox {
+	grayed-color: #000000;
+	color: #000000;
+}
+
+.splash {
+	bg-brush: tile url(img\bg_tile.png);
+	align: center;
+	layout-data: sld(center,1,1);
+	color: #b1f3ff;
+}
+
+.popbox_cmn {
+	grayed-color: #cccccc;
+	bg-brush: solid #ffffff;
+	border: 2;
+	border-brush: solid #0644bf;
+}
+
+.alertdefault {
+	layout: inlinelayout(false,fill);
+	layout-data: sld(center,0.9,-1);
+	
+	bg-brush: solid #ffffff;
+	border: 2 15 2 2;
+	border-brush: solid #0644bf;
+	
+	align:center;
+	padding: 0 10 0 10;
+}
+ button.achome{
+	margin:0 2 0 2;
+    min-size:0 40;
+    align:left;
+    bg-brush: solid #dddddd;
+    color:black;
+    
+}
+
+button.achome:hover{
+	bg-brush: solid #01a3ec ;
+	color:#fff000;
+}
+
+button.achome text
+{
+	margin: 14 0 0 0;
+}
+
+textfield{
+	bg-brush: solid white;
+	min-size:0 15;
+	align:center;
+	color:black;
+}
+
+textfield:hover{
+	bg-brush: solid #D5E2E7;
+}
+
+.psinfo_separator {
+	min-size: 0 1;
+	bg-brush: solid white;
+	margin: 2 0 2 0;
+}
+
+button.cdcharge{
+    layout:borderlayout;
+    min-size:0 24;
+    bg-brush: solid white;
+    color:black;
+    
+}
+
+button.cdcharge:hover{
+	bg-brush: solid #D5E2E7;
+	color:black;
+}
+
+button.arrow_left{
+	layout-data:bld(west);
+	min-size:14 5;
+    bg-brush: image url(img\ac_left.gif) left;
+}
+
+button.arrow_right{
+    
+	layout-data:bld(east);
+	min-size:14 5;
+    bg-brush: image url(img\ac_right.gif) right;
+}
+
+.theme_container_c {
+	align: top|left;
+	layout: gridlayout(0,0);
+	border: 1 1 1 1;
+	border-brush: solid #5AAAF5;
+}
+
+button.theme_item_c {
+	margin: 4;
+	min-size: 48 0;
+	layout: inlinelayout(false, center);
+}

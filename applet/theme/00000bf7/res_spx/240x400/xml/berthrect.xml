@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="gb2312"?>
+	<berthrect>
+		<screen type_src="240x400">
+			<berthrect x="148" y="168" wt="14"  ht="14" />
+			<berthrect x="129" y="213" wt="14"  ht="7" />
+			<berthrect x="39" y="217" wt="10"  ht="11" />
+			<berthrect x="42" y="254" wt="4"  ht="20" />
+			<berthrect x="10" y="313" wt="10"  ht="17" />
+			<berthrect x="133" y="319" wt="10"  ht="20" />
+			<berthrect x="8" y="338" wt="10"  ht="10" />
+			<berthrect x="53" y="344" wt="10"  ht="10" />
+			<berthrect x="84" y="354" wt="10"  ht="10" />
+			<berthrect x="127" y="350" wt="17"  ht="10" />
+			<berthrect x="164" y="353" wt="16"  ht="10" />
+			<berthrect x="196" y="346" wt="13"  ht="10" />
+		</screen>
+		<screen type_src="400x240">
+			<berthrect x="257" y="17" wt="17"  ht="15" />
+			<berthrect x="238" y="61" wt="10"  ht="10" />
+			<berthrect x="74" y="62" wt="20"  ht="10" />
+			<berthrect x="77" y="100" wt="3"  ht="9" />		
+			<berthrect x="29" y="161" wt="35"  ht="13" />
+			<berthrect x="8" y="182" wt="11"  ht="10" />
+			<berthrect x="36" y="189" wt="12"  ht="10" />
+			<berthrect x="73" y="190" wt="14"  ht="10" />
+			<berthrect x="98" y="191" wt="13"  ht="10" />	
+			<berthrect x="244" y="161" wt="10"  ht="11" />		
+			<berthrect x="202" y="180" wt="10"  ht="10" />
+			<berthrect x="238" y="187" wt="10"  ht="10" />
+			<berthrect x="301" y="185" wt="10"  ht="22" />
+		</screen>
+	</berthrect>
+	

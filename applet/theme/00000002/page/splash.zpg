@@ -1,0 +1,6 @@
+﻿
+<container style="layout: inlinelayout(false,center); align: center">
+  <picture src="img\logo.png" />
+  <picture style="margin:0 10 0 10" src="img\sp_wait.gif" />
+  <text style="min-size:0 22;">...初始化...</text>
+</container>

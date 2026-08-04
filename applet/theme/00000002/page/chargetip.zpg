@@ -1,0 +1,8 @@
+﻿<popupBox  style="grayed-color: #cccccc;align:center;layout:inlinelayout(false,fill);bg-brush:solid #ffffff;border:2;border-brush:solid #0644bf; margin: 4 0 4 0;" >
+	<container style="min-size:0 15; bg-brush: stretch url(img\popbar_bg.png) | image url(img\popbar_line.png) top;"/>
+	<container style="padding:10 10 10 10;">
+	<textarea>您选择的[${downName}]未激活，激活资费${downFee}(不含通讯费)并产生GPRS流量，选择确定激活。</textarea>
+	</container>
+	<popupBoxfirstMenuItem shortcuts="fire" onAction="charge(${clsId})">确定</popupBoxfirstMenuItem>
+	<popupBoxSecondMenuItem onAction="cancel">取消</popupBoxSecondMenuItem>
+</popupBox>

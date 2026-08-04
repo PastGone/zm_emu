@@ -1,0 +1,10 @@
+﻿
+
+<popupBox  style="grayed-color: #cccccc;align:center;layout:inlinelayout(false,fill);bg-brush:solid #ffffff;border:2;border-brush:solid #0644bf;layout-data:sld(center,0.9,-1);" >
+  <container style="min-size:0 15; bg-brush: stretch url(img\popbar_bg.png) | image url(img\popbar_line.png) top;"/>
+  <container style="padding:10 10 10 10;">
+    <textarea style="margin:0 4 0 4">更新完成,重新启动程序使更新生效</textarea>
+    
+  </container>
+  <popupBoxfirstMenuItem shortcuts="fire" onAction="restart">确定</popupBoxfirstMenuItem>
+</popupBox>

@@ -1,0 +1,181 @@
+<screen style="align:center;" title="互动壁纸">
+<scrollPane id="sp_only">
+<button class="titlebar" onAction="visit(more.zpg,/lock/more)">
+<text class="titlebar_txt1">流行前线</text>
+<text class="titlebar_txt2">更多</text>
+</button>
+<container class="theme_container">
+<button class="theme_item" onAction="download(3030)">
+<container>
+<picture class="icon" src="img\3030.png" />
+<picture class="status">
+<_bitmap>${stat_3030}</_bitmap>
+</picture>
+</container>
+<text>海底世界</text>
+</button>
+<button class="theme_item" onAction="download(3002)">
+<container>
+<picture class="icon" src="img\3002.png" />
+<picture class="status">
+<_bitmap>${stat_3002}</_bitmap>
+</picture>
+</container>
+<text>冬季飘雪</text>
+</button>
+<button class="theme_item" onAction="download(3003)">
+<container>
+<picture class="icon" src="img\3003.png" />
+<picture class="status">
+<_bitmap>${stat_3003}</_bitmap>
+</picture>
+</container>
+<text>樱花飞舞</text>
+</button>
+<button class="theme_item" onAction="download(3015)">
+<container>
+<picture class="icon" src="img\3015.png" />
+<picture class="status">
+<_bitmap>${stat_3015}</_bitmap>
+</picture>
+</container>
+<text>让裙子飞</text>
+</button>
+<button class="theme_item" onAction="download(3009)">
+<container>
+<picture class="icon" src="img\3009.png" />
+<picture class="status">
+<_bitmap>${stat_3009}</_bitmap>
+</picture>
+</container>
+<text>吹蒲公英</text>
+</button>
+<button class="theme_item" onAction="download(3081)">
+<container>
+<picture class="icon" src="img\3081.png" />
+<picture class="status">
+<_bitmap>${stat_3081}</_bitmap>
+</picture>
+</container>
+<text>蓝星冲天</text>
+</button>
+<button class="theme_item" onAction="download(3085)">
+<container>
+<picture class="icon" src="img\3085.png" />
+<picture class="status">
+<_bitmap>${stat_3085}</_bitmap>
+</picture>
+</container>
+<text>记忆卡片</text>
+</button>
+<button class="theme_item" onAction="download(3047)">
+<container>
+<picture class="icon" src="img\3047.png" />
+<picture class="status">
+<_bitmap>${stat_3047}</_bitmap>
+</picture>
+</container>
+<text>帽子戏法</text>
+</button>
+<button class="theme_item" onAction="download(3048)">
+<container>
+<picture class="icon" src="img\3048.png" />
+<picture class="status">
+<_bitmap>${stat_3048}</_bitmap>
+</picture>
+</container>
+<text>芝宝火机</text>
+</button>
+<button class="theme_item" onAction="download(3063)">
+<container>
+<picture class="icon" src="img\3063.png" />
+<picture class="status">
+<_bitmap>${stat_3063}</_bitmap>
+</picture>
+</container>
+<text>乱花丛蝶</text>
+</button>
+<button class="theme_item" onAction="download(3068)">
+<container>
+<picture class="icon" src="img\3068.png" />
+<picture class="status">
+<_bitmap>${stat_3068}</_bitmap>
+</picture>
+</container>
+<text>豌豆夹开</text>
+</button>
+<button class="theme_item" onAction="download(3080)">
+<container>
+<picture class="icon" src="img\3080.png" />
+<picture class="status">
+<_bitmap>${stat_3080}</_bitmap>
+</picture>
+</container>
+<text>飞萤流光</text>
+</button>
+<button class="theme_item" onAction="download(3082)">
+<container>
+<picture class="icon" src="img\3082.png" />
+<picture class="status">
+<_bitmap>${stat_3082}</_bitmap>
+</picture>
+</container>
+<text>水莲之花</text>
+</button>
+<button class="theme_item" onAction="download(3089)">
+<container>
+<picture class="icon" src="img\3089.png" />
+<picture class="status">
+<_bitmap>${stat_3089}</_bitmap>
+</picture>
+</container>
+<text>繁花绽放</text>
+</button>
+<button class="theme_item" onAction="download(3092)">
+<container>
+<picture class="icon" src="img\3092.png" />
+<picture class="status">
+<_bitmap>${stat_3092}</_bitmap>
+</picture>
+</container>
+<text>欢快沙滩</text>
+</button>
+</container>
+<container  class="titlebar">
+<text class="titlebar_txt1">本地列表</text>
+</container>
+<list class="theme_container">
+<_renderer><![CDATA[
+<button class="theme_item" onAction="download(${clsId})">
+<container>
+<picture class="icon" src="${iconPath}" />
+<picture class="status">
+<_bitmap>${statloc}</_bitmap>
+</picture>
+</container>
+<text>${appName}</text>
+</button>
+]]></_renderer>
+<_items>@{localApps}</_items>
+</list>
+<container style="layout:inlinelayout(true, center|fill); align:center;">
+<text style="margin:0 20 0 20;">
+<_visible>@{localmore_empty}</_visible>
+空的本地列表</text>
+<button class="theme_item" onAction="localmore(open)">
+<_visible>@{localmore_not_empty}</_visible>
+<text>下一页</text>
+</button>
+</container>
+</scrollPane>
+<screenfirstmenu>选项<menupopup>
+<menuitem onAction="open"><picture src="img\i_open.png"/>打开</menuitem>
+<menuitem onAction="visit(ac_home.zpg)"><picture src="img\i_achome.png"/>账户中心</menuitem>
+<menuitem onAction="check"><picture src="img\i_check.png"/>检查更新</menuitem>
+<menuitem onAction="visit(help.zpg)"><picture src="img\i_help.png"/>在线帮助</menuitem>
+<menuitem onAction="visit(about.zpg)"><picture src="img\i_about.png"/>关于我们</menuitem>
+<menuitem onAction="exit"><picture src="img\i_exit.png"/>退出</menuitem>
+</menupopup>
+</screenfirstmenu>
+<screenSecondMenu onAction="exit">退出</screenSecondMenu>
+</screen>

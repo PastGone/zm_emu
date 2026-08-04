@@ -1,0 +1,21 @@
+﻿<screen style="align:center;" title="产品简介">
+<scrollPane>
+<container class="titlebar">
+	<text class="titlebar_txt1">${downName}</text>
+</container>
+<container style="layout:inlinelayout(true,fill); margin:0 2 0 0;padding:1;border: 1;border-brush: solid #5AAAF5;">
+	<container style="align:center;margin:2">
+		<picture src="img\${downIcon}.png"/>
+	</container>
+	<container style="align:top;layout:inlinelayout(false,fill);padding:2;gap:3">
+		<text>大小:${downSize}</text>
+		<text>版本:${downVer}</text>
+	</container>
+</container>
+<container style="margin:0 4 0 0;padding:1;border: 1;border-brush: solid #5AAAF5;">
+	<textarea style="padding:5 5 5 5">${downIntro}</textarea>
+</container>
+</scrollPane>
+<screenfirstmenu shortcuts="fire" onAction="downok">下载</screenfirstmenu>
+<screenSecondMenu onAction="back">返回</screenSecondMenu>
+</screen>

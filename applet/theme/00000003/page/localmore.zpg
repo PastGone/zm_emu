@@ -1,0 +1,58 @@
+﻿<screen style="align:center;">
+<_title>@{screen_title}</_title>
+<scrollPane id="sp_only">
+
+<container class="titlebar">
+<text class="titlebar_txt1">本地列表</text>
+</container>
+
+<list class="theme_container">
+<_renderer><![CDATA[
+<button class="theme_item" onAction="download(${clsId})">
+<container>
+<picture class="icon" src="${iconPath}" />
+<picture class="status">
+<_bitmap>${statloc}</_bitmap>
+</picture>
+</container>
+<text>${appName}</text>
+</button>
+]]></_renderer>
+<_items>@{localApps}</_items>
+</list>
+
+
+<container style="layout:inlinelayout(true, center|fill); align:center;">
+  <text style="margin:0 20 0 0;">
+    <_visible>@{localmore_empty}</_visible>
+    空的本地列表
+  </text>
+  
+  <button class="theme_item" onAction="localmore(pre)">
+    <_visible>@{localmore_not_empty}</_visible>
+    <text>上一页</text>
+  </button>
+  
+  <button class="theme_item" onAction="localmore(next)">
+    <_visible>@{localmore_not_empty}</_visible>
+    <text>下一页</text>
+  </button>
+
+</container>
+
+
+</scrollPane>
+<screenbottombar>
+<container style="layout:inlinelayout(true, center);align:center;layout-data:sld(center,-1,-1);">
+<text style="align:bottom;">@{localmore_cur}</text>
+</container>
+</screenbottombar>
+<screenfirstmenu>选项<menupopup>
+<menuitem onAction="open"><picture src="img\i_open.png"/>打开</menuitem>
+<menuitem onAction="visit(help.zpg)"><picture src="img\i_help.png"/>在线帮助</menuitem>
+<menuitem onAction="visit(about.zpg)"><picture src="img\i_about.png"/>关于我们</menuitem>
+<menuitem onAction="exit"><picture src="img\i_exit.png"/>退出</menuitem>
+</menupopup>
+</screenfirstmenu>
+<screenSecondMenu onAction="localmore(back)">返回</screenSecondMenu>
+</screen>

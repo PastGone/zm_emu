@@ -1,0 +1,6 @@
+﻿<popupBox style="margin:0 0 0 48;border:2 0 2 2;border-brush:solid #0D4BBA; grayed-color:#000000; align:fill|left;layout:inlinelayout(false,fill);bg-brush:solid #f2f7fd;layout-data:sld(bottom,1,-1);" >
+	<container style="min-size:0 15; bg-brush: stretch url(img\popbar_bg.png) | image url(img\popbar_line.png) top;"/>
+	<!--<text id="txt_step" style=" align:left;min-size:0 28;border:0 0 0 1; border-brush: hatch #bcbcbc;padding: 16 0 16 0">检查更新</text>-->
+	<picture src="img\loading.gif" style="min-size:0 28;border:0 0 0 1; border-brush: hatch #bcbcbc;padding: 16 0 16 0" />
+	<text id="txt_stat" style="align:center;min-size:0 28;bg-brush:solid #d5e2e8; margin:0 1 0 0;padding: 16 0 16 0">正在连接</text>
+</popupBox>

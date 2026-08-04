@@ -1,0 +1,6 @@
+﻿
+<container style="layout: inlinelayout(false,center); align: center">
+  <picture src="img\logo.png" />
+  <text>娱乐至上，掌盟解说</text>  
+  <text style="min-size:0 25;">...正在退出...</text>
+</container>

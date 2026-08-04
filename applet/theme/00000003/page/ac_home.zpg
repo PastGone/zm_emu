@@ -1,0 +1,60 @@
+﻿<screen style="align:fill|top;" title="账户中心">
+  <text id="cardtype_info" visible="false">
+    count=11;
+
+    type_0=0;
+    name_0=神州行卡;
+    amount_0=50 10 20 30 100 300 500;
+
+    type_1=1;
+    name_1=联通卡;
+    amount_1=50 20 30 100 300 500;
+
+    type_2=7;
+    name_2=电信卡;
+    amount_2=50 100;
+
+    type_3=2;
+    name_3=Q币充值卡;
+    amount_3=60 5 10 15 20 30 100;
+
+    type_4=3;
+    name_4=盛大卡;
+    amount_4=45 5 10 30 35 100 350 1000;
+
+    type_5=4;
+    name_5=征途卡;
+    amount_5=50 5 10 15 18 20 25 30 60 68 100 300 468 500;
+
+    type_6=5;
+    name_6=骏网一卡通;
+    amount_6=50 5 10 15 30 100;
+
+    type_7=8;
+    name_7=久游卡;
+    amount_7=50 10 30;
+
+    type_8=9;
+    name_8=网易卡;
+    amount_8=50 10 15 20 30;
+
+    type_9=10;
+    name_9=完美卡;
+    amount_9=50 15 30 100;
+
+    type_10=11;
+    name_10=搜狐卡;
+    amount_10=40 5 10 15 30 100;
+
+
+  </text>
+<scrollpane id="sp_only">
+<button onAction="visit_allserver(ac_psinfo.zpg,/lock/user/user_query)" class="achome">个人信息</button>
+<button onAction="ac_home(btn_cdcha,ac_cd_cha.zpg)" class="achome">点卡充值</button>
+<button onAction="ac_home(btn_consume,ac_con_d.zpg,/lock/user/consumer)" class="achome">消费明细</button>
+<button onAction="ac_home(btn_recharge,ac_cha_d.zpg,/lock/user/recharge)" class="achome">充值明细</button>
+<button onAction="visit(ac_help.zpg)" class="achome">帮助说明</button>
+</scrollpane>
+<screenfirstmenu onAction="ac_home(ok)">确定</screenfirstmenu>
+<screenSecondMenu onAction="back">返回</screenSecondMenu>
+</screen>

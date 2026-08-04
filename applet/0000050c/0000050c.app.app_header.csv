@@ -1,0 +1,11 @@
+﻿字段,偏移,实际值,说明
+AppletID,0x00,0x00000454,
+Version,0x04,0xF (15),
+Flags,0x08,0x20000001,
+PayloadSize,0x0c,174720 (0x2AA80),等于代码区大小
+AppName,0x14,珠联璧合,UTF-8
+IconName,0x34,icon.zbmp,
+Type,0x74,0x8C (140),
+ScreenW,0x178,176,
+ScreenH,0x17c,320,
+CodeRegion,0x188,"0x188 .. 0x2AC08 (174720 bytes, 43680 words)",ARM32 机器指令起点

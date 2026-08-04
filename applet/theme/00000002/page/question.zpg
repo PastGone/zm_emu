@@ -1,0 +1,32 @@
+﻿<popupBox  style="min-size:143 87;grayed-color: #cccccc;align:center;layout:borderlayout;bg-brush:solid #ffffff;border:2;border-brush:solid #0644bf;" >
+
+	<container style="min-size:0 15;layout-data:bld(north); bg-brush: stretch url(img\popbar_bg.png) | image url(img\popbar_line.png) top;"></container>
+	<container style="layout:gridlayout(2,2);">
+	
+  	<container style = "align:center;layout:staticlayout;">
+    	<button class="preview" onaction="preview(${clsId})" style="align:center;border:2;layout-data:sld(center,-1,-1);padding:1">
+      	<picture style="align:center" src="img\preview.gif"/>
+   	 </button>
+ 		</container>
+
+  	<container style = "align:center;layout:staticlayout;">
+   	 <button class="preview" id="ques_active" onaction="active(${clsId})" style="align:center;border:2;layout-data:sld(center,-1,-1);padding:1">
+     	 <picture style="align:center" src="img\enable.gif"/>
+    	</button>
+  	</container>
+  
+  	<container style = "align:center;layout:staticlayout;">
+    	<button class="preview" onaction="delete(${clsId})" style="align:center;border:2;layout-data:sld(center,-1,-1);padding:1">
+      	<picture style="align:center" src="img\delete.gif"/>
+   	 </button>
+ 		</container>
+  
+  	<container style = "align:center;layout:staticlayout;">
+    	<button class="preview" id="ques_close" onaction="close(${clsId})" style="align:center;border:2;layout-data:sld(center,-1,-1);padding:1">
+      	<picture style="align:center" src="img\close.gif"/>
+    	</button>
+  	</container>
+  
+  </container>
+  <popupBoxSecondMenuItem onAction="cancel">取消</popupBoxSecondMenuItem>
+</popupBox>
