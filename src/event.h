@@ -30,6 +30,29 @@ void dispatch_applet_event(uint32_t evt, uint32_t x, uint32_t y);
 void on_touch_click(uint32_t x, uint32_t y);
 
 /**
+ * @brief 把一次按键转发为 applet 按键事件（down / up）
+ *
+ * keycode 为 ZM_KEY_* 常量（见 zm_key_code.h），放入事件 R2 参数；
+ * is_down 非 0 时派发 ZM_EV_KEY_DOWN(5)，否则派发 ZM_EV_KEY_UP(6)，
+ * 与触摸的 penDown(9)/penUp(10) 成对方式一致。
+ *
+ * @param keycode  ZMAEE keycode（如 ZM_KEY_1、ZM_KEY_UP）
+ * @param is_down  1=按下，0=抬起
+ */
+void on_key_event(uint32_t keycode, uint32_t is_down);
+
+/**
+ * @brief 把 SDL 物理按键 sym 翻译为 ZMAEE keycode
+ *
+ * 集中存放"PC 键盘物理键 → ZMAEE keycode"映射表。仅识别主键盘数字
+ * （SDLK_0..SDLK_9），忽略 NumPad 数字（SDLK_KP_0..SDLK_KP_9）。
+ *
+ * @param sym SDL_Keycode（如 SDLK_w、SDLK_1、SDLK_KP_1）
+ * @return 匹配的 ZM_KEY_* keycode；未识别返回 ZM_KEY_UNKNOWN
+ */
+uint32_t zm_sdl_to_keycode(int sym);
+
+/**
  * @brief 检查并派发待处理的触摸事件（case 10 penUp）
  * @return true  有待处理事件，已设置寄存器
  */

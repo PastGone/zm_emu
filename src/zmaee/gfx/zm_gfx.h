@@ -38,13 +38,15 @@ int zm_gfx_canvas_stats(uint32_t *out_nonzero_px, uint32_t *out_distinct_colors)
 void zm_gfx_hold(uint32_t timeout_ms);
 
 /**
- * @brief SDL 事件循环：保持窗口显示，处理关闭与鼠标点击
+ * @brief SDL 事件循环：保持窗口显示，处理关闭、鼠标点击与键盘按键
  * @param on_click  鼠标按下回调（传入画布坐标）；NULL 则不处理点击
+ * @param on_key    键盘按键回调（keycode, is_down）；NULL 则不处理按键
  * @param timeout_ms 0=直到窗口关闭；>0 停留指定毫秒后返回
- * @return true  已派发点击事件，调用者应让模拟器继续执行 handler
+ * @return true  已派发点击/按键事件，调用者应让模拟器继续执行 handler
  * @return false 用户关窗(SDL_QUIT)或超时，调用者应停止模拟器
  */
 bool zm_gfx_event_loop(void (*on_click)(uint32_t x, uint32_t y),
+                       void (*on_key)(uint32_t keycode, uint32_t is_down),
                        uint32_t timeout_ms);
 
 /* 累计绘制操作次数（用于摘要与"确实画了东西"的判定） */

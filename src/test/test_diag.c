@@ -73,5 +73,5 @@ void zm_diag_run_event_loop(void) {
   const char *env = getenv("ZM_GFX_HOLD_MS");
   if (env && *env)
     hold_ms = (uint32_t)strtoul(env, NULL, 0);
-  zm_gfx_event_loop(on_touch_click, hold_ms);
+  zm_gfx_event_loop(on_touch_click, NULL, hold_ms);
 }

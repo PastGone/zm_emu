@@ -2,8 +2,10 @@
 #include "zm_layer.h"
 
 #include "../../emu.h"
+#include "../../event.h"
 #include "../../log/log.h"
 #include "../../tool/uc_helper.h"
+#include "../../zmaee/inc/zm_key_code.h"
 #include "unicorn/unicorn.h"
 
 #include <SDL2/SDL.h>
@@ -389,6 +391,7 @@ void zm_gfx_hold(uint32_t timeout_ms) {
 }
 
 bool zm_gfx_event_loop(void (*on_click)(uint32_t x, uint32_t y),
+                       void (*on_key)(uint32_t keycode, uint32_t is_down),
                        uint32_t timeout_ms) {
   if (!g_ready)
     return false;
@@ -412,6 +415,17 @@ bool zm_gfx_event_loop(void (*on_click)(uint32_t x, uint32_t y),
       if (e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_ESCAPE) {
         g_stop_requested = 1;
         return false;
+      }
+      /* 键盘按键：主键盘数字（SDLK_0..9，不含 NumPad）与功能键。
+       * 忽略按键重复（SDL_KEYDOWN 的 repeat 标志）避免长按连发。 */
+      if (on_key && (e.type == SDL_KEYDOWN || e.type == SDL_KEYUP)) {
+        if (!(e.type == SDL_KEYDOWN && e.key.repeat)) {
+          uint32_t keycode = zm_sdl_to_keycode(e.key.keysym.sym);
+          if (keycode != ZM_KEY_UNKNOWN) {
+            on_key(keycode, (e.type == SDL_KEYDOWN) ? 1 : 0);
+            return true; /* 已派发按键事件 → 让模拟器执行 handler */
+          }
+        }
       }
       if (e.type == SDL_MOUSEBUTTONDOWN && on_click) {
         uint32_t cx = (win_w > 0) ? (uint32_t)(e.button.x * g_w / win_w)

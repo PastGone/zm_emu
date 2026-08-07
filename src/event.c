@@ -3,7 +3,9 @@
 #include "./zmaee/core/zm_root.h"
 #include "./zmaee/gfx/zm_gfx.h"
 #include "./zmaee/inc/zm_event_code.h"
+#include "./zmaee/inc/zm_key_code.h"
 #include "unicorn/arm.h"
+#include <SDL2/SDL.h>
 #include <stdbool.h>
 
 /* 待处理的触摸事件队列（仅支持 1 个，case 10 penUp 跟在 case 9 之后） */
@@ -61,6 +63,52 @@ void on_touch_click(uint32_t x, uint32_t y) {
   g_pending_touch.evt = 10;
   g_pending_touch.x = x;
   g_pending_touch.y = y;
+}
+
+void on_key_event(uint32_t keycode, uint32_t is_down) {
+  if (keycode == ZM_KEY_UNKNOWN) {
+    log_info("按键事件忽略：未识别 keycode");
+    return;
+  }
+  uint32_t evt = is_down ? ZM_EV_KEY_DOWN : ZM_EV_KEY_UP;
+  log_info("按键事件: keycode=0x%X %s -> handler=0x%X instance=0x%X", keycode,
+           is_down ? "按下" : "抬起", g_handler, g_instance);
+  dispatch_applet_event(evt, keycode, 0);
+}
+
+/* SDL 物理键 → ZMAEE keycode 映射表。
+ * 用户指定：主键盘数字 0-9（非 NumPad），W/S/A/D 方向，Q 左确认，E 右返回，
+ * Z 拨号，C 挂机，N *，M #。数字键只匹配 SDLK_0..SDLK_9，忽略 SDLK_KP_*。 */
+uint32_t zm_sdl_to_keycode(int sym) {
+  switch (sym) {
+    /* 主键盘数字（排除 NumPad SDLK_KP_0..SDLK_KP_9） */
+    case SDLK_0: return ZM_KEY_0;
+    case SDLK_1: return ZM_KEY_1;
+    case SDLK_2: return ZM_KEY_2;
+    case SDLK_3: return ZM_KEY_3;
+    case SDLK_4: return ZM_KEY_4;
+    case SDLK_5: return ZM_KEY_5;
+    case SDLK_6: return ZM_KEY_6;
+    case SDLK_7: return ZM_KEY_7;
+    case SDLK_8: return ZM_KEY_8;
+    case SDLK_9: return ZM_KEY_9;
+    /* 方向键（W/A/S/D） */
+    case SDLK_w: return ZM_KEY_UP;
+    case SDLK_s: return ZM_KEY_DOWN;
+    case SDLK_a: return ZM_KEY_LEFT;
+    case SDLK_d: return ZM_KEY_RIGHT;
+    /* 确认 / 返回 */
+    case SDLK_q: return ZM_KEY_SOFT_LEFT;  /* 左确认 */
+    case SDLK_e: return ZM_KEY_SOFT_RIGHT; /* 右返回 */
+    /* 拨号 / 挂机 */
+    case SDLK_z: return ZM_KEY_CALL; /* 拨号键 */
+    case SDLK_c: return ZM_KEY_END;  /* 挂机键 */
+    /* * / #（N/M 主键盘映射） */
+    case SDLK_n: return ZM_KEY_STAR;  /* * */
+    case SDLK_m: return ZM_KEY_POUND; /* # */
+    default:
+      return ZM_KEY_UNKNOWN;
+  }
 }
 
 bool zm_event_dispatch_pending(void) {
@@ -141,5 +189,5 @@ bool zm_event_loop_step(void) {
   }
 
   /* 3) 有窗口：等真实事件 */
-  return zm_gfx_event_loop(on_touch_click, g_hold_ms);
+  return zm_gfx_event_loop(on_touch_click, on_key_event, g_hold_ms);
 }

@@ -2,7 +2,7 @@
 # run_all_tests.sh —— 批量运行所有 applet 并生成测试报告
 #
 # 用法：
-#   ./scripts/run_all_tests.sh [选项]
+#   ./run_all_tests.sh [选项]
 #
 # 选项：
 #   -v, --verbose      保留每个 applet 的完整日志
@@ -17,7 +17,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_DIR="$SCRIPT_DIR"
 EMU="$PROJECT_DIR/build/linux/x86_64/release/zm_emu"
 OUT_DIR="$PROJECT_DIR/out"
 REPORT="$OUT_DIR/test_report.md"
@@ -41,7 +41,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ ! -x "$EMU" ]]; then
-  echo "错误：找不到可执行文件 $EMU，请先 make"
+  echo "错误：找不到可执行文件 $EMU，请先构建项目 (xmake)"
   exit 1
 fi
 

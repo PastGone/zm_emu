@@ -5,6 +5,8 @@ add_requires("libsdl2_ttf", {configs = {static = true}})  -- 声明依赖 SDL2_t
 add_requires("libsdl2_mixer", {configs = {static = true,flac = false}})  -- 声明依赖 SDL2_mixer（音频播放/MP3 解码；禁用 FLAC 以规避系统 libflac cmake 配置问题，MP3 由内置 dr_mp3 解码）
 add_requires("unicorn", {configs = {static = true,archs = {"arm"}}})-- 声明依赖 unicorn 库
 add_requires("capstone", {configs = {static = true}}) -- 声明依赖 capstone 库
+add_requires("libpng", {configs = {static = true}})   -- PNG 解码（截图功能）
+add_requires("libjpeg-turbo", {configs = {static = true}})  -- JPEG 解码
 
 
 target("zm_emu")
@@ -13,19 +15,26 @@ target("zm_emu")
     add_files("src/*.c")        
     add_files("src/**/*.c")
 --    
-    add_defines("LOG_USE_COLOR")  -- <--- 添加这一行来启用颜色输出 log/log.h
+    add_defines("LOG_USE_COLOR")   -- 启用颜色输出 log/log.h
+    add_defines("HAVE_PNG")        -- 启用 PNG 解码支持（zm_layer 截图）
+    add_defines("HAVE_JPEG")       -- 启用 JPEG 解码支持（zm_layer）
 -- 
-    add_packages("libsdl2") -- 链接 SDL2 库
-    add_packages("libsdl2_ttf") -- 链接 SDL2_ttf 库
-    add_packages("libsdl2_mixer") -- 链接 SDL2_mixer 库
-    add_packages("unicorn") -- 链接 unicorn 库
-    add_packages("capstone") -- 链接 capstone 库
+    add_packages("libsdl2")        -- 链接 SDL2 库
+    add_packages("libsdl2_ttf")    -- 链接 SDL2_ttf 库
+    add_packages("libsdl2_mixer")  -- 链接 SDL2_mixer 库
+    add_packages("unicorn")        -- 链接 unicorn 库
+    add_packages("capstone")       -- 链接 capstone 库
+    add_packages("libpng")         -- 链接 libpng
+    add_packages("libjpeg-turbo")  -- 链接 libjpeg-turbo
 
     -- ============================================================
-    -- 4. 编译优化选项
+    -- 4. 编译选项（对应原 Makefile）
     -- ============================================================
-    set_optimize("smallest") -- 大小优化
-    set_strip("all")         -- 链接时去除所有符号
+    set_languages("gnu11")         -- C 标准：gnu11
+    set_warnings("all")            -- 开启所有警告
+    add_cxflags("-Wno-unused-parameter", "-Wno-unused-function")  -- 抑制未使用参数/函数警告
+    set_optimize("smallest")       -- 大小优化（-Os 等价）
+    set_strip("all")               -- 链接时去除所有符号
 
 --
 -- If you want to known more usage about xmake, please see https://xmake.io
