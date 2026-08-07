@@ -1,3 +1,5 @@
+#include "test_parse.h"
+
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,12 +14,19 @@ void print_safe(const unsigned char *data, size_t len) {
   }
 }
 
-int test_parse() {
-  //
-  char filename[256];
-  printf("请输入 app 文件路径: ");
-  fgets(filename, sizeof(filename), stdin);
-  filename[strcspn(filename, "\n")] = '\0';
+int test_parse(const char *path) {
+  char filename[512];
+
+  if (path && *path) {
+    snprintf(filename, sizeof(filename), "%s", path);
+  } else {
+    printf("请输入 app 文件路径: ");
+    if (!fgets(filename, sizeof(filename), stdin)) {
+      fprintf(stderr, "未读到文件路径\n");
+      return 1;
+    }
+    filename[strcspn(filename, "\n")] = '\0';
+  }
 
   FILE *fp = fopen(filename, "rb");
   if (!fp) {

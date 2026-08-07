@@ -40,4 +40,14 @@ uint32_t zm_ap_stop(uc_engine *uc);
  */
 uint32_t zm_audio_get_status(uc_engine *uc, uint32_t out4, uint32_t out_buf);
 
+/* AUDIO_VT[0x18] audio.setEnable(this, enable)：00000440 调 (this,1)，no-op 返 0 */
+uint32_t zm_audio_set_enable(uc_engine *uc, uint32_t enable);
+
+/* AUDIO_VT[0x1C] audio.getPlayStatus(this, &o1, &o2, &o3)：输出写 0，返 0 */
+uint32_t zm_audio_get_play_status(uc_engine *uc, uint32_t o1, uint32_t o2,
+                                  uint32_t o3);
+
+/* AUDIO_VT[0x20] audio.setDelay(this, val)：00000001 传延迟，no-op 返 0 */
+uint32_t zm_audio_set_delay(uc_engine *uc, uint32_t val);
+
 #endif

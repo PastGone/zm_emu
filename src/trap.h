@@ -16,4 +16,7 @@
  */
 void handle_trap(uc_engine *uc, uint32_t trap_address);
 
+/* 打印未实现外部调用的分布统计（按次数降序，含首个调用点 LR） */
+void zm_trap_dump_unknown_stats(void);
+
 #endif

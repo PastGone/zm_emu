@@ -128,3 +128,36 @@ uint32_t zm_audio_get_status(uc_engine *uc, uint32_t out4, uint32_t out_buf) {
   }
   return 0;
 }
+
+/* AUDIO_VT[0x18] audio.setEnable(this, enable)
+ * 00000440 初始化音频对象后调 (this, 1)（00000440.app.lst:80834-80842，
+ * MOV R1,#1; BLX vt[0x18]），推测为开启/音量设置。no-op 返 0=成功。 */
+uint32_t zm_audio_set_enable(uc_engine *uc, uint32_t enable) {
+  (void)uc;
+  (void)enable;
+  return 0;
+}
+
+/* AUDIO_VT[0x1C] audio.getPlayStatus(this, &o1, &o2, &o3)
+ * 00000001 sub_331C（00000001.app.lst:4524-4539）调它取 3 个输出，
+ * 返回后算 delay = 35*(o2-o1) 再传给 vt[0x20]。三个输出写 0 使
+ * delay=0（无副作用），返 0=成功。 */
+uint32_t zm_audio_get_play_status(uc_engine *uc, uint32_t o1, uint32_t o2,
+                                  uint32_t o3) {
+  if (o1)
+    uc_write32(uc, o1, 0);
+  if (o2)
+    uc_write32(uc, o2, 0);
+  if (o3)
+    uc_write32(uc, o3, 0);
+  return 0;
+}
+
+/* AUDIO_VT[0x20] audio.setDelay(this, val)
+ * 00000001 sub_331C 把计算出的延迟传进来（00000001.app.lst:4542-4547）。
+ * no-op 返 0=成功。 */
+uint32_t zm_audio_set_delay(uc_engine *uc, uint32_t val) {
+  (void)uc;
+  (void)val;
+  return 0;
+}

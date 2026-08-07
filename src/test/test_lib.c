@@ -1,8 +1,11 @@
 
 #include "../log/log.h"
+#include "test_lib.h"
 #include <SDL2/SDL.h>
 #include <capstone/capstone.h>
+#include <inttypes.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unicorn/unicorn.h>
 
 // 待模拟的 x86 32位机器码: INC ecx; DEC edx
@@ -57,6 +60,9 @@ int uni_main() {
 }
 
 int sdl2_main() {
+  /* 自检要能在无显示器的 CI 里跑完，所以强制 dummy 驱动、跑固定帧数就退出 */
+  if (!getenv("DISPLAY") && !getenv("WAYLAND_DISPLAY"))
+    setenv("SDL_VIDEODRIVER", "dummy", 1);
 
   // 1. 初始化视频子系统
   if (SDL_Init(SDL_INIT_VIDEO) < 0) {
@@ -84,11 +90,11 @@ int sdl2_main() {
     return 1;
   }
 
-  // 4. 主循环标志
+  // 4. 主循环：最多跑 30 帧（约 0.5 秒）就退出，保证自检不会挂住
   int running = 1;
   SDL_Event event;
 
-  while (running) {
+  for (int frame = 0; running && frame < 30; frame++) {
     // 处理事件（比如点击关闭按钮）
     while (SDL_PollEvent(&event)) {
       if (event.type == SDL_QUIT) {
@@ -99,8 +105,6 @@ int sdl2_main() {
     // 清屏为蓝色 (R=0, G=0, B=255, A=255)
     SDL_SetRenderDrawColor(renderer, 0, 0, 255, 255);
     SDL_RenderClear(renderer);
-
-    // 此处可以绘制图形... (留白)
 
     // 更新屏幕显示
     SDL_RenderPresent(renderer);
