@@ -100,4 +100,10 @@ uint32_t zm_gfx_get_width(uc_engine *uc);
 uint32_t zm_gfx_measure_char(uc_engine *uc, uint32_t gfx, uint32_t char_ptr,
                              uint32_t count, uint32_t width_out);
 
+/* GFX_VT[0x10]：getFramebuffer(disp, flag, out_ptr, ...)
+ * 00000001 sub_7D68 在渲染提交时调用，需要返回活动图层的像素缓冲地址。
+ * 写入 *R2 并返回缓冲地址。 */
+uint32_t zm_gfx_vt10(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
+                     uint32_t r3, uint32_t sp);
+
 #endif

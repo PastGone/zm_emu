@@ -27,6 +27,18 @@ uint32_t zm_rt_queryInterface(uc_engine *uc, uint32_t svc, uint32_t out_ptr);
 uint32_t zm_rt_getSystemInfo(uc_engine *uc, uint32_t out_ptr);
 
 /**
+ * @brief RT_VT[+0x2C] getAppletID(obj)：返回 applet 的逻辑 ID
+ *
+ * 00000001 sub_103D0 调用此方法获取 ID，用于拼接存档文件名
+ * "%s%08x.app"。stub 返回 0 会导致文件名错成 "00000000.app"、
+ * "能否进入游戏"判定失败。
+ *
+ * @param r0  applet 对象指针
+ * @return g_header.AppletID（如 00000001 → 0x4A3）
+ */
+uint32_t zm_rt_get_appid(uc_engine *uc, uint32_t r0);
+
+/**
  * @brief RT_VT[+0x58] loadDLL(name_ptr, name_len, out_ptr)
  *
  * sub_85248 调 (*RUNTIME+88)(RUNTIME, "zmsys001.dll", 28, &out)。

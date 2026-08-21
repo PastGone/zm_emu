@@ -34,6 +34,10 @@ uint32_t zm_root_str_assign(uc_engine *uc, uint32_t str_obj, uint32_t cstr_ptr);
 /* ROOT[0x4]：取上下文对象（00000440），返回可偏移访问的缓冲基址 */
 uint32_t zm_root_get_ctx(uc_engine *uc, uint32_t sp_buf, uint32_t flag);
 
+/* ROOT[0x18]：内存复制 (dst, size, src)——00000001 sub_16C5C 存档校验数据生成。
+ * 与 ROOT[0x5C] memcpy 参数序不同（dst, len, src），按块复制避免大 len 栈溢出。 */
+uint32_t zm_root_18(uc_engine *uc, uint32_t dst, uint32_t size, uint32_t src);
+
 /* ROOT[0x3C]：调试输出（0000050b），no-op 返 0 */
 uint32_t zm_root_trace(uc_engine *uc, uint32_t fmt, uint32_t text);
 
@@ -50,6 +54,12 @@ uint32_t zm_root_model_check(uc_engine *uc, uint32_t out_buf,
 
 /* ROOT[0xC8]/[0xD0]：系统属性查询（00000405），写空串、返 0 */
 uint32_t zm_root_prop_get(uc_engine *uc, uint32_t buf, uint32_t key);
+
+/* ROOT[0x94]：00000001 sub_165DC — 取路径/上下文信息，stub 返 0 */
+uint32_t zm_root_94(uc_engine *uc, uint32_t ctx);
+
+/* ROOT[0x98]：00000001 sub_16604 — 写数据目录路径到缓冲(buf,ctx,val)，stub 返 0 */
+uint32_t zm_root_98(uc_engine *uc, uint32_t buf, uint32_t ctx, uint32_t val);
 
 /* ROOT[0x154]：返回回调对象 CBK_OBJ（vt[+8] 会被 applet 覆写为 sub_82FF8） */
 uint32_t zm_root_create_cbk(uc_engine *uc);

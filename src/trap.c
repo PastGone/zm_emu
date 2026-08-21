@@ -223,6 +223,9 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     host_free(r0);
     ret = 0;
     break;
+  case TR_root_18:
+    ret = zm_root_18(uc, r0, r1, r2);
+    break;
   case TR_root_str_copy:
     ret = zm_strcpy(uc, r0, r1, r2, r3);
     break;
@@ -267,6 +270,12 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break;
   case TR_root_strlen:
     ret = zm_root_strlen(uc, r0);
+    break;
+  case TR_root_94:
+    ret = zm_root_94(uc, r0);
+    break;
+  case TR_root_98:
+    ret = zm_root_98(uc, r0, r1, r2);
     break;
   case TR_root_strstr:
     ret = zm_root_strstr(uc, r0, r1);
@@ -318,6 +327,9 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
 
   /* ==================== runtime ==================== */
 
+  case TR_rt_get_appid:
+    ret = zm_rt_get_appid(uc, r0);
+    break;
   case TR_rt_release:
     ret = 0;
     break;
@@ -367,6 +379,9 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
    *   vt[0x70] fillRect(x, y, w, [sp]h, [sp+4]color)                */
   case TR_gfx_create_layer:
     ret = zm_gfx_create_layer(uc, r1, r2);
+    break;
+  case TR_gfx_vt10:
+    ret = zm_gfx_vt10(uc, r0, r1, r2, r3, sp);
     break;
   case TR_gfx_free_layers:
     ret = zm_gfx_free_layers(uc);

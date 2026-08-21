@@ -67,6 +67,19 @@ uint32_t zm_rt_getSystemInfo(uc_engine *uc, uint32_t out_ptr) {
   return 0;
 }
 
+/* ---- RT_VT[+0x2C] getAppletID(obj) ---- */
+
+/* 00000001 sub_103D0 用此方法获取 applet 逻辑 ID，
+ * 返回值被 sub_17108 用于拼存档文件名 "%s%08x.app"。
+ * stub 返回 0 → 存档名错成 "00000000.app" → 进入游戏判定失败。 */
+uint32_t zm_rt_get_appid(uc_engine *uc, uint32_t r0) {
+  (void)uc;
+  (void)r0;
+  log_info("rt.getAppletID() -> 0x%X (%u)", g_header.AppletID,
+           g_header.AppletID);
+  return g_header.AppletID;
+}
+
 /* ---- 00000405.app 新增 runtime 接口实现 ---- */
 
 /* RT_VT[+0x58] loadDLL(name_ptr, name_len, out_ptr) */

@@ -444,6 +444,36 @@ bool zm_gfx_event_loop(void (*on_click)(uint32_t x, uint32_t y),
 
 /* ---------- gfx trap 处理函数 ---------- */
 
+/* GFX_VT[0x10]：getFramebuffer / GetInfo
+ * 00000001 sub_7D68 中两次调用该槽：
+ *   call 1: vt[0x10](backend, &info_struct)   — 获取后端信息
+ *   call 2: vt[0x10](disp, 1, &out_buf, 1, val, size) — 获取帧缓冲指针
+ * 统一处理：把活动图层的像素缓冲地址写入合适的输出参数，返回缓冲地址。 */
+uint32_t zm_gfx_vt10(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
+                     uint32_t r3, uint32_t sp) {
+  (void)r0;
+  (void)r3;
+  (void)sp;
+  ZmLayer *L = zm_layer_active();
+  if (!L) {
+    log_warn("[GFX] vt[0x10] 没有活动图层");
+    return 0;
+  }
+  uint32_t buf = L->buf;
+  /* call 2 模式（R1=1 短整标志位）：R2 是输出指针，写入缓冲地址 */
+  if (r2 != 0 && r2 < SHIM_BASE) {
+    uc_write32(uc, r2, buf);
+  }
+  /* call 1 模式（R1 是栈上的输出结构指针）：写入宽高和缓冲地址 */
+  if (r1 > 0x10000 && r1 < SHIM_BASE) {
+    uc_write32(uc, r1 + 0x00, (uint32_t)L->w);
+    uc_write32(uc, r1 + 0x04, (uint32_t)L->h);
+    uc_write32(uc, r1 + 0x08, buf);
+  }
+  log_info("[GFX] vt[0x10] getFramebuffer → 0x%X (%dx%d)", buf, L->w, L->h);
+  return buf;
+}
+
 /* gfx.fillRect(rect*)：applet 在绘制末尾调用，语义疑似 invalidate。
  * 若真按 rect 用黑色填充会把整张画面刷掉，因此只当作"请求刷新"。 */
 uint32_t zm_gfx_fillRect(uc_engine *uc, uint32_t rect_ptr) {

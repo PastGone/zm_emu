@@ -41,6 +41,61 @@ static char s_write_dir[1024] = {0};
 static char s_cwd[256] = {0}; /* applet 的当前工作子目录（相对 data_dir） */
 static uint32_t s_open_ok = 0;
 
+/* 持久内存文件缓存：写模式文件被 close 后保留数据，供后续只读 open 读取。
+ * 00000001 等 applet 会先 mode=2 创建存档、close、再 mode=1 回读；若磁盘
+ * 上没有写沙箱（GUI 模式无 -o），close 落盘失败，数据必须保留在内存里。 */
+#define ZM_MEM_FILES 16
+static struct {
+  bool used;
+  char name[256];
+  uint8_t *data;
+  size_t size;
+} s_mem_files[ZM_MEM_FILES];
+
+static const uint8_t *mem_cache_find(const char *bn, size_t *out_size) {
+  for (int i = 0; i < ZM_MEM_FILES; i++) {
+    if (s_mem_files[i].used && strcmp(s_mem_files[i].name, bn) == 0) {
+      if (out_size)
+        *out_size = s_mem_files[i].size;
+      return s_mem_files[i].data;
+    }
+  }
+  return NULL;
+}
+
+/* 内存缓存中是否存在该名字的文件（即使数据为空）。 */
+static bool mem_cache_exists(const char *bn) {
+  for (int i = 0; i < ZM_MEM_FILES; i++) {
+    if (s_mem_files[i].used && strcmp(s_mem_files[i].name, bn) == 0)
+      return true;
+  }
+  return false;
+}
+
+static void mem_cache_put(const char *bn, const uint8_t *data, size_t size) {
+  int slot = -1;
+  for (int i = 0; i < ZM_MEM_FILES; i++) {
+    if (!s_mem_files[i].used) {
+      slot = i;
+      break;
+    }
+  }
+  if (slot < 0)
+    slot = 0; /* 满则覆盖第一个 */
+  if (s_mem_files[slot].data)
+    free(s_mem_files[slot].data);
+  snprintf(s_mem_files[slot].name, sizeof(s_mem_files[slot].name), "%s", bn);
+  if (size > 0 && data) {
+    s_mem_files[slot].data = malloc(size);
+    if (s_mem_files[slot].data)
+      memcpy(s_mem_files[slot].data, data, size);
+  } else {
+    s_mem_files[slot].data = NULL;
+  }
+  s_mem_files[slot].size = size;
+  s_mem_files[slot].used = true;
+}
+
 /* ========== 内部工具 ========== */
 
 static void trim_trailing_sep(char *s) {
@@ -122,6 +177,13 @@ bool zm_fs_resolve_read(const char *name, char *out, size_t out_cap) {
 
   char cand[2048];
 
+  /* 0) 内存缓存（applet 之前写模式创建并关闭过的文件）。
+   * 磁盘上可能没有该文件（GUI 模式无写沙箱），但数据仍可用。 */
+  if (mem_cache_exists(bn)) {
+    snprintf(out, out_cap, "@mem:%s", bn);
+    return true;
+  }
+
   /* 1) 写沙箱（applet 之前自己写过的文件） */
   if (s_write_dir[0]) {
     snprintf(cand, sizeof(cand), "%s/%s", s_write_dir, bn);
@@ -181,16 +243,22 @@ static ZmFile *slot_of(uint32_t handle) {
 static void flush_and_close(ZmFile *f) {
   if (!f->used)
     return;
-  if (f->writable && f->dirty && f->disk_path[0]) {
-    FILE *fp = fopen(f->disk_path, "wb");
-    if (fp) {
-      if (f->size > 0 && f->data)
-        fwrite(f->data, 1, f->size, fp);
-      fclose(fp);
-      log_info("fs: 写回 \"%s\"（%zu 字节）", f->disk_path, f->size);
-    } else {
-      log_warn("fs: 无法写回 \"%s\": %s", f->disk_path, strerror(errno));
+  if (f->writable) {
+    /* 写模式文件：先尝试落盘（有写沙箱时），再把数据保留到内存缓存，
+     * 供后续只读 open 复用（00000001 的"写→关→读"存档流程）。 */
+    if (f->dirty && f->disk_path[0]) {
+      FILE *fp = fopen(f->disk_path, "wb");
+      if (fp) {
+        if (f->size > 0 && f->data)
+          fwrite(f->data, 1, f->size, fp);
+        fclose(fp);
+        log_info("fs: 写回 \"%s\"（%zu 字节）", f->disk_path, f->size);
+      } else {
+        log_warn("fs: 无法写回 \"%s\": %s", f->disk_path, strerror(errno));
+      }
     }
+    if (f->name[0])
+      mem_cache_put(f->name, f->data, f->size);
   }
   free(f->data);
   memset(f, 0, sizeof(*f));
@@ -254,22 +322,61 @@ uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr,
   bool want_write = (mode & 0x6u) != 0;
 
   if (found) {
-    FILE *fp = fopen(disk, "rb");
-    if (fp) {
-      fseek(fp, 0, SEEK_END);
-      long sz = ftell(fp);
-      fseek(fp, 0, SEEK_SET);
-      if (sz > 0) {
-        f->data = malloc((size_t)sz);
-        if (f->data && fread(f->data, 1, (size_t)sz, fp) == (size_t)sz) {
-          f->size = (size_t)sz;
-          f->cap = (size_t)sz;
-        } else {
-          free(f->data);
-          f->data = NULL;
+    if (strncmp(disk, "@mem:", 5) == 0) {
+      /* 从内存缓存载入（写模式创建后关闭、未落盘的文件） */
+      size_t msz = 0;
+      const uint8_t *mdata = mem_cache_find(bn, &msz);
+      if (mdata && msz > 0) {
+        f->data = malloc(msz);
+        if (f->data) {
+          memcpy(f->data, mdata, msz);
+          f->size = msz;
+          f->cap = msz;
         }
       }
-      fclose(fp);
+      log_info("fs.open(\"%s\"): 从内存缓存载入（%zu 字节）", bn, f->size);
+    } else {
+      FILE *fp = fopen(disk, "rb");
+      if (fp) {
+        fseek(fp, 0, SEEK_END);
+        long sz = ftell(fp);
+        fseek(fp, 0, SEEK_SET);
+        if (sz > 0) {
+          f->data = malloc((size_t)sz);
+          if (f->data && fread(f->data, 1, (size_t)sz, fp) == (size_t)sz) {
+            f->size = (size_t)sz;
+            f->cap = (size_t)sz;
+          } else {
+            free(f->data);
+            f->data = NULL;
+          }
+        }
+        fclose(fp);
+      }
+    }
+  }
+
+  /* 先查内存池：如果已有同名文件以写模式打开，直接复用（不查磁盘）。
+   * 00000001 等 applet 先 mode=2 创建存档、再 mode=1 回读，两次 open
+   * 在同一事件周期内发生，写模式句柄尚未 close 落盘，磁盘上可能为空。 */
+  bool found_in_mem = false;
+  if (!found && !want_write) {
+    for (int i = 0; i < ZM_MAX_FILES; i++) {
+      if (g_files[i].used && g_files[i].writable &&
+          strcmp(g_files[i].name, bn) == 0) {
+        if (g_files[i].size > 0 && g_files[i].data) {
+          f->data = malloc(g_files[i].size);
+          if (f->data) {
+            memcpy(f->data, g_files[i].data, g_files[i].size);
+            f->size = g_files[i].size;
+            f->cap = g_files[i].size;
+          }
+        }
+        found_in_mem = true;
+        found = true; /* 让后续代码把内存数据当"已找到"处理 */
+        log_info("fs.open: 内存复用 slot[%d] \"%s\" (%zu 字节)", i, bn, g_files[i].size);
+        break;
+      }
     }
   }
 
@@ -286,6 +393,14 @@ uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr,
   if (want_write) {
     if (s_write_dir[0]) {
       snprintf(f->disk_path, sizeof(f->disk_path), "%s/%s", s_write_dir, bn);
+      /* 立即在磁盘上创建文件（即使是空的），保证后续只读 open 能通过
+       * path_exists 找到它。否则 applet 的"写→关→读"流程会因磁盘上
+       * 不存在而让只读 open 返回失败（sub_16CD4 无法读取刚创建的存档）。 */
+      if (!found) {
+        FILE *fp = fopen(f->disk_path, "wb");
+        if (fp)
+          fclose(fp);
+      }
     } else if (found) {
       snprintf(f->disk_path, sizeof(f->disk_path), "%s", disk);
     }

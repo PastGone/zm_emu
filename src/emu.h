@@ -118,6 +118,7 @@
                                                  * 返回可偏移访问的缓冲基址 */
 #define TR_root_malloc TRAP(ROOT + 0x08U)
 #define TR_root_free TRAP(ROOT + 0x0CU)
+#define TR_root_18 TRAP(ROOT + 0x18U)   /* 00000001 sub_16C5C: 内存复制(dst,size,src) */
 #define TR_root_str_copy TRAP(ROOT + 0x20U)
 #define TR_root_alloc_big TRAP(ROOT + 0x30U)   /* 大块分配：r0=字节数 → 客户机指针 */
 #define TR_root_free_big TRAP(ROOT + 0x34U)    /* 大块释放：r0=指针 */
@@ -133,6 +134,8 @@
 #define TR_root_strtod TRAP(ROOT + 0x70U)
 #define TR_root_strtol TRAP(ROOT + 0x74U)
 #define TR_root_strlen TRAP(ROOT + 0x90U)
+#define TR_root_94 TRAP(ROOT + 0x94U)          /* 00000001 sub_165DC：取路径上下文，stub 返 0 */
+#define TR_root_98 TRAP(ROOT + 0x98U)          /* 00000001 sub_16604：写数据目录路径到缓冲，stub 返 0 */
 #define TR_root_strstr TRAP(ROOT + 0xB0U)
 #define TR_root_sprintf TRAP(ROOT + 0x6CU)
 #define TR_root_str_assign TRAP(ROOT + 0x78U)
@@ -154,6 +157,7 @@
 #define TR_rt_queryInterface TRAP(RT_VT + 0x08U)
 #define TR_rt_getSystemInfo TRAP(RT_VT + 0x10U)
 #define TR_rt_timer TRAP(RT_VT + 0x3CU)    /* 周期回调注册 (rt, ms, cb, param) */
+#define TR_rt_get_appid TRAP(RT_VT + 0x2CU)  /* 取 applet 逻辑 ID（00000001 sub_103D0 用） */
 #define TR_rt_getter TRAP(RT_VT + 0x48U)   /* 无参 getter，00000440 ×8 */
 #define TR_rt_loadDLL TRAP(RT_VT + 0x58U)
 #define TR_rt_unloadDLL TRAP(RT_VT + 0x5CU)
@@ -168,6 +172,7 @@
  */
 #define TR_gfx_release TRAP(GFX_VT + 0x04U)
 #define TR_gfx_create_layer TRAP(GFX_VT + 0x0CU)  /* createLayer(id, rect*) */
+#define TR_gfx_vt10 TRAP(GFX_VT + 0x10U)           /* getFramebuffer(disp,flag,out*) 00000001 sub_7D68 */
 #define TR_gfx_layer_info TRAP(GFX_VT + 0x1CU)    /* getLayerInfo(id, info*) */
 #define TR_gfx_free_layers TRAP(GFX_VT + 0x18U)   /* freeAllLayer() */
 #define TR_gfx_active_layer TRAP(GFX_VT + 0x20U)  /* setActiveLayer(id) */

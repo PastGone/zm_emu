@@ -68,17 +68,25 @@ uint32_t zm_root_memset(uc_engine *uc, uint32_t dst, uint32_t val,
 /* ROOT[0x5C]：memcpy(dst, src, len) */
 uint32_t zm_root_memcpy(uc_engine *uc, uint32_t dst, uint32_t src,
                         uint32_t len) {
-  if (len == 0 || dst == 0 || src == 0)
+  return zm_root_18(uc, dst, len, src);
+}
+
+/* ROOT[0x18]：内存复制 (dst, size, src)——参数序与 memcpy 不同。
+ * 00000001 sub_16C5C 用它把 8 字节数据复制到栈缓冲，生成存档校验串。 */
+uint32_t zm_root_18(uc_engine *uc, uint32_t dst, uint32_t size, uint32_t src) {
+  if (!dst || !src || size == 0)
     return dst;
-  if (!len_sane("memcpy", len))
+  if (size > ZM_MAX_BLK) {
+    log_warn("[ROOT] 0x18 长度参数不可信（0x%X），忽略本次调用", size);
     return dst;
-  enum { CHUNK = 4096 };
-  uint8_t *buf = malloc(CHUNK);
+  }
+  uint32_t chunk = 4096;
+  uint8_t *buf = malloc(chunk < size ? chunk : size);
   if (!buf)
     return dst;
   uint32_t off = 0;
-  while (off < len) {
-    uint32_t n = (len - off < CHUNK) ? (len - off) : CHUNK;
+  while (off < size) {
+    uint32_t n = (size - off) < chunk ? (size - off) : chunk;
     if (uc_mem_read(uc, src + off, buf, n) != UC_ERR_OK)
       break;
     if (uc_mem_write(uc, dst + off, buf, n) != UC_ERR_OK)
@@ -365,6 +373,28 @@ uint32_t zm_root_prop_get(uc_engine *uc, uint32_t buf, uint32_t key) {
   (void)key;
   if (buf)
     uc_write32(uc, buf, 0); /* 空串：'\0' */
+  return 0;
+}
+
+/* ROOT[0x94]：00000001 sub_165DC — 取路径/上下文信息。
+ * 在 sub_103D0 中被调用，返回值作为 R2 传给 ROOT[0x98]。
+ * stub 返回 0 不影响核心流程（路径缓冲保持空字符串）。 */
+uint32_t zm_root_94(uc_engine *uc, uint32_t ctx) {
+  (void)uc;
+  (void)ctx;
+  return 0;
+}
+
+/* ROOT[0x98]：00000001 sub_16604(buf, ctx, val) — 写数据目录路径到缓冲。
+ * 在 sub_103D0 中调用，将路径写入 0x40 字节的栈缓冲，该缓冲后续传给
+ * sub_170BC→sub_17108 用于拼存档文件名 "%s%08x.app"。
+ * 缓冲已由调用方置零，stub 不写任何内容（空路径前缀），fs 层会直接用
+ * 数据目录作为前缀，行为正确。 */
+uint32_t zm_root_98(uc_engine *uc, uint32_t buf, uint32_t ctx, uint32_t val) {
+  (void)uc;
+  (void)buf;
+  (void)ctx;
+  (void)val;
   return 0;
 }
 
