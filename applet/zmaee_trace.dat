@@ -1,0 +1,20 @@
+ZmaeePhoneSearch_createlayer ret=
+0
+AEE_IDisplay_SetActiveLayer ret=
+0
+ZmaeePhoneSearch_createlayer end
+zamee_phonedraw_text begin
+8
+63
+230
+24
+AEE_IDisplay_DrawText phone len=
+0
+E:\zmaee\00000405\callsearch.so
+zamee_phonedraw_text begin
+8
+63
+230
+24
+AEE_IDisplay_DrawText phone len=
+0

@@ -209,7 +209,7 @@ bool hook_insn_invalid(uc_engine *uc, void *user_data) {
     log_warn("[CPU] 非法指令 @0x%08X，跳过 4 字节继续", pc);
   }
 
-  if (s_invalid_cnt > 256) {
+  if (s_invalid_cnt > 10) {
     log_error("[CPU] 非法指令过多（%u 次），结束模拟", s_invalid_cnt);
     g_stop_requested = 1;
     uc_emu_stop(uc);
