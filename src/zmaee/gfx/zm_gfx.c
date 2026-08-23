@@ -51,6 +51,18 @@ static int g_font_size = 0;
 /* 绘制计数，用于日志与"确实画了东西"的判定 */
 static uint32_t g_draw_ops = 0;
 
+/* GFX 对象状态（对应 ZMAEE_IDisplay 的画笔/画刷/裁剪状态）。
+ * 由 SetColor / SetClipRect 等 trap 写入；当前绘制原语都显式携带颜色/区域，
+ * 故不自动套用，避免破坏现有渲染（经验证盲目套用会导致整屏刷黑回归）。
+ * 存储本身即满足 ZMAEE 契约，供将来逐步启用。 */
+typedef struct {
+  uint32_t pen_color;   /* 前景/画笔色 ARGB */
+  uint32_t brush_color; /* 画刷/背景色 ARGB */
+  int clip_x, clip_y, clip_w, clip_h;
+  int clip_valid;
+} ZmGfxState;
+static ZmGfxState g_gfx_state;
+
 /* ---------- 小工具 ---------- */
 
 static const char *pick_font_path(void) {
@@ -338,6 +350,9 @@ int zm_gfx_canvas_stats(uint32_t *out_nonzero_px,
 
   compose();
 
+  if (getenv("ZM_LAYERDUMP"))
+    zm_layer_debug_dump(g_uc);
+
   /* 用 8192 槽的开放寻址哈希粗略统计去重颜色数，足够判定"画面不是纯色" */
   enum { NSLOT = 8192 };
   uint32_t *slots = calloc(NSLOT, sizeof(uint32_t));
@@ -459,7 +474,8 @@ uint32_t zm_gfx_vt10(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
     log_warn("[GFX] vt[0x10] 没有活动图层");
     return 0;
   }
-  uint32_t buf = L->buf;
+  uint32_t buf = L->obj;
+  log_warn("[GFX-DIAG] getFramebuffer -> 0x%08X (obj=0x%08X)", buf, L->obj);
   /* call 2 模式（R1=1 短整标志位）：R2 是输出指针，写入缓冲地址 */
   if (r2 != 0 && r2 < SHIM_BASE) {
     uc_write32(uc, r2, buf);
@@ -476,9 +492,72 @@ uint32_t zm_gfx_vt10(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
 
 /* gfx.fillRect(rect*)：applet 在绘制末尾调用，语义疑似 invalidate。
  * 若真按 rect 用黑色填充会把整张画面刷掉，因此只当作"请求刷新"。 */
-uint32_t zm_gfx_fillRect(uc_engine *uc, uint32_t rect_ptr) {
+/* GFX_VT[0x2C]：ZMAEE_IDisplay_SetColor(which, color)
+ * 实测参数（000004051/00000502）：r1/r3 为指针，r2=which(1)，[sp+4]=颜色值
+ * （如 0x360032）。旧实现误当 FillRect 把 r1 当 rect 指针解引用，造成整屏刷黑
+ * 回归（pixels 76800→4）。正确语义是“设置画笔/画刷色”，仅存储状态，不绘制。 */
+uint32_t zm_gfx_set_color(uc_engine *uc, uint32_t which, uint32_t color) {
   (void)uc;
-  (void)rect_ptr;
+  if (which == 0)
+    g_gfx_state.pen_color = color;
+  else
+    g_gfx_state.brush_color = color;
+  return 0;
+}
+
+/* GFX_VT[0xCC]：ZMAEE_IDisplay_SetClipRect(this, ?, ?, ?, rect_ptr)
+ * 实测 [sp+4] 为堆指针，指向 {x,y,w,h} 裁剪矩形；r2 为索引/标识。
+ * 仅存储裁剪区域；当前绘制原语不自动裁剪（避免回归）。 */
+uint32_t zm_gfx_set_clip(uc_engine *uc, uint32_t rect_ptr) {
+  /* DIAG-DRAW：捕获 000005f9 的 DrawImage 现场，确认 IImage 像素是否已就绪 */
+  if (getenv("ZM_DIAGDRAW")) {
+    uint32_t a5 = uc_read32(uc, rect_ptr - 4 + 0); /* sp+0 */
+    uint32_t a6 = uc_read32(uc, rect_ptr - 4 + 4); /* sp+4 */
+    uint32_t a7 = uc_read32(uc, rect_ptr - 4 + 8); /* sp+8 */
+    log_info("[DIAG-DRAW] this=0x%X r1=0x%X r2=0x%X r3=0x%X rect_ptr=0x%X "
+             "sp0=0x%X sp4=0x%X sp8=0x%X",
+             rect_ptr >= 4 ? 0u : 0u, 0u, 0u, 0u, rect_ptr, a5, a6, a7);
+    /* rect_ptr 这里其实是 [sp+4] 的值（上层传入）。逐一检查潜在 IImage */
+    uint32_t cands[4] = {rect_ptr, a5, a6, a7};
+    for (int i = 0; i < 4; i++) {
+      uint32_t c = cands[i];
+      if (c < BLOB_BASE || c >= VRAM_END)
+        continue;
+      uint32_t vptr = 0, magic = 0, w = 0, h = 0, buf = 0;
+      uc_mem_read(uc, c + 0x00, &vptr, 4);
+      uc_mem_read(uc, c + 0x04, &magic, 4);
+      uc_mem_read(uc, c + 0x08, &w, 4);
+      uc_mem_read(uc, c + 0x0C, &h, 4);
+      uc_mem_read(uc, c + 0x10, &buf, 4);
+      if (vptr == IMAGE_VT) {
+        log_info("[DIAG-DRAW]   IImage@0x%X magic=0x%X w=%u h=%u buf=0x%X", c,
+                 magic, w, h, buf);
+        if (buf >= BLOB_BASE && buf < VRAM_END) {
+          uint8_t px[16];
+          if (uc_mem_read(uc, buf, px, sizeof(px)) == UC_ERR_OK) {
+            char hx[40] = {0};
+            for (int k = 0; k < 16; k++)
+              sprintf(hx + k * 2, "%02X", px[k]);
+            log_info("[DIAG-DRAW]     buf px[0:16]=%s", hx);
+          }
+        }
+      }
+    }
+    return 0;
+  }
+  if (rect_ptr >= BLOB_BASE && rect_ptr < VRAM_END) {
+    g_gfx_state.clip_x = (int)uc_read32(uc, rect_ptr);
+    g_gfx_state.clip_y = (int)uc_read32(uc, rect_ptr + 4);
+    g_gfx_state.clip_w = (int)uc_read32(uc, rect_ptr + 8);
+    g_gfx_state.clip_h = (int)uc_read32(uc, rect_ptr + 12);
+    g_gfx_state.clip_valid = 1;
+  }
+  return 0;
+}
+
+/* GFX_VT Release：ZMAEE_IDisplay_Release（引用计数 -1），单例忽略返 0 */
+uint32_t zm_gfx_release(uc_engine *uc) {
+  (void)uc;
   return 0;
 }
 

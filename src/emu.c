@@ -362,6 +362,97 @@ int zm_emu_load_blob(FILE *fp, const long *applet_size) {
   return 0;
 }
 
+/* 死循环诊断：在 0x929dc（blx r2，即将调用模块的 vtable+0x40 回调）处挂钩，
+ * 打印被调用的回调地址与槽值，定位到底是哪个对象方法在自旋。 */
+static void hook_loop_cb(uc_engine *uc, uint64_t address, uint32_t size,
+                         void *user_data) {
+  static int n = 0;
+  if (n >= 64)
+    return;
+  n++;
+  uint32_t r2 = 0, r6 = 0, r8 = 0;
+  uc_reg_read(uc, UC_ARM_REG_R2, &r2);
+  uc_reg_read(uc, UC_ARM_REG_R6, &r6);
+  uc_reg_read(uc, UC_ARM_REG_R8, &r8);
+  log_warn("[loop-diag] #%d r8(objA)=0x%08X r6(slot)=0x%08X r2(vt+0x40)=0x%08X",
+           n, r8, r6, r2);
+}
+
+/* 死循环诊断：首次跳进"数据区"（stack/heap，非 blob/SHIM/TRAMP 代码）执行时，
+ * 记录现场与栈回溯，定位是哪个函数指针/虚表方法指向了 heap 数据。 */
+static void hook_exec_data(uc_engine *uc, uint64_t address, uint32_t size,
+                           void *user_data) {
+  static int fired = 0;
+  if (fired)
+    return;
+  fired = 1;
+  uint32_t pc = (uint32_t)address, lr = 0, sp = 0;
+  uint32_t r[13];
+  uc_reg_read(uc, UC_ARM_REG_LR, &lr);
+  uc_reg_read(uc, UC_ARM_REG_SP, &sp);
+  for (int i = 0; i < 13; i++)
+    uc_reg_read(uc, UC_ARM_REG_R0 + i, &r[i]);
+  log_warn("[exec-data] 跳进数据区执行! PC=0x%08X LR=0x%08X SP=0x%08X", pc, lr, sp);
+  log_warn("  R0..R12 = 0x%08X 0x%08X 0x%08X 0x%08X 0x%08X 0x%08X 0x%08X 0x%08X "
+           "0x%08X 0x%08X 0x%08X 0x%08X 0x%08X",
+           r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10],
+           r[11], r[12]);
+  for (int i = 0; i < 10; i++) {
+    uint32_t w = uc_read32(uc, sp + i * 4);
+    const char *tag = (w >= 0x80000 && w < 0x480000) ? "  <-- 返回blob" : "";
+    log_warn("    [SP+0x%X]=0x%08X%s", i * 4, w, tag);
+  }
+  uint8_t buf[16];
+  if (uc_mem_read(uc, pc, buf, 16) == UC_ERR_OK) {
+    char hex[64];
+    for (int i = 0; i < 16; i++)
+      sprintf(hex + i * 3, "%02X ", buf[i]);
+    log_warn("  PC处字节: %s", hex);
+  }
+}
+
+/* 热点计数：ZM_HOT=1 时，对 blob 内每条指令按 16 字节分桶计数，定位自旋循环体。 */
+static uint32_t *g_hot = NULL;
+static void hook_hot(uc_engine *uc, uint64_t address, uint32_t size, void *ud) {
+  uint32_t a = (uint32_t)address;
+  if (a >= 0x80000 && a < 0x480000) {
+    uint32_t idx = (a - 0x80000) >> 4;
+    uint32_t c = ++g_hot[idx];
+    (void)c;
+  }
+}
+
+/* 死循环诊断：进入 blit 外循环条件(0x90bb0)时记录前若干次调用的尺寸，
+ * 用于确认清零后精灵宽高是否变成 0（导致黑屏）。 */
+static uint32_t g_diag_blit_dst = 0; /* 第一次 blit 的目标地址，用于收尾 dump */
+static void hook_blit(uc_engine *uc, uint64_t address, uint32_t size, void *ud) {
+  static int n = 0;
+  if (n >= 12)
+    return;
+  uint32_t r0 = 0, r3 = 0, r7 = 0, lr = 0, r2 = 0, r1 = 0, r4 = 0, r6 = 0;
+  uc_reg_read(uc, UC_ARM_REG_R0, &r0);
+  n++;
+  if (n == 1)
+    g_diag_blit_dst = r1;
+  uc_reg_read(uc, UC_ARM_REG_R3, &r3);
+  uc_reg_read(uc, UC_ARM_REG_R7, &r7);
+  uc_reg_read(uc, UC_ARM_REG_LR, &lr);
+  uc_reg_read(uc, UC_ARM_REG_R2, &r2);
+  uc_reg_read(uc, UC_ARM_REG_R1, &r1);
+  uc_reg_read(uc, UC_ARM_REG_R4, &r4);
+  uc_reg_read(uc, UC_ARM_REG_R6, &r6);
+  log_warn("[blit#%d] rows(r0)=%u cur(r3)=%u key(r7)=0x%04X "
+           "runlen(lr)=%u src=0x%08X dst=0x%08X r4=%u r6=%u",
+           n, r0, r3, r7 & 0xFFFF, lr, r2, r1, r4, r6);
+  uint8_t buf[16];
+  if (uc_mem_read(uc, r2, buf, 16) == UC_ERR_OK) {
+    char hex[64];
+    for (int i = 0; i < 16; i++)
+      sprintf(hex + i * 3, "%02X ", buf[i]);
+    log_warn("  src[0:16] = %s", hex);
+  }
+}
+
 int zm_emu_add_hooks(void) {
   static uc_hook hook_code_handle;
   static uc_hook hook_unmapped_mem_handle;
@@ -383,6 +474,43 @@ int zm_emu_add_hooks(void) {
   if (err != UC_ERR_OK) {
     log_error("uc_hook_add(CODE) failed: %s", uc_strerror(err));
     return -1;
+  }
+
+  /* 死循环诊断钩子：仅挂钩 0x929dc 单地址 */
+  {
+    static uc_hook h_loop;
+    err = uc_hook_add(g_uc, &h_loop, UC_HOOK_CODE, (void *)hook_loop_cb, NULL,
+                     0x929dc, 0x929dc);
+    if (err != UC_ERR_OK)
+      log_error("uc_hook_add(LOOP_CB) failed: %s", uc_strerror(err));
+  }
+
+  /* 死循环诊断钩子：捕获首次跳进数据区（stack/heap）执行 */
+  {
+    static uc_hook h_exec;
+    err = uc_hook_add(g_uc, &h_exec, UC_HOOK_CODE, (void *)hook_exec_data, NULL,
+                     0x480000, 0x106A0000 - 1);
+    if (err != UC_ERR_OK)
+      log_error("uc_hook_add(EXEC_DATA) failed: %s", uc_strerror(err));
+  }
+
+  /* 死循环诊断钩子：blob 热点计数（ZM_HOT=1 时） */
+  if (getenv("ZM_HOT")) {
+    g_hot = calloc((0x480000 - 0x80000) / 16, sizeof(uint32_t));
+    static uc_hook h_hot;
+    err = uc_hook_add(g_uc, &h_hot, UC_HOOK_CODE, (void *)hook_hot, NULL, 0x80000,
+                     0x480000 - 1);
+    if (err != UC_ERR_OK)
+      log_error("uc_hook_add(HOT) failed: %s", uc_strerror(err));
+  }
+
+  /* 死循环诊断钩子：首次进入 blit 外循环(0x90bb0)打印图像尺寸 */
+  {
+    static uc_hook h_blit;
+    err = uc_hook_add(g_uc, &h_blit, UC_HOOK_CODE, (void *)hook_blit, NULL,
+                     0x90bb0, 0x90bb0);
+    if (err != UC_ERR_OK)
+      log_error("uc_hook_add(BLIT) failed: %s", uc_strerror(err));
   }
 
   err = uc_hook_add(g_uc, &hook_unmapped_mem_handle,
@@ -455,24 +583,81 @@ int zm_emu_start_applet(void) {
     if (v > 0)
       insn_cap = (size_t)v;
   }
-  uc_err err =
-      uc_emu_start(g_uc, APPLET_ENTRY_POINT, EMU_STOP_SENTINEL, 0, insn_cap);
+  /* 分段执行 + 可选 PC 采样：以 100 万指令为块调用 uc_emu_start，便于在
+   * 疑似死循环时定位热点 PC（ZM_SAMPLE=1 时每 500 万指令打印一次 PC）。 */
+  bool sampling = getenv("ZM_SAMPLE") != NULL;
+  size_t done = 0;
+  uint32_t pc = APPLET_ENTRY_POINT;
+  uc_err err = UC_ERR_OK;
+  while (done < insn_cap && !g_stop_requested) {
+    size_t chunk = 1000 * 1000;
+    if (done + chunk > insn_cap)
+      chunk = insn_cap - done;
+    err = uc_emu_start(g_uc, pc, EMU_STOP_SENTINEL, 0, chunk);
+    done += chunk;
+    if (err != UC_ERR_OK && !g_stop_requested)
+      break;
+    uc_reg_read(g_uc, UC_ARM_REG_PC, &pc);
+    if (sampling && (done % (5 * 1000 * 1000)) == 0)
+      log_warn("[sample] done=%zu PC=0x%08X 事件轮数=%u", done, pc,
+               g_event_rounds);
+  }
 
   if (err != UC_ERR_OK && !g_stop_requested) {
-    uint32_t pc = 0;
-    uc_reg_read(g_uc, UC_ARM_REG_PC, &pc);
-    log_error("模拟异常终止: %s (PC=0x%08X)", uc_strerror(err), pc);
+    uint32_t rpc = 0;
+    uc_reg_read(g_uc, UC_ARM_REG_PC, &rpc);
+    log_error("模拟异常终止: %s (PC=0x%08X)", uc_strerror(err), rpc);
     return -1;
   }
   if (!g_stop_requested) {
     /* 既不是 uc_emu_stop 主动结束、也没到事件上限——
      * 多半是撞上了指令上限（ZM_INSN_CAP），说明 applet 陷入了未建模的死循环。 */
-    uint32_t pc = 0;
-    uc_reg_read(g_uc, UC_ARM_REG_PC, &pc);
-    log_warn("模拟在指令上限处结束（疑似未建模的死循环，事件轮数=%u, PC=0x%08X）",
-             g_event_rounds, pc);
+    log_warn("模拟在指令上限处结束（疑似未建模的死循环，事件轮数=%u, PC=0x%08X, "
+             "累计指令=%zu）",
+             g_event_rounds, pc, done);
   }
   log_info("模拟正常结束（事件轮数=%u，未实现外部调用=%u）", g_event_rounds,
            g_unknown_traps);
+
+  /* 热点统计输出 */
+  if (g_hot) {
+    uint32_t nb = (0x480000 - 0x80000) / 16;
+    for (int t = 0; t < 10; t++) {
+      uint32_t bi = 0, bc = 0;
+      for (uint32_t i = 0; i < nb; i++)
+        if (g_hot[i] > bc) {
+          bc = g_hot[i];
+          bi = i;
+        }
+      if (bc == 0)
+        break;
+      uint32_t addr = 0x80000 + bi * 16;
+      log_warn("[hot] #%d addr=0x%08X count=%u", t + 1, addr, bc);
+      g_hot[bi] = 0;
+    }
+  }
+
+  /* 验证：applet 把精灵像素写到 g_diag_blit_dst（图层缓冲内 +0x344 偏移处），
+   * 而合成系统从 L->buf 开头读 → 全黑。dump 该区域确认确有非零像素。 */
+  if (getenv("ZM_DUMP_BLIT") && g_diag_blit_dst) {
+    uint8_t *tmp = malloc(0x60000);
+    if (tmp) {
+      if (uc_mem_read(g_uc, g_diag_blit_dst, tmp, 0x60000) == UC_ERR_OK) {
+        uint32_t nz = 0;
+        for (uint32_t i = 0; i + 1 < 0x60000; i += 2) {
+          uint16_t v = (uint16_t)(tmp[i] | (tmp[i + 1] << 8));
+          if (v)
+            nz++;
+        }
+        log_warn("[blit-dst] 0x%08X 区域(0x60000B) 非零像素=%u", g_diag_blit_dst,
+                 nz);
+        char hx[48];
+        for (int i = 0; i < 16; i++)
+          sprintf(hx + i * 3, "%02X ", tmp[i]);
+        log_warn("  前16字节: %s", hx);
+      }
+      free(tmp);
+    }
+  }
   return 0;
 }

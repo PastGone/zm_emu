@@ -172,6 +172,20 @@ bool zm_event_loop_step(void) {
    *      保证 -n N 能真正执行 N 轮，而不是一轮就结束。 */
   if (g_headless) {
     zm_gfx_present(); /* 把画布刷一次，便于截图落盘 */
+
+    /* BREW 风格启动事件（EVT_APP_START=1）：部分 applet（如 000005f9）
+     * 的资源加载（打开 .zmr、注册加载定时器）挂在 case 1 而非 CREATE。
+     * 真机流程是 CREATE→START→定时器推进→REPAINT；本仿真此前从未派发
+     * 过事件 1，导致这类 applet 停留在空壳状态。默认在首轮补发一次；
+     * ZM_NO_APPSTART=1 可关闭（用于对照实验）。 */
+    static bool s_start_sent = false;
+    if (!s_start_sent && !getenv("ZM_NO_APPSTART")) {
+      s_start_sent = true;
+      log_info("无头模式：补发 BREW 风格启动事件 EVT_APP_START(1)");
+      dispatch_applet_event(1, 0, 0);
+      return true;
+    }
+
     if (g_auto_clicks > 0) {
       g_auto_clicks--;
       uint32_t x = 0, y = 0;

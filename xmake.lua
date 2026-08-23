@@ -15,7 +15,7 @@ target("zm_emu")
     add_files("src/*.c")        
     add_files("src/**/*.c")
 --    
-    add_defines("LOG_USE_COLOR")   -- 启用颜色输出 log/log.h
+    -- add_defines("LOG_USE_COLOR")   -- 启用颜色输出 log/log.h
     add_defines("HAVE_PNG")        -- 启用 PNG 解码支持（zm_layer 截图）
     add_defines("HAVE_JPEG")       -- 启用 JPEG 解码支持（zm_layer）
 -- 

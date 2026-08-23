@@ -41,6 +41,79 @@ static char s_write_dir[1024] = {0};
 static char s_cwd[256] = {0}; /* applet 的当前工作子目录（相对 data_dir） */
 static uint32_t s_open_ok = 0;
 
+/* ---------- .zmr 资源包挂载 ----------
+ * ZMAEE 的 .zmr 是自定义资源包：头部 "zmr0" + uint32 条目数 + 条目数×uint32
+ * 偏移表，之后紧跟若干裸 GIF（无文件名，按索引访问）。真机引擎打开 .zmr 后
+ * 把它当作只读文件系统，fs.enum / fs.open 实际读的是包内条目。这里在注册
+ * 数据目录时解析 .zmr，把索引条目暴露成虚拟文件 <base>.zmr<idx>。 */
+typedef struct {
+  uint8_t *buf;       /* 整个 .zmr 文件内容（常驻） */
+  uint32_t *offs;     /* 条目偏移表，长度 count+1（末项 = 文件大小） */
+  int count;
+  char base[256];     /* 包基名，如 000005f9 */
+} ZmZmr;
+
+static ZmZmr g_zmr;
+
+static void zm_zmr_try_load(void) {
+  memset(&g_zmr, 0, sizeof(g_zmr));
+  if (s_data_dir[0] == '\0')
+    return;
+  /* base = 数据目录最后一段 */
+  const char *base = s_data_dir;
+  for (const char *q = s_data_dir; *q; q++)
+    if (*q == '/' || *q == '\\')
+      base = q + 1;
+  snprintf(g_zmr.base, sizeof(g_zmr.base), "%s", base);
+
+  char path[2048];
+  snprintf(path, sizeof(path), "%s/%s.zmr", s_data_dir, g_zmr.base);
+  FILE *fp = fopen(path, "rb");
+  if (!fp)
+    return;
+  fseek(fp, 0, SEEK_END);
+  long sz = ftell(fp);
+  fseek(fp, 0, SEEK_SET);
+  if (sz < 12) {
+    fclose(fp);
+    return;
+  }
+  uint8_t *buf = malloc((size_t)sz);
+  if (!buf || fread(buf, 1, (size_t)sz, fp) != (size_t)sz) {
+    free(buf);
+    fclose(fp);
+    return;
+  }
+  fclose(fp);
+  if (memcmp(buf, "zmr0", 4) != 0) {
+    free(buf);
+    return;
+  }
+  uint32_t cnt =
+      (uint32_t)buf[4] | ((uint32_t)buf[5] << 8) | ((uint32_t)buf[6] << 16) |
+      ((uint32_t)buf[7] << 24);
+  if (cnt == 0 || cnt > 8192) {
+    free(buf);
+    return;
+  }
+  uint32_t *offs = malloc((size_t)(cnt + 1) * sizeof(uint32_t));
+  if (!offs) {
+    free(buf);
+    return;
+  }
+  for (uint32_t i = 0; i < cnt; i++) {
+    offs[i] = (uint32_t)buf[8 + i * 4] | ((uint32_t)buf[9 + i * 4] << 8) |
+              ((uint32_t)buf[10 + i * 4] << 16) |
+              ((uint32_t)buf[11 + i * 4] << 24);
+  }
+  offs[cnt] = (uint32_t)sz;
+  g_zmr.buf = buf;
+  g_zmr.offs = offs;
+  g_zmr.count = (int)cnt;
+  log_info("zm_fs: 挂载 .zmr 资源包 %s.zmr，共 %d 条 GIF 条目", g_zmr.base,
+           cnt);
+}
+
 /* 持久内存文件缓存：写模式文件被 close 后保留数据，供后续只读 open 读取。
  * 00000001 等 applet 会先 mode=2 创建存档、close、再 mode=1 回读；若磁盘
  * 上没有写沙箱（GUI 模式无 -o），close 落盘失败，数据必须保留在内存里。 */
@@ -313,6 +386,44 @@ uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr,
   ZmFile *f = &g_files[idx];
   memset(f, 0, sizeof(*f));
 
+  /* .zmr 资源包虚拟条目：<base>.zmr<idx> / <base>.zmr.<idx>。
+   * 真机引擎把 .zmr 挂成只读文件系统，资源以索引形式存在、无文件名，
+   * 这里按约定命名暴露，使加载器能像打开普通文件一样取到对应 GIF。
+   * 注意：不能用"纯数字"形式匹配——base 名本身（如 000005f9）以数字开头，
+   * sscanf("%d") 会读到前导数字导致整包名被误判成条目。 */
+  if (g_zmr.count > 0) {
+    int eidx = -1;
+    char tmp[256];
+    if (sscanf(bn, "%255[^.].zmr%d", tmp, &eidx) == 2 &&
+        strcmp(tmp, g_zmr.base) == 0) {
+      /* matched <base>.zmr<idx> */
+    } else if (sscanf(bn, "%255[^.].zmr.%d", tmp, &eidx) == 2 &&
+               strcmp(tmp, g_zmr.base) == 0) {
+      /* matched <base>.zmr.<idx> */
+    } else {
+      eidx = -1;
+    }
+    if (eidx >= 0 && eidx < g_zmr.count) {
+      uint32_t s = g_zmr.offs[eidx];
+      uint32_t len = g_zmr.offs[eidx + 1] - s;
+      f->data = malloc(len ? len : 1);
+      if (f->data && len)
+        memcpy(f->data, g_zmr.buf + s, len);
+      f->size = len;
+      f->cap = len;
+      f->pos = 0;
+      snprintf(f->name, sizeof(f->name), "%s", bn);
+      f->used = true;
+      f->writable = false;
+      uint32_t handle = ZM_FILE_OBJ(idx);
+      uc_write32(uc, handle, FILE_VT);
+      s_open_ok++;
+      log_info("fs.open(\"%s\", mode=0x%X) -> 0x%08X（%u 字节，.zmr 条目 %d）",
+               bn, mode, handle, len, eidx);
+      return handle;
+    }
+  }
+
   char disk[2048];
   bool found = zm_fs_resolve_read(name, disk, sizeof(disk));
   /* mode 决定读写属性：bit1/bit2（2/4）= 写。只读打开（mode=1，如
@@ -516,6 +627,12 @@ uint32_t zm_fileMgr_chdir(uc_engine *uc, uint32_t name_ptr) {
 uint32_t zm_fileMgr_enum(uc_engine *uc, uint32_t dir_ptr, uint32_t out_ptr) {
   char name[256];
   zm_read_str_obj(uc, dir_ptr, name, sizeof(name));
+  if (out_ptr && g_zmr.count > 0) {
+    uc_write32(uc, out_ptr, (uint32_t)g_zmr.count);
+    log_info("fs.enum(\"%s\", out=0x%08X) -> %d 项（.zmr 资源包）", name,
+             out_ptr, g_zmr.count);
+    return 0;
+  }
   log_debug("fs.enum(\"%s\", out=0x%08X) -> 0 项", name, out_ptr);
   if (out_ptr)
     uc_write32(uc, out_ptr, 0);
@@ -635,6 +752,7 @@ uint32_t zm_fs_open_success_count(void) { return s_open_ok; }
 
 void zm_fs_register_default(const char *applet_dir) {
   zm_fs_set_data_dir(applet_dir);
+  zm_zmr_try_load();
   log_info("zm_fs: 数据目录 = \"%s\"（文件将在 fs.open 时按需加载）",
            s_data_dir);
 }

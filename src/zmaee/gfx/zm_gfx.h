@@ -52,8 +52,12 @@ bool zm_gfx_event_loop(void (*on_click)(uint32_t x, uint32_t y),
 /* 累计绘制操作次数（用于摘要与"确实画了东西"的判定） */
 uint32_t zm_gfx_draw_ops(void);
 
-/* gfx.fillRect：填充矩形。r1=rect_ptr（当前为空实现） */
-uint32_t zm_gfx_fillRect(uc_engine *uc, uint32_t rect_ptr);
+/* gfx SetColor(0x2C)：r2=which(0=pen/1=brush), [sp+4]=颜色值，仅存状态不绘制 */
+uint32_t zm_gfx_set_color(uc_engine *uc, uint32_t which, uint32_t color);
+/* gfx SetClipRect(0xCC)：[sp+4]=rect_ptr{x,y,w,h}，仅存裁剪区域不自动裁剪 */
+uint32_t zm_gfx_set_clip(uc_engine *uc, uint32_t rect_ptr);
+/* gfx Release：引用计数 -1，单例忽略返 0 */
+uint32_t zm_gfx_release(uc_engine *uc);
 
 /* gfx.commit：提交帧缓冲。 */
 uint32_t zm_gfx_commit(uc_engine *uc);

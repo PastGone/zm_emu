@@ -72,6 +72,24 @@ static uint32_t blk_get(uint32_t addr) {
   return 0;
 }
 
+/* ZMAEE 的 ROOT_malloc 语义等价于 calloc：返回零初始化内存。
+ * 不清零会让调用方读到未初始化堆垃圾（例如精灵对象的宽/高字段），
+ * 从而产生非确定性死循环——000005f9 的 blit 循环就是拿垃圾宽高当循环
+ * 边界，巨值时一路跑到指令上限。这里在返回前强制清零。 */
+static void zero_block(uint32_t addr, uint32_t size) {
+  if (!g_uc || size == 0)
+    return;
+  static uint8_t z[65536];
+  memset(z, 0, sizeof(z));
+  uint32_t off = 0, left = size;
+  while (left) {
+    uint32_t n = left > sizeof(z) ? sizeof(z) : left;
+    uc_mem_write(g_uc, addr + off, z, n);
+    off += n;
+    left -= n;
+  }
+}
+
 uint32_t host_malloc(uint32_t *heap_ptr, uint32_t size) {
   if (size == 0)
     size = 4;
@@ -87,8 +105,10 @@ uint32_t host_malloc(uint32_t *heap_ptr, uint32_t size) {
   }
   if (best >= 0) {
     uint32_t p = g_free[best].addr;
+    uint32_t sz = g_free[best].size;
     g_free[best] = g_free[--g_free_n];
     log_debug("[HEAP] 复用空闲块 %u 字节 @0x%08X", size, p);
+    zero_block(p, sz);
     return p;
   }
 
@@ -107,6 +127,7 @@ uint32_t host_malloc(uint32_t *heap_ptr, uint32_t size) {
   blk_put(p, size);
   log_debug("[HEAP] 分配 %u 字节 @0x%08X（已用 %u KB）", size, p,
             (*heap_ptr - HEAP_BASE) / 1024);
+  zero_block(p, size);
   return p;
 }
 

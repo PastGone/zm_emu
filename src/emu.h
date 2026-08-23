@@ -162,6 +162,7 @@
 #define TR_rt_loadDLL TRAP(RT_VT + 0x58U)
 #define TR_rt_unloadDLL TRAP(RT_VT + 0x5CU)
 #define TR_rt_loadDLL2 TRAP(RT_VT + 0x78U)
+#define TR_rt_40 TRAP(RT_VT + 0x40U)   /* 00000504 用，无明确语义，stub 返 0 */
 
 /* -------------------- gfx（AEE_IDisplay）--------------------
  *
@@ -181,6 +182,7 @@
 #define TR_gfx_fillRect TRAP(GFX_VT + 0x2CU)
 #define TR_gfx_begin_paint TRAP(GFX_VT + 0x34U)
 #define TR_gfx_end_paint TRAP(GFX_VT + 0x38U)
+#define TR_gfx_vt3C TRAP(GFX_VT + 0x3CU)   /* 000004051/00000502 用，stub 返 0 */
 #define TR_gfx_commit TRAP(GFX_VT + 0x40U)
 #define TR_gfx_get_width TRAP(GFX_VT + 0x48U)
 #define TR_gfx_measure_char TRAP(GFX_VT + 0x4CU)
@@ -201,6 +203,8 @@
 #define TR_gfx_image_file TRAP(GFX_VT + 0xA4U) /* createImageFromFile(...) */
 #define TR_gfx_image_new TRAP(GFX_VT + 0xA8U)  /* createImage(alloc,free,out) */
 #define TR_gfx_draw_image3 TRAP(GFX_VT + 0xACU)
+#define TR_gfx_vtCC TRAP(GFX_VT + 0xCCU)    /* 000003e8/00000434/00000501/000005f9 共享，疑似 setRegion */
+#define TR_gfx_vt1BC TRAP(GFX_VT + 0x1BCU)  /* 00000400 用，对象回调/方法，stub 返 0 */
 
 /* -------------------- IImage -------------------- */
 #define TR_img_release TRAP(IMAGE_VT + 0x04U)

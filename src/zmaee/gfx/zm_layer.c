@@ -46,6 +46,7 @@ static inline uint32_t rgb565_to_argb(uint16_t p) {
 static ZmLayer g_layers[ZM_MAX_LAYERS];
 static uint32_t g_active = 0;
 static int g_scr_w = 240, g_scr_h = 320;
+int g_layer_head = 0; /* 图层对象头大小，见 zm_layer.h；ZM_LAYER_HEAD 可覆盖 */
 
 void zm_layer_reset(int screen_w, int screen_h) {
   memset(g_layers, 0, sizeof(g_layers));
@@ -54,6 +55,8 @@ void zm_layer_reset(int screen_w, int screen_h) {
     g_scr_w = screen_w;
   if (screen_h > 0)
     g_scr_h = screen_h;
+  const char *h = getenv("ZM_LAYER_HEAD");
+  g_layer_head = h ? (int)strtol(h, NULL, 0) : 0;
 }
 
 bool zm_layer_any(void) {
@@ -79,27 +82,28 @@ static ZmLayer *layer_ensure(uint32_t id, int w, int h) {
   if (h <= 0 || h > 4096)
     h = g_scr_h;
 
-  uint32_t bytes = (uint32_t)w * (uint32_t)h * 2u;
-  uint32_t buf = zm_emu_alloc_vram(NULL, bytes);
-  if (!buf) {
+  uint32_t bytes = (uint32_t)w * (uint32_t)h * 2u + (uint32_t)g_layer_head;
+  uint32_t obj = zm_emu_alloc_vram(NULL, bytes);
+  if (!obj) {
     log_error("[GFX] 图层 %u 分配 %u 字节失败", id, bytes);
     return NULL;
   }
-  /* 清零：RGB565 的 0 视为透明黑，与 zbmp 解码约定一致 */
+  /* 清零：头部 + 像素区全清 0（RGB565 的 0 视为透明黑，与 zbmp 约定一致） */
   {
     void *zero = calloc(1, bytes);
     if (zero) {
-      uc_mem_write(g_uc, buf, zero, bytes);
+      uc_mem_write(g_uc, obj, zero, bytes);
       free(zero);
     }
   }
   L->used = true;
   L->w = w;
   L->h = h;
-  L->buf = buf;
+  L->obj = obj;
+  L->buf = obj + (uint32_t)g_layer_head;
   L->opaque = false; /* 新层默认透明 overlay，clear 后才变为不透明画布 */
-  log_info("[GFX] 创建图层 %u：%dx%d，客户机缓冲 0x%08X（RGB565）", id, w, h,
-           buf);
+  log_info("[GFX] 创建图层 %u：%dx%d，对象0x%08X 像素0x%08X（RGB565）", id, w, h,
+           L->obj, L->buf);
   return L;
 }
 
@@ -324,6 +328,37 @@ void zm_layer_composite(uc_engine *uc, uint32_t *out, int w, int h) {
   free(row);
 }
 
+void zm_layer_debug_dump(uc_engine *uc) {
+  for (int li = 0; li < ZM_MAX_LAYERS; li++) {
+    ZmLayer *L = &g_layers[li];
+    if (!L->used)
+      continue;
+    uint32_t nz = 0;
+    int w = L->w < 4096 ? L->w : 4096;
+    int h = L->h < 4096 ? L->h : 4096;
+    uint16_t *row = malloc((size_t)w * 2);
+    if (row) {
+      for (int y = 0; y < h; y++) {
+        if (uc_mem_read(uc, L->buf + (uint32_t)(y * L->w) * 2u, row,
+                        (size_t)w * 2) != UC_ERR_OK)
+          break;
+        for (int x = 0; x < w; x++)
+          if (row[x])
+            nz++;
+      }
+      free(row);
+    }
+    uint8_t head[16];
+    if (uc_mem_read(uc, L->buf, head, sizeof(head)) == UC_ERR_OK) {
+      char hx[48];
+      for (int i = 0; i < 16; i++)
+        sprintf(hx + i * 3, "%02X ", head[i]);
+      log_warn("[layer-dump] L%u buf=0x%08X %dx%d opaque=%d nonzero=%u head=%s",
+               li, L->buf, L->w, L->h, L->opaque, nz, hx);
+    }
+  }
+}
+
 /* ==================== 图层 API（GFX_VT） ==================== */
 
 /* rect_ptr 指向 {x, y, w, h} */
@@ -376,9 +411,8 @@ uint32_t zm_gfx_layer_info(uc_engine *uc, uint32_t id, uint32_t info_ptr) {
   uc_mem_write(uc, info_ptr, zero, sizeof(zero));
   uc_write32(uc, info_ptr + ZM_LAYERINFO_W, (uint32_t)L->w);
   uc_write32(uc, info_ptr + ZM_LAYERINFO_H, (uint32_t)L->h);
-  uc_write32(uc, info_ptr + ZM_LAYERINFO_BUF, L->buf);
-  log_debug("[GFX] getLayerInfo(%u) -> %dx%d buf=0x%08X", id, L->w, L->h,
-            L->buf);
+  uc_write32(uc, info_ptr + ZM_LAYERINFO_BUF, L->obj);
+  log_warn("[GFX-DIAG] getLayerInfo(%u) -> 0x%08X", id, L->buf);
   return 0;
 }
 
@@ -675,6 +709,207 @@ static bool decode_jpg(const uint8_t *data, size_t len, HostImage *out) {
 }
 #endif /* HAVE_JPEG */
 
+/* ---- GIF 解码（GIF89a/87a，单帧，支持全局/局部调色板与透明色）---- */
+static bool gif_lzw_decode(const uint8_t *data, size_t len, int min_code,
+                           int npix, uint8_t *out) {
+  int clear = 1 << min_code;
+  int eoi = clear + 1;
+  int codesize = min_code + 1;
+  int next_code = eoi + 1;
+  int dprefix[4096];
+  uint8_t dsuffix[4096];
+  for (int i = 0; i < clear; i++) {
+    dprefix[i] = -1;
+    dsuffix[i] = (uint8_t)i;
+  }
+  int bitpos = 0;
+  int totalbits = (int)(len * 8);
+  int prev = -1;
+  int outpos = 0;
+  int stack[4096];
+  while (outpos < npix) {
+    if (bitpos + codesize > totalbits)
+      break;
+    int code = 0;
+    for (int i = 0; i < codesize; i++) {
+      int byte = data[bitpos >> 3];
+      int bit = (byte >> (bitpos & 7)) & 1;
+      code |= bit << i;
+      bitpos++;
+    }
+    if (code == clear) {
+      next_code = eoi + 1;
+      codesize = min_code + 1;
+      prev = -1;
+      continue;
+    }
+    if (code == eoi)
+      break;
+    int cur;
+    uint8_t fb;
+    bool extra = false;
+    if (prev == -1)
+      cur = code;
+    else if (code < next_code)
+      cur = code;
+    else {
+      cur = prev;
+      extra = true;
+    }
+    int sp = 0;
+    int k = cur;
+    while (k >= 0 && sp < 4096) {
+      stack[sp++] = dsuffix[k];
+      k = dprefix[k];
+    }
+    fb = stack[sp - 1];
+    for (int i = sp - 1; i >= 0 && outpos < npix; i--)
+      out[outpos++] = (uint8_t)stack[i];
+    if (extra && outpos < npix)
+      out[outpos++] = fb;
+    if (prev >= 0 && next_code < 4096) {
+      dprefix[next_code] = prev;
+      dsuffix[next_code] = fb;
+      next_code++;
+      if (next_code == (1 << codesize) && codesize < 12)
+        codesize++;
+    }
+    prev = cur;
+  }
+  return outpos >= npix;
+}
+
+static bool decode_gif(const uint8_t *data, size_t len, HostImage *out) {
+  if (len < 13 || memcmp(data, "GIF", 3) != 0)
+    return false;
+  int w = (int)data[6] | ((int)data[7] << 8);
+  int h = (int)data[8] | ((int)data[9] << 8);
+  if (w <= 0 || h <= 0 || w > 4096 || h > 4096)
+    return false;
+  int packed = data[10];
+  int pos = 13;
+  uint8_t gpal[256 * 3];
+  int gpal_n = 0;
+  if (packed & 0x80) {
+    gpal_n = 1 << ((packed & 7) + 1);
+    memcpy(gpal, data + 13, (size_t)gpal_n * 3);
+    pos = 13 + gpal_n * 3;
+  }
+  int transparent = -1;
+  uint8_t lpal[256 * 3];
+  while (pos < (int)len) {
+    int b = data[pos++];
+    if (b == 0x3B)
+      break;
+    if (b == 0x21) {
+      int label = data[pos++];
+      if (label == 0xF9) {
+        int sz = data[pos++];
+        int flags = data[pos];
+        if (flags & 0x01)
+          transparent = data[pos + 3];
+        pos += sz;
+        if (pos < (int)len && data[pos] == 0)
+          pos++;
+      } else {
+        while (pos < (int)len) {
+          int sz = data[pos++];
+          if (sz == 0)
+            break;
+          pos += sz;
+        }
+      }
+      continue;
+    }
+    if (b == 0x2C) {
+      int iw = (int)data[pos + 4] | ((int)data[pos + 5] << 8);
+      int ih = (int)data[pos + 6] | ((int)data[pos + 7] << 8);
+      int ipacked = data[pos + 8];
+      pos += 9;
+      uint8_t *pal = gpal;
+      int pal_n = gpal_n;
+      if (ipacked & 0x80) {
+        pal_n = 1 << ((ipacked & 7) + 1);
+        memcpy(lpal, data + pos, (size_t)pal_n * 3);
+        pos += pal_n * 3;
+        pal = lpal;
+      }
+      int min_code = data[pos++];
+      size_t cap = 1 << 16, lzwlen = 0;
+      uint8_t *lzw = malloc(cap);
+      while (pos < (int)len) {
+        int sz = data[pos++];
+        if (sz == 0)
+          break;
+        if (lzwlen + (size_t)sz > cap) {
+          cap = lzwlen + (size_t)sz + (1 << 16);
+          uint8_t *nw = realloc(lzw, cap);
+          if (!nw) {
+            free(lzw);
+            return false;
+          }
+          lzw = nw;
+        }
+        memcpy(lzw + lzwlen, data + pos, (size_t)sz);
+        lzwlen += (size_t)sz;
+        pos += sz;
+      }
+      bool interlaced = (ipacked & 0x40) != 0;
+      int *rows = malloc((size_t)ih * sizeof(int));
+      int n = 0;
+      if (interlaced) {
+        int starts[] = {0, 4, 2, 1}, steps[] = {8, 8, 4, 2};
+        for (int p = 0; p < 4; p++)
+          for (int y = starts[p]; y < ih; y += steps[p])
+            rows[n++] = y;
+      } else {
+        for (int y = 0; y < ih; y++)
+          rows[n++] = y;
+      }
+      uint8_t *raw = malloc((size_t)iw * ih);
+      uint8_t *idx = malloc((size_t)iw * ih);
+      bool ok = raw && idx && gif_lzw_decode(lzw, lzwlen, min_code, iw * ih, raw);
+      if (ok) {
+        for (int r = 0; r < ih; r++)
+          memcpy(idx + (size_t)rows[r] * iw, raw + (size_t)r * iw, (size_t)iw);
+      }
+      free(lzw);
+      free(raw);
+      free(rows);
+      if (!ok) {
+        free(idx);
+        return false;
+      }
+      size_t npx = (size_t)iw * ih;
+      out->w = iw;
+      out->h = ih;
+      out->px = calloc(npx, 2);
+      out->mask = calloc(npx, 1);
+      if (!out->px || !out->mask) {
+        host_image_free(out);
+        free(idx);
+        return false;
+      }
+      for (size_t i = 0; i < npx; i++) {
+        int c = idx[i];
+        if (c < 0 || c >= pal_n) {
+          out->px[i] = 0;
+          out->mask[i] = 0;
+          continue;
+        }
+        uint8_t r = pal[c * 3], g = pal[c * 3 + 1], b = pal[c * 3 + 2];
+        out->px[i] =
+            (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+        out->mask[i] = (c == transparent) ? 0 : 1;
+      }
+      free(idx);
+      return true;
+    }
+    break;
+  }
+  return false;
+}
+
 /* 读取整个文件到内存（调用方 free） */
 static uint8_t *slurp(const char *path, size_t *out_len) {
   FILE *f = fopen(path, "rb");
@@ -752,7 +987,10 @@ static bool image_load_path(uc_engine *uc, uint32_t obj, const char *name) {
 
   HostImage im = {0, 0, NULL, NULL};
   bool ok = false;
-  if (len >= 4 && memcmp(data, "ZMBM", 4) == 0)
+  if (len >= 6 && (memcmp(data, "GIF89a", 6) == 0 ||
+                   memcmp(data, "GIF87a", 6) == 0))
+    ok = decode_gif(data, len, &im);
+  else if (len >= 4 && memcmp(data, "ZMBM", 4) == 0)
     ok = decode_zbmp(data, len, &im);
   else if (len >= 4 && memcmp(data, "zms2", 4) == 0)
     ok = decode_zmspx(data, len, &im);
@@ -818,10 +1056,48 @@ uint32_t zm_img_release(uc_engine *uc, uint32_t img) {
 uint32_t zm_img_load_file(uc_engine *uc, uint32_t img, uint32_t path_ptr,
                           uint32_t path_len) {
   (void)path_len;
-  if (!image_is_ours(uc, img))
+  bool ours = image_is_ours(uc, img);
+  uint8_t raw[32];
+  char hex[80] = {0};
+  uint32_t dp = 0;
+  uint8_t iraw[0x20];
+  char ihex[80] = {0};
+  if (uc_mem_read(uc, img, iraw, sizeof(iraw)) == UC_ERR_OK)
+    for (int i = 0; i < (int)sizeof(iraw); i++)
+      sprintf(ihex + i * 2, "%02X", iraw[i]);
+  if (uc_mem_read(uc, path_ptr, raw, sizeof(raw)) == UC_ERR_OK) {
+    for (int i = 0; i < (int)sizeof(raw); i++)
+      sprintf(hex + i * 2, "%02X", raw[i]);
+    uc_mem_read(uc, path_ptr, &dp, 4);
+  }
+  log_info("[DIAG-load] img=0x%X ours=%d img_raw=%s", img, ours, ihex);
+  log_info("[DIAG-load] path_ptr=0x%X raw=%s data_ptr=0x%X", path_ptr, hex, dp);
+  if (dp) {
+    uint8_t raw2[64];
+    char hex2[160] = {0};
+    if (uc_mem_read(uc, dp, raw2, sizeof(raw2)) == UC_ERR_OK) {
+      for (int i = 0; i < (int)sizeof(raw2); i++)
+        sprintf(hex2 + i * 2, "%02X", raw2[i]);
+      char asc[68];
+      for (int i = 0; i < 64; i++)
+        asc[i] = (raw2[i] >= 0x20 && raw2[i] < 0x80) ? (char)raw2[i] : '.';
+      asc[64] = '\0';
+      log_info("[DIAG-load] data_ptr@0x%X hex=%s", dp, hex2);
+      log_info("[DIAG-load] data_ptr@0x%X ascii=\"%s\"", dp, asc);
+      /* 前 8 个 dword，判断是否为 vtable（SHIM 区函数指针） */
+      for (int i = 0; i < 8; i++) {
+        uint32_t d;
+        uc_mem_read(uc, dp + i * 4, &d, 4);
+        log_info("[DIAG-load]   dword[%d]=0x%X %s", i, d,
+                 (d >= 0x480000 && d < 0x106A0000) ? "(SHIM-vtable?)" : "");
+      }
+    }
+  }
+  if (!ours)
     return 1;
   char name[512];
   zm_read_str_obj(uc, path_ptr, name, sizeof(name));
+  log_info("[DIAG-load] resolved name=\"%s\"", name);
   if (!image_load_path(uc, img, name))
     return 1;
   log_info("[GFX] image.load(\"%s\") ok", name);

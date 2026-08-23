@@ -8,3 +8,4 @@ build/
 compile_commands.json
 batch_reports/*
 out/
+out_collect/

@@ -47,10 +47,17 @@
 #define ZM_IMG_SIZE 0x20
 #define ZM_IMG_MAGIC_VAL 0x5A4D4931U /* "ZMI1" */
 
+/* 图层对象头大小：applet 把 getLayerInfo/getFramebuffer 返回的指针当成
+ * "带头部"的图层对象，像素数据从 +g_layer_head 起写；而合成系统从 L->buf
+ * 开头读像素。默认 0（像素即缓冲起点，兼容 0000050b/00000506）；
+ * 000005f9 需要 0x344 才能正确定位像素。可用 ZM_LAYER_HEAD 覆盖。 */
+extern int g_layer_head;
+
 typedef struct {
   bool used;
   int w, h;
-  uint32_t buf; /* 客户机 RGB565 缓冲地址 */
+  uint32_t obj; /* 对象起点（getLayerInfo/getFramebuffer 返回的指针） */
+  uint32_t buf; /* 客户机 RGB565 像素缓冲地址（= obj + g_layer_head） */
   bool opaque; /* 整层已 clear/fill 过 → 不透明画布，黑色(0)是真实颜色；
                 * 否则 0 像素在合成时视为透明（overlay 层） */
 } ZmLayer;
@@ -91,6 +98,8 @@ void zm_layer_blit_argb(uc_engine *uc, ZmLayer *L, int dx, int dy,
                         int clip_x, int clip_y, int clip_w, int clip_h);
 /* 把所有已用图层按序合成到宿主机 ARGB8888 帧缓冲 */
 void zm_layer_composite(uc_engine *uc, uint32_t *out, int w, int h);
+/* 诊断：打印每个已用图层的缓冲地址、尺寸与非零像素数（ZM_LAYERDUMP=1） */
+void zm_layer_debug_dump(uc_engine *uc);
 /* 是否有任何一层被真正创建过（决定摘要里"画面"是否有意义） */
 bool zm_layer_any(void);
 

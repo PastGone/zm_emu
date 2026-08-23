@@ -59,6 +59,70 @@ static bool mark_seen(uint32_t addr, uint32_t lr) {
   return true;
 }
 
+/* 临时现场观察：设置环境变量 ZM_CAPTURE 时，对尚未建模清楚的 trap
+ * 打印前若干次调用的完整寄存器/栈现场，便于离线反推参数语义。
+ * 生产环境（无该变量）完全零开销。 */
+#define OBS_CAP 64
+#define OBS_PER 6
+static uint32_t s_obs_addr[OBS_CAP];
+static uint32_t s_obs_cnt[OBS_CAP];
+static int s_obs_n = 0;
+
+static void obs_trap(uc_engine *uc, uint32_t addr, uint32_t r0, uint32_t r1,
+                     uint32_t r2, uint32_t r3, uint32_t sp, uint32_t lr) {
+  if (!getenv("ZM_CAPTURE"))
+    return;
+  int idx = -1;
+  for (int i = 0; i < s_obs_n; i++)
+    if (s_obs_addr[i] == addr) {
+      idx = i;
+      break;
+    }
+  if (idx < 0 && s_obs_n < OBS_CAP) {
+    idx = s_obs_n++;
+    s_obs_addr[idx] = addr;
+    s_obs_cnt[idx] = 0;
+  }
+  if (idx < 0)
+    return;
+  if (s_obs_cnt[idx]++ >= OBS_PER)
+    return;
+  uint32_t s0 = 0, s1 = 0, s2 = 0, s3 = 0;
+  if (uc) {
+    s0 = uc_read32(uc, sp);
+    s1 = uc_read32(uc, sp + 4);
+    s2 = uc_read32(uc, sp + 8);
+    s3 = uc_read32(uc, sp + 12);
+  }
+  log_info("OBS %s r0=0x%X r1=0x%X r2=0x%X r3=0x%X "
+           "[sp]=0x%X [sp+4]=0x%X [sp+8]=0x%X [sp+12]=0x%X lr=0x%X",
+           zm_trap_name(addr), r0, r1, r2, r3, s0, s1, s2, s3, lr);
+  /* 对落在有效 guest 地址区间、4 字节对齐的"指针型"参数 dump 前 32 字节，
+   * 以便离线反推 struct 布局（如 DrawBitmap 的源/目的矩形）。 */
+  if (uc) {
+    uint32_t pargs[8] = {r0, r1, r2, r3, s0, s1, s2, s3};
+    const char *pn[8] = {"r0", "r1", "r2", "r3",
+                         "[sp]", "[sp+4]", "[sp+8]", "[sp+12]"};
+    for (int i = 0; i < 8; i++) {
+      uint32_t p = pargs[i];
+      if (p >= 0x10000 && p < 0x40000000 && (p & 3) == 0) {
+        uint8_t buf[32];
+        if (uc_mem_read(uc, p, buf, 32) == UC_ERR_OK) {
+          log_info("  %s->@0x%X: %02X%02X%02X%02X %02X%02X%02X%02X "
+                   "%02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X "
+                   "%02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X",
+                   pn[i], p, buf[0], buf[1], buf[2], buf[3], buf[4], buf[5],
+                   buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12],
+                   buf[13], buf[14], buf[15], buf[16], buf[17], buf[18],
+                   buf[19], buf[20], buf[21], buf[22], buf[23], buf[24],
+                   buf[25], buf[26], buf[27], buf[28], buf[29], buf[30],
+                   buf[31]);
+        }
+      }
+    }
+  }
+}
+
 void zm_trap_dump_unknown_stats(void) {
   if (s_seen_n == 0)
     return;
@@ -108,13 +172,49 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   uc_reg_read(uc, UC_ARM_REG_SP, &sp);
   uc_reg_read(uc, UC_ARM_REG_LR, &lr);
 
+  /* 陷阱日志过滤：设置 ZM_TRAP_FILTER=sub1:sub2:... 时，只记录名字含
+   * 这些子串的陷阱，避免图形 blit 等海量陷阱把日志撑爆，便于追踪特定陷阱。 */
+  const char *filter = getenv("ZM_TRAP_FILTER");
+  if (filter) {
+    const char *name = zm_trap_name(trap_address);
+    const char *p = filter;
+    bool hit = false;
+    while (*p) {
+      const char *colon = strchr(p, ':');
+      size_t len = colon ? (size_t)(colon - p) : strlen(p);
+      if (len && strncmp(name, p, len) == 0)
+        hit = true;
+      if (!colon)
+        break;
+      p = colon + 1;
+    }
+    if (!hit)
+      goto dispatch;
+  }
+
   log_debug("trap %s @0x%08X r0=0x%X r1=0x%X r2=0x%X r3=0x%X sp=0x%X lr=0x%X",
             zm_trap_name(trap_address), trap_address, r0, r1, r2, r3, sp, lr);
+
+  /* 诊断：ZM_IMGVT=1 时，记录名字含 image/img/gif 的陷阱及参数，
+   * 用于定位 ZMAEE_IImage_GIF_Decode 等图片相关陷阱的调用约定。 */
+  if (getenv("ZM_IMGVT")) {
+    static int n = 0;
+    const char *nm = zm_trap_name(trap_address);
+    if (n < 200 && nm &&
+        (strstr(nm, "image") || strstr(nm, "img") || strstr(nm, "Image") ||
+         strstr(nm, "Img") || strstr(nm, "GIF") || strstr(nm, "gif"))) {
+      n++;
+      log_warn("[imgvt] trap=0x%08X name=%s r0=0x%X r1=0x%X r2=0x%X "
+               "r3=0x%X sp=0x%X lr=0x%X",
+               trap_address, nm, r0, r1, r2, r3, sp, lr);
+    }
+  }
+
+dispatch:;
 
   uint32_t ret = 0;
 
   switch (trap_address) {
-
   /* ==================== 控制流伪返回地址 ==================== */
 
   case TR_init_callback: {
@@ -352,8 +452,11 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     }
     break;
   case TR_rt_getter:
-    /* 无参 getter，00000440 ×8、00000001 ×1；返回 1 保持"有效对象"语义 */
-    ret = 1;
+    /* RT_VT[+0x48] 无参 getter：经 00000440.app.c 反编译确认是系统单调
+     * 时钟 tick（sub_30790: 1000*base + (tick - base0) 的时间差计算）。
+     * 旧实现固定返 1 会让所有时间差恒为 0/错值，导致 00000440 动画与
+     * 计时逻辑失效。复用 ROOT[0xD8] 的 zm_root_get_tick（SDL_GetTicks）。 */
+    ret = zm_root_get_tick(uc);
     break;
   case TR_rt_loadDLL:
     ret = zm_rt_loadDLL(uc, r1, r2, r3);
@@ -364,11 +467,19 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_rt_loadDLL2:
     ret = zm_rt_loadDLL2(uc, r0, r1, r2, r3);
     break;
+  case TR_rt_40:
+    /* RT_VT[+0x40]：void 动作方法（控制/使能类），00000504 用、
+     * 00000440 sub_3980C 传 r1=3。返回值被忽略，no-op 返 0 安全。
+     * 暂加现场观察以便确认语义。 */
+    obs_trap(uc, trap_address, r0, r1, r2, r3, sp, lr);
+    ret = 0;
+    break;
 
   /* ==================== gfx ==================== */
 
   case TR_gfx_release:
-    ret = 0;
+    /* GFX_VT Release：ZMAEE_IDisplay_Release（引用计数 -1），单例忽略返 0 */
+    ret = zm_gfx_release(uc);
     break;
 
   /* ---- 图层管理（AEE_IDisplay 多图层模型） ----
@@ -418,8 +529,31 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     ret = zm_gfx_draw_line(uc, r1, r2, r3, sp);
     break;
   case TR_gfx_vt8C:
+    /* drawWidgetBitmap 变体：与 drawImage 同约定 (x, y, desc, rect)，
+     * 把 widget 位图描述符合成到活动图层。保留捕获期日志以便校正约定。 */
+    if (getenv("ZM_CAPTURE"))
+      log_info("[OBS8C] r0=0x%X r1=0x%X r2=0x%X r3=0x%X [sp]=0x%X [sp+4]=0x%X", r0, r1,
+               r2, r3, uc_read32(uc, sp), uc_read32(uc, sp + 4));
+    ret = zm_gfx_draw_image(uc, r1, r2, r3, uc_read32(uc, sp));
+    break;
   case TR_gfx_vtB0:
-    /* 本轮未触发的未知槽位，stub 返回 0 */
+    /* 未明确语义：现场观察待建模 */
+    obs_trap(uc, trap_address, r0, r1, r2, r3, sp, lr);
+    ret = 0;
+    break;
+  case TR_gfx_vt3C:
+    /* 000004051/00000502 用：疑似 setPenStyle/SetParam（r1 为模式字） */
+    obs_trap(uc, trap_address, r0, r1, r2, r3, sp, lr);
+    ret = 0;
+    break;
+  case TR_gfx_vtCC:
+    /* GFX_VT[0xCC] = ZMAEE_IDisplay_SetClipRect(this, ?, ?, ?, rect_ptr)：
+     * 实测 [sp+4] 为堆指针，指向 {x,y,w,h} 裁剪矩形；r2 为索引。仅存裁剪区域。 */
+    ret = zm_gfx_set_clip(uc, uc_read32(uc, sp + 4));
+    break;
+  case TR_gfx_vt1BC:
+    /* 00000400 用：对象回调/方法（遍历探测表） */
+    obs_trap(uc, trap_address, r0, r1, r2, r3, sp, lr);
     ret = 0;
     break;
   case TR_gfx_vtB4:
@@ -427,7 +561,16 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     ret = zm_gfx_vtB4(uc, r0, r1, r2, r3);
     break;
   case TR_gfx_begin_paint:
+    /* IDisplay_BeginPaint：开始一次绘制会话。现有架构每帧全量合成，
+     * 这里仅作现场观察 + 返回 0（无返回值语义）。 */
+    obs_trap(uc, trap_address, r0, r1, r2, r3, sp, lr);
+    ret = 0;
+    break;
   case TR_gfx_end_paint:
+    /* IDisplay_EndPaint：结束绘制会话。现有架构由 commit(0x40) 统一提交，
+     * 这里暂不额外 present（过早 present 会打断"BeginPaint→绘制→EndPaint→
+     * 其它绘制→commit"的常见顺序，导致画面被覆盖）。仅作现场观察。 */
+    obs_trap(uc, trap_address, r0, r1, r2, r3, sp, lr);
     ret = 0;
     break;
 
@@ -467,7 +610,10 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break;
 
   case TR_gfx_fillRect:
-    ret = zm_gfx_fillRect(uc, r1);
+    /* GFX_VT[0x2C] = ZMAEE_IDisplay_SetColor(which, color)：
+     * r2=which(0=pen/1=brush)，[sp+4]=颜色值（实测 0x360032 等）。旧实现误当
+     * FillRect 把 r1 当 rect 指针解引用，造成整屏刷黑回归；正确做法是仅存状态。 */
+    ret = zm_gfx_set_color(uc, r2, uc_read32(uc, sp + 4));
     break;
   case TR_gfx_commit:
     ret = zm_gfx_commit(uc);
