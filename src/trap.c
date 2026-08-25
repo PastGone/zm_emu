@@ -125,6 +125,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
               trap_address);
     return;
   }
+  // 随便打印十个参数试一下,不一定是参数啊但是说实话应该有参数超过四个的情况所以这里打印十个看一下
   for (int i = 0; i < 10; i++) {
     uint32_t v = getArg(uc, i);
     printf("arg%d: 0x%08X\n", i, v);
