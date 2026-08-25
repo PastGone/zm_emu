@@ -1,10 +1,10 @@
 add_rules("mode.debug", "mode.release")
 --
-add_requires("libsdl", {configs = {static = true}})  -- 声明依赖 SDL2
-add_requires("libsdl2_ttf", {configs = {static = true}})  -- 声明依赖 SDL2_ttf（文本渲染）
-add_requires("libsdl2_mixer", {configs = {static = true,flac = false}})  -- 声明依赖 SDL2_mixer（音频播放/MP3 解码；禁用 FLAC 以规避系统 libflac cmake 配置问题，MP3 由内置 dr_mp3 解码）
-add_requires("unicorn", {configs = {static = true,archs = {"arm"}}})-- 声明依赖 unicorn 库
-add_requires("capstone", {configs = {static = true}}) -- 声明依赖 capstone 库
+add_requires("libsdl2", {system = false,configs = {static = true}})  -- 声明依赖 SDL2
+add_requires("libsdl2_ttf", {system = false,configs = {static = true}})  -- 声明依赖 SDL2_ttf（文本渲染）
+add_requires("libsdl2_mixer", {system = false,configs = {static = true,flac = false}})  -- 声明依赖 SDL2_mixer（音频播放/MP3 解码；禁用 FLAC 以规避系统 libflac cmake 配置问题，MP3 由内置 dr_mp3 解码）
+add_requires("unicorn", {system = false,configs = {static = true,archs = {"arm"}}})-- 声明依赖 unicorn 库
+add_requires("capstone", {system = false,configs = {static = true}}) -- 声明依赖 capstone 库
 
 
 target("zm_emu")
@@ -13,7 +13,9 @@ target("zm_emu")
     add_files("src/*.c")        
     add_files("src/**/*.c")
 --    
-    add_defines("LOG_USE_COLOR")  -- <--- 添加这一行来启用颜色输出 log/log.h
+    -- add_defines("LOG_USE_COLOR")  -- <--- 添加这一行来启用颜色输出 log/log.h
+    add_ldflags("-Wl,--allow-multiple-definition")
+
 -- 
     add_packages("libsdl2") -- 链接 SDL2 库
     add_packages("libsdl2_ttf") -- 链接 SDL2_ttf 库
