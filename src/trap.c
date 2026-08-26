@@ -214,7 +214,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   } //
   break;
     /* ---- ROOT ---- */
-  case TR_root_queryRuntime:
+  case TR_root_getShell:
     ret = RUNTIME;
     break;
   case TR_root_malloc:

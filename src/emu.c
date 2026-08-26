@@ -52,7 +52,7 @@ int zm_emu_build_vtables() {
     }
   }
   // root
-  err = uc_write32(g_uc, ROOT, TR_root_queryRuntime);
+  err = uc_write32(g_uc, ROOT, TR_root_getShell);
 
   // runtime
   err = uc_write32(g_uc, RUNTIME, RT_VT);
