@@ -77,7 +77,7 @@
 /* -------------------- trap 地址定义 -------------------- */
 // root
 
-#define TR_root_queryRuntime TRAP(ROOT + 0x00U)
+#define TR_root_getShell TRAP(ROOT + 0x00U)
 #define TR_root_malloc TRAP(ROOT + 0x08U)
 #define TR_root_free TRAP(ROOT + 0x0cU)
 #define TR_root_str_copy TRAP(ROOT + 0x20U)
