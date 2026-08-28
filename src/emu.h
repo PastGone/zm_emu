@@ -36,7 +36,7 @@
 
 /* -------------------- shim 虚表地址定义 -------------------- */
 #define ROOT (SHIM_BASE + 0x000U)
-#define RUNTIME (SHIM_BASE + 0x100U)
+#define SHELL (SHIM_BASE + 0x100U)
 #define RT_VT (SHIM_BASE + 0x180U)
 #define GFX (SHIM_BASE + 0x200U)
 #define GFX_VT (SHIM_BASE + 0x280U)

@@ -215,7 +215,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   break;
     /* ---- ROOT ---- */
   case TR_root_getShell:
-    ret = RUNTIME;
+    ret = SHELL;
     break;
   case TR_root_malloc:
     ret = host_malloc(&g_heap_ptr, r0);
