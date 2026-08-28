@@ -55,7 +55,7 @@ int zm_emu_build_vtables() {
   err = uc_write32(g_uc, ROOT, TR_root_getShell);
 
   // runtime
-  err = uc_write32(g_uc, RUNTIME, RT_VT);
+  err = uc_write32(g_uc, SHELL, RT_VT);
 
   // gfx
   err = uc_write32(g_uc, GFX, GFX_VT);

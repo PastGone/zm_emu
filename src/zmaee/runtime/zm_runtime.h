@@ -29,7 +29,7 @@ uint32_t zm_rt_getSystemInfo(uc_engine *uc, uint32_t out_ptr);
 /**
  * @brief RT_VT[+0x58] loadDLL(name_ptr, name_len, out_ptr)
  *
- * sub_85248 调 (*RUNTIME+88)(RUNTIME, "zmsys001.dll", 28, &out)。
+ * sub_85248 调 (*SHELL+88)(SHELL, "zmsys001.dll", 28, &out)。
  * 本实现为 stub：读取 dll 名仅作日志，把 DLL_OBJ 写入 *out_ptr 并返回，
  * 让 applet 后续对 DLL 对象 vt[+8/+0xC/+0x10] 的调用不崩溃。
  */
@@ -46,7 +46,7 @@ uint32_t zm_rt_unloadDLL(uc_engine *uc, uint32_t handle);
  * @brief RT_VT[+0x78] loadDLL2(this, buf, size, out_obj_ptr, alloc_buf,
  * alloc_sz)
  *
- * sub_83E24 调 (*RUNTIME+120)(RUNTIME, buf, 20, &v2[1], a1[116], a1[117])。
+ * sub_83E24 调 (*SHELL+120)(SHELL, buf, 20, &v2[1], a1[116], a1[117])。
  * 语义：按名载入模块（zmsys006.dll），把模块对象指针写入 *out_obj_ptr，
  * 返回非 0 表成功。applet 随后检查返回值与 *out_obj_ptr 均非 0 才继续，
  * 再调 (*out_obj_ptr)->vt[0x0C](...)。
