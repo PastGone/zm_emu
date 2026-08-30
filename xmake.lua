@@ -13,6 +13,10 @@ target("zm_emu")
     add_files("src/*.c")        
     add_files("src/**/*.c")
 --    
+    -- ulibc：include/ 放各模块头（各 .c 用 #include "u_xxx.h" 引用），
+    -- 根目录放总入口 ulibc.h，两个路径都要能搜到
+    add_includedirs("src/ulibc/include", "src/ulibc")
+--    
     -- add_defines("LOG_USE_COLOR")  -- <--- 添加这一行来启用颜色输出 log/log.h
     add_ldflags("-Wl,--allow-multiple-definition")
 
