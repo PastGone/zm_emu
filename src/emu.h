@@ -119,7 +119,12 @@
 
 /* 00000405.app 新增 ROOT vtable trap（索引 23..45） */
 
-#define TR_root_memset TRAP(ROOT + 0x28U) /* ROOT[0x60] */
+/*
+ * 实测修正：applet 00000440 实际跳转 0x8A0060，即 ROOT+0x60；
+ * 原先写成 ROOT+0x28 导致该 case 永不命中（memset 落到 default 分支）。
+ * 注意这一段的偏移与注释普遍对不上，其他条目待逐个用真实 applet 验证。
+ */
+#define TR_root_memset TRAP(ROOT + 0x60U)
 #define TR_root_x74 TRAP(ROOT + 0x29U)
 #define TR_root_str_assign TRAP(ROOT + 0x30U) /* ROOT[0x78] */
 #define TR_root_get_tick TRAP(ROOT + 0xD8U)   /* ROOT[0xD8] */
@@ -155,6 +160,23 @@
 extern uc_engine *g_uc;
 extern AppletHeader g_header;
 extern uint32_t g_heap_ptr;
+
+/**
+ * 客户机堆策略（由 ZM_ULIBC_HEAP 环境变量在 zm_emu_map_memory 中设定）。
+ *
+ *   1（默认）ulibc 真实堆：u_malloc / u_free，带空闲链表与相邻块合并。
+ *            内存真正回收复用，这是 applet 应该跑在的正确环境——
+ *            原始固件上 malloc/free 也是真的回收的。
+ *            代价：会暴露 applet 潜伏的 UAF / double-free。
+ *            但那些是 applet 的真实 bug，本就该暴露，而不是被掩盖。
+ *
+ *   0         bump 分配器：host_malloc 单调递增，free 为空操作。
+ *             **仅用于排查**：当某个 applet 在真实堆下崩溃时，
+ *             切到 0 可以确认"崩溃是由内存回收引起的"（即 applet 有
+ *             UAF/double-free），而非模拟器接线本身的问题。
+ *             长期保留会让内存只增不减，不是正确行为。
+ */
+extern int g_ulibc_heap;
 
 extern uint32_t g_instance;
 extern uint32_t g_handler;

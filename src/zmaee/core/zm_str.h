@@ -9,17 +9,6 @@
 /* 读取客户机地址 addr 处的 C 字符串到宿主机 buf，最多 maxlen-1 字符 */
 char *read_cstr(uc_engine *uc, uint32_t addr, char *buf, size_t maxlen);
 
-/* root.str_copy：取 src_len/dst_len 较小值拷贝，返回实际拷贝字节数 */
-uint32_t zm_strcpy(uc_engine *uc, uint32_t src, uint32_t src_len, uint32_t dst,
-                   uint32_t dst_len);
-
-/* root.sprintf：简易格式化（支持 %u/%d/%s），返回写入字符数（不含 '\0'） */
-uint32_t zm_sprintf(uc_engine *uc, uint32_t dest_addr, uint32_t fmt_addr,
-                    uint32_t args_addr);
-
-/* root.str_ctor：把源 C 字符串拷贝到客户机目标地址（含 '\0'），返回目标地址 */
-uint32_t zm_strcpy_cstr(uc_engine *uc, uint32_t dest_struct, uint32_t src_str);
-
 /* root.spec_lookup：按单字符查规格，命中则返回存放该字符的客户机地址，否则 0 */
 uint32_t zm_spec_lookup(uc_engine *uc, uint32_t ch_addr);
 

@@ -8,6 +8,7 @@
 
 #include "./emu.h"
 #include "./tool/odds.h"
+#include "./ulibc/ulibc.h" /* 客户机 libc：malloc/free/memcpy/sprintf/str* 等 */
 #include "./zmaee/audio/zm_audio.h"
 #include "./zmaee/core/zm_mem.h"
 #include "./zmaee/core/zm_root.h"
@@ -17,6 +18,46 @@
 #include "./zmaee/runtime/zm_runtime.h"
 #include "event.h"
 #include "zmaee/inc/zm_event_code.h"
+
+/*
+ * ==========================================================================
+ * 客户机堆 / libc 的接线层
+ * ==========================================================================
+ * applet 通过 ROOT vtable 调用的这些槽位，语义上就是标准 C 库函数。
+ * 这里把它们统一转接到 src/ulibc（跨地址空间的 libc 实现），
+ * 由 ulibc 负责"客户机指针搬运"的全部脏活。
+ *
+ * 默认使用 ulibc 真实堆（g_ulibc_heap=1）：malloc 从空闲链表分配、
+ * free 真正回收并与相邻空闲块合并，与原始固件的堆行为一致。
+ * ZM_ULIBC_HEAP=0 回退到 bump 分配器，仅用于排查 applet 的
+ * UAF / double-free（见 emu.h）。
+ * ==========================================================================
+ */
+
+/** applet 的 malloc */
+static uint32_t applet_malloc(uc_engine *uc, uint32_t size) {
+  if (g_ulibc_heap)
+    return u_malloc(uc, size);
+  return host_malloc(&g_heap_ptr, size); /* 排查用：只增不减 */
+}
+
+/** applet 的 free */
+static void applet_free(uc_engine *uc, uint32_t p) {
+  if (g_ulibc_heap) {
+    u_free(uc, p);
+    return;
+  }
+  (void)uc;
+  /* 排查模式：不回收，用于确认崩溃是否由内存回收引起 */
+}
+
+/** applet 的 calloc：分配并清零（清零在客户机侧完成，不开宿主临时缓冲） */
+static uint32_t applet_calloc(uc_engine *uc, uint32_t n, uint32_t size) {
+  uint32_t p = applet_malloc(uc, n * size);
+  if (p)
+    u_memset(uc, p, 0, n * size);
+  return p;
+}
 
 uint32_t getArg(uc_engine *uc, uint32_t n) {
   uint64_t v64 = 0; // 关键：必须用 64 位容器
@@ -153,11 +194,10 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     }
 
     log_info("  size=%d handler=0x%X\n", size, handler);
-    uint32_t INSTANCE = host_malloc(&g_heap_ptr, size);
-
-    uint8_t *zero_buf = calloc(1, size);
-    uc_mem_write(uc, INSTANCE, zero_buf, size);
-    free(zero_buf);
+    /* 原实现是 host_malloc + 宿主 calloc + uc_mem_write + free。
+     * 改用 applet_calloc：分配与清零都在客户机侧完成，
+     * 省掉一次宿主堆分配和一次整块内存拷贝。 */
+    uint32_t INSTANCE = applet_calloc(uc, 1, size);
 
     /* 把当前 applet 短名称写入 instance+4；applet 用它在运行时构造
      * "<name>.zmr" 等资源文件名。使用短名而非完整路径，避免污染
@@ -218,27 +258,67 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     ret = SHELL;
     break;
   case TR_root_malloc:
-    ret = host_malloc(&g_heap_ptr, r0);
-    break; /* malloc */
+    ret = applet_malloc(uc, r0);
+    break; /* malloc(r0=size) */
   case TR_root_free:
     log_debug("这里的话是 free(r0=%d)", r0);
+    applet_free(uc, r0);
     ret = 0;
-    break; /* free */
+    break; /* free(r0=ptr) */
   case TR_root_str_copy:
-    ret = zm_strcpy(uc, r0, r1, r2, r3);
-    break; /* str_copy */
+    /*
+     * ROOT[0x20] str_copy(src, src_len, dst, dst_len)
+     * 语义是 **memcpy 而非 strcpy**：按长度拷贝，取两者较小值，
+     * 不关心 '\0'。返回值是实际拷贝的字节数。
+     * 参数顺序 src 在前、dst 在后，与标准 memcpy(dst, src, n) 相反，
+     * 这里换算时注意别写反。
+     */
+    ret = u_memcpy(uc, r2, r0, (r1 < r3) ? r1 : r3);
+    break;
   case TR_root_sprintf:
-    ret = zm_sprintf(uc, r0, r1, r2);
-    break; /* sprintf */
+    /*
+     * ROOT[0x6C] sprintf(dst=r0, fmt=r1, args=r2)
+     *
+     * zmaee 的约定：r2 指向调用者的栈帧，第一个变参位于 r2 + 4
+     * （r2+0 那个槽被跳过）。因此用 u_va_start_mem 时基址取 r2+4、
+     * 固定参数个数取 0，槽序号就与原来的实现一一对应。
+     *
+     * 换用 ulibc 后，格式串支持从原来的 %d/%s/%x 等子集扩展到
+     * 完整的 flags/width/precision/length 语法，且输出上限由 512
+     * 字节提高到 64KB。
+     */
+    {
+      u_va va;
+      u_va_start_mem(&va, uc, r2 + 4u, 0);
+      ret = (uint32_t)u_sprintf(uc, r0, r1, &va);
+    }
+    break;
   case TR_root_str_ctor:
-    ret = zm_strcpy_cstr(uc, r0, r1);
-    break; /* str_ctor -> strcpy_cstr */
+    /* ROOT[0x88] str_ctor(dst=r0, src=r1)：含 '\0' 一起拷，返回 dst */
+    ret = u_strcpy(uc, r0, r1);
+    break;
+  case TR_root_memset:
+    /* ROOT[0x60] memset(dst=r0, val=r1, len=r2) */
+    ret = u_memset(uc, r0, r1, r2);
+    break;
+    /*
+     * 注：TR_root_str_assign 暂未接线 —— 它与 TR_svc09_x2C 在 emu.h 中
+     * 都被定义为 ROOT+0x30（槽位冲突），且它写的是 zmaee 字符串对象
+     * 三元组，属 zmaee 领域结构而非 libc 语义，应留在 zm_root。
+     * 待 emu.h 的槽位表理清后再接。
+     */
   case TR_root_spec_lookup:
     ret = zm_spec_lookup(uc, r0);
-    break; /* spec_lookup */
+    break; /* spec_lookup：zmaee 规格表查询，非 libc */
   case TR_root_str_find:
+    /*
+     * ROOT[0xA8] str_find(str_obj_or_cstr=r0, ch=r1)
+     * 仍是 zm_strchr：它带 zmaee 特有的"字符串对象 vs 裸 C 串"启发式
+     * （判断 data_ptr 是否等于 ptr+12 的内联布局），属 zmaee 领域知识，
+     * 不该塞进 ulibc。见 zm_str.c。
+     */
     ret = zm_strchr(uc, r0, r1);
-    break; /* str_find -> strchr */
+    break;
   /* ---- runtime ---- */
   case TR_rt_queryInterface:
     ret = zm_rt_queryInterface(uc, r1, r2);
@@ -339,6 +419,22 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break;
   case TR_cbk_default:
     ret = zm_root_cbk_default(uc, r0, r1, r2, r3);
+    break;
+  case TR_root_get_tick:
+    /*
+     * ROOT[0xD8]：返回单调毫秒时间戳（zmaee 的 GetTickCount）。
+     * 宏与实现此前都已存在，只是漏了 case，走到 default 报"非法的外部调用"。
+     * 语义等同 ulibc 的 u_tick_ms，但这里是 zmaee 槽位，直接走 zm_root。
+     */
+    ret = zm_root_get_tick(uc);
+    break;
+  case TR_root_create_cbk:
+    /*
+     * ROOT[0x154]：返回回调对象 CBK_OBJ（其 vt[+8] 随后会被 applet 覆写）。
+     * 这是 zmaee 领域语义而非 libc，故走 zm_root；此前实现被注释掉，
+     * 导致 applet 00000440 在真实堆下走到此处时报"非法的外部调用"。
+     */
+    ret = zm_root_create_cbk(uc);
     break;
   default:
     log_error("非法的外部调用: 0x%08" PRIx32, trap_address);
