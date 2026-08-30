@@ -1,8 +1,6 @@
 #include "zm_str.h"
 
-#include <ctype.h>
 #include <stdbool.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "../../emu.h"
@@ -27,191 +25,14 @@ char *read_cstr(uc_engine *uc, uint32_t addr, char *buf, size_t maxlen) {
   return buf;
 }
 
-/**
- * @brief 安全拷贝内存，取源长度和目标容量的较小值，防止越界
- * @param src     源地址 (对应 r0)
- * @param src_len 源缓冲区最大长度 (对应 r1)
- * @param dst     目标地址 (对应 r2)
- * @param dst_len 目标缓冲区容量 (对应 r3)
- * @return 实际拷贝的字节数 (n)
+/*
+ * 已删除的死代码（其功能由 src/ulibc 完全取代，trap.c 已接到 ulibc）：
+ *   zm_strcpy       → u_memcpy   （TR_root_str_copy）
+ *   zm_sprintf      → u_sprintf  （TR_root_sprintf）
+ *   zm_strcpy_cstr  → u_strcpy   （TR_root_str_ctor）
+ * 保留本文件的其余函数，它们处理的是 zmaee 领域语义（字符串对象三元组、
+ * 规格表查询），ulibc 只提供标准 C 语义，不覆盖这些。
  */
-uint32_t zm_strcpy(uc_engine *uc, uint32_t src, uint32_t src_len, uint32_t dst,
-                   uint32_t dst_len) {
-  // 取较小值作为拷贝长度（对应 r1 < r3 ? r1 : r3）
-  size_t n = (src_len < dst_len) ? src_len : dst_len;
-  uint8_t *data = malloc(n);
-
-  if (data) {
-    uc_mem_read(uc, src, data, n);
-    uc_mem_write(uc, dst, data, n);
-    free(data);
-  }
-
-  return n;
-}
-
-/**
- * @brief 格式化字符串并写入客户机目标地址（模拟 sprintf，多参数）
- * @param dest_addr 目标缓冲区客户机地址 (对应 r0)
- * @param fmt_addr  格式字符串客户机地址 (对应 r1)
- * @param args_addr 参数列表基址 (对应 r2)，第一个参数位于 args_addr + 4
- * @return 写入目标缓冲区的字符串长度（不含结尾 '\0'）
- *
- * @note 遍历 fmt，遇 % 解析 flags/width/precision/length/conversion，
- *       依次从 args_addr + 4 起按 4B 取参数（%f 取 8B）。
- *       支持 d/i/u/x/X/o/c/s/p/f/g/e 等，足够
- *       "%s%08x.app" 与 "&dllversion=%d&dllname=%s" 等调用点。
- */
-uint32_t zm_sprintf(uc_engine *uc, uint32_t dest_addr, uint32_t fmt_addr,
-                    uint32_t args_addr) {
-  char fmt[256];
-  read_cstr(uc, fmt_addr, fmt, sizeof(fmt));
-  log_debug("格式化字符串为: %s", fmt);
-  char out[512];
-  size_t oi = 0;
-  uint32_t arg_off = 4; /* 第一个参数位于 args_addr + 4 */
-  size_t flen = strlen(fmt);
-  size_t out_cap = sizeof(out);
-
-  for (size_t fi = 0; fi < flen && oi < out_cap - 1;) {
-    if (fmt[fi] != '%') {
-      out[oi++] = fmt[fi++];
-      continue;
-    }
-    /* 收集完整转换说明（'%' 起到 conversion char） */
-    char spec[32];
-    size_t si = 0;
-    spec[si++] = '%';
-    fi++;
-    /* flags */
-    while (fi < flen && strchr("-+ #0", fmt[fi]) && si < sizeof(spec) - 2)
-      spec[si++] = fmt[fi++];
-    /* width */
-    while (fi < flen && (isdigit((unsigned char)fmt[fi]) || fmt[fi] == '*') &&
-           si < sizeof(spec) - 2)
-      spec[si++] = fmt[fi++];
-    /* precision */
-    if (fi < flen && fmt[fi] == '.') {
-      spec[si++] = fmt[fi++];
-      while (fi < flen && (isdigit((unsigned char)fmt[fi]) || fmt[fi] == '*') &&
-             si < sizeof(spec) - 2)
-        spec[si++] = fmt[fi++];
-    }
-    /* length modifiers */
-    while (fi < flen && strchr("lhLjz", fmt[fi]) && si < sizeof(spec) - 2)
-      spec[si++] = fmt[fi++];
-    if (fi >= flen)
-      break;
-    char conv = fmt[fi++];
-    spec[si++] = conv;
-    spec[si] = '\0';
-
-    int written = 0;
-    switch (conv) {
-    case 'd':
-    case 'i': {
-      uint32_t v = 0;
-      uc_mem_read(uc, args_addr + arg_off, &v, 4);
-      arg_off += 4;
-      written = snprintf(out + oi, out_cap - oi, spec, (int32_t)v);
-      break;
-    }
-    case 'u':
-    case 'x':
-    case 'X':
-    case 'o':
-    case 'p': {
-      uint32_t v = 0;
-      uc_mem_read(uc, args_addr + arg_off, &v, 4);
-      arg_off += 4;
-      written = snprintf(out + oi, out_cap - oi, spec, v);
-      break;
-    }
-    case 'c': {
-      uint32_t v = 0;
-      uc_mem_read(uc, args_addr + arg_off, &v, 4);
-      arg_off += 4;
-      written = snprintf(out + oi, out_cap - oi, spec, (int)v);
-      break;
-    }
-    case 's': {
-      uint32_t v = 0;
-      uc_mem_read(uc, args_addr + arg_off, &v, 4);
-      arg_off += 4;
-      char s[256];
-      read_cstr(uc, v, s, sizeof(s));
-      written = snprintf(out + oi, out_cap - oi, spec, s);
-      break;
-    }
-    case 'f':
-    case 'F':
-    case 'g':
-    case 'G':
-    case 'e':
-    case 'E': {
-      /* double 8B，8 字节对齐 */
-      if (arg_off & 4)
-        arg_off += 4;
-      uint64_t v = 0;
-      uc_mem_read(uc, args_addr + arg_off, &v, 8);
-      arg_off += 8;
-      double d;
-      memcpy(&d, &v, 8);
-      written = snprintf(out + oi, out_cap - oi, spec, d);
-      break;
-    }
-    case '%':
-      out[oi++] = '%';
-      written = 0;
-      break;
-    default:
-      /* 未知转换：原样输出 % 与字符 */
-      out[oi++] = '%';
-      if (oi < out_cap - 1)
-        out[oi++] = conv;
-      written = 0;
-      break;
-    }
-    if (written > 0)
-      oi += (size_t)written;
-    else if (written < 0)
-      break; /* snprintf 出错 */
-  }
-  out[oi] = '\0';
-  log_debug("最终的拼接结果为: %s", out);
-
-  uc_mem_write(uc, dest_addr, out, oi + 1);
-  return (uint32_t)oi;
-}
-
-/**
- * @brief root.str_ctor：把源 C 字符串拷贝到客户机目标地址（含 '\0'）
- *
- * 00000102.app 中的实际用法是“扩展名替换”：
- *   strcpy_cstr(instance+0x214, "00000102.app")  // 复制完整文件名
- *   strchr(..., '.')                             // 找到 '.'
- *   strcpy_cstr('.'+1, "zmr")                    // 把 "app" 替换成 "zmr"
- *
- * @param dest_struct 目标地址（对应 r0）
- * @param src_str     源字符串地址（对应 r1）
- * @return 返回 dest_struct（即 r0）
- */
-uint32_t zm_strcpy_cstr(uc_engine *uc, uint32_t dest_struct, uint32_t src_str) {
-  if (dest_struct == 0 || src_str == 0)
-    return dest_struct;
-
-  char cstr[256];
-  read_cstr(uc, src_str, cstr, sizeof(cstr));
-  log_debug("strcpy_cstr: '%s' -> 0x%08X", cstr, dest_struct);
-
-  uint32_t clen = (uint32_t)strlen(cstr);
-  if (clen > 255)
-    clen = 255;
-
-  uc_mem_write(uc, dest_struct, cstr, clen + 1);
-
-  return dest_struct;
-}
 
 /**
  * @brief root.spec_lookup：按单字符查规格

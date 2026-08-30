@@ -2,6 +2,7 @@
 #include "./hook.h"
 #include "./log/log.h"
 #include "./tool/uc_helper.h"
+#include "./ulibc/ulibc.h"
 #include "./zmaee/fs/zm_fs.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,6 +12,7 @@
 uc_engine *g_uc;
 AppletHeader g_header;
 uint32_t g_heap_ptr = HEAP_BASE;
+int g_ulibc_heap = 1;
 
 uint32_t g_instance = 0;
 uint32_t g_handler = 0;
@@ -35,7 +37,21 @@ int zm_emu_map_memory() {
     log_error("uc_mem_map failed, err: %d\n", err);
     return -1;
   }
-  log_info("内存映射完成");
+
+  /*
+   * 客户机堆策略（见 emu.h 中 g_ulibc_heap 的说明）。
+   *
+   * 默认使用 ulibc 真实堆：malloc/free 真正回收复用，与原始固件行为一致。
+   * ZM_ULIBC_HEAP=0 可回退到 bump 分配器，仅用于排查 applet 的
+   * UAF / double-free（bump 下 free 是空操作，能掩盖这类错误）。
+   */
+  {
+    const char *env = getenv("ZM_ULIBC_HEAP");
+    g_ulibc_heap = (env && strcmp(env, "0") == 0) ? 0 : 1;
+  }
+  u_heap_init(g_uc, HEAP_BASE, HEAP_SIZE);
+  log_info("内存映射完成（客户机堆：%s，%u 字节）",
+           g_ulibc_heap ? "ulibc 真实堆" : "bump 分配器（排查用）", HEAP_SIZE);
   return 0;
 }
 

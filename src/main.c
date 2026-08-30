@@ -53,7 +53,29 @@ int main() {
   // char *filename = "/home/apollo/文档/古时游戏/zm_emu/applet/00000001/"
   //                  "00000001.app"; // 测试文件1（向后兼容验证）
 
-  snprintf(g_app_pathname, sizeof(g_app_pathname), "%s", filename);
+  /*
+   * ZM_APPLET 可覆盖默认 applet（填 applet 目录下的短名，如 00000405，
+   * 或完整路径），便于逐个回归测试。
+   *
+   * 注意：只能把结果写到**独立的** applet_path 缓冲，再让 filename 指向它。
+   * 不要写成 snprintf(g_app_pathname, n, "%s", filename) 且 filename 已指向
+   * g_app_pathname —— 那是 snprintf 自赋值，会破坏缓冲区。
+   */
+  {
+    static char applet_path[4096];
+    const char *sel = getenv("ZM_APPLET");
+    if (sel && *sel) {
+      if (strchr(sel, '/'))
+        snprintf(applet_path, sizeof(applet_path), "%s", sel);
+      else
+        snprintf(applet_path, sizeof(applet_path),
+                 "/home/apollo/文档/古时游戏/zm_emu/applet/%s/%s.app", sel,
+                 sel);
+      filename = applet_path;
+    }
+    snprintf(g_app_pathname, sizeof(g_app_pathname), "%s", filename);
+    log_info("载入 applet: %s", filename);
+  }
 
   // 先解析 applet 头（不依赖 g_uc），以获取屏幕尺寸
   FILE *fp = fopen(filename, "rb");
