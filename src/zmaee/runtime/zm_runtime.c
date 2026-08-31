@@ -13,7 +13,7 @@
  * @brief rt.queryInterface：按服务号返回对应子系统对象地址
  *
  * 服务号 -> 对象：
- *   0x1000005 -> GFX
+ *   0x1000005 -> DISPLAY（display 单例；旧 GFX 为同一对象的误命名）
  *   0x1000003 -> FS
  *   0x100000B -> AUDIO
  *   0x100000C -> AP
@@ -25,8 +25,9 @@ uint32_t zm_rt_queryInterface(uc_engine *uc, uint32_t svc, uint32_t out_ptr) {
   uint32_t outobj = 0;
   switch (svc) {
   case 0x1000005:
-    outobj = GFX;
-    break; // GFX
+    outobj = DISPLAY;
+    break; // ZMAEE IDisplay 全局单例（原生 g_aee_display_vtbl；
+           // 旧 GFX/GFX_VT 是同一张表的早期误命名，已并入 display）
   case 0x1000003:
     outobj = FileMgr;
     break; // FileMgr

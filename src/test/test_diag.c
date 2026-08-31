@@ -4,7 +4,7 @@
 #include "../zmaee/audio/zm_audio.h"
 #include "../zmaee/fs/zm_file_mgr.h"
 #include "../zmaee/fs/zm_file.h"
-#include "../zmaee/gfx/zm_gfx.h"
+#include "../zmaee/gfx/zm_display.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -74,5 +74,5 @@ void zm_diag_run_event_loop(void) {
   const char *env = getenv("ZM_GFX_HOLD_MS");
   if (env && *env)
     hold_ms = (uint32_t)strtoul(env, NULL, 0);
-  zm_gfx_event_loop(on_touch_click, hold_ms);
+  zm_display_event_loop(on_touch_click, hold_ms);
 }

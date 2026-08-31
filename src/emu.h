@@ -38,8 +38,6 @@
 #define ROOT (SHIM_BASE + 0x000U)
 #define SHELL (SHIM_BASE + 0x100U)
 #define RT_VT (SHIM_BASE + 0x180U)
-#define GFX (SHIM_BASE + 0x200U)
-#define GFX_VT (SHIM_BASE + 0x280U)
 #define FileMgr (SHIM_BASE + 0x300U)
 #define FileMgr_VT (SHIM_BASE + 0x380U)
 #define FILE1 (SHIM_BASE + 0x400U)
@@ -62,6 +60,17 @@
 #define CBK_OBJ_VT (SHIM_BASE + 0x990U) /* 可写：applet 覆写 vt[+8] */
 #define DLL_OBJ (SHIM_BASE + 0x9C0U)    /* loadDLL 返回的 stub DLL 对象 */
 #define DLL_OBJ_VT (SHIM_BASE + 0x9D0U)
+
+/* ---- ZMAEE IDisplay / IBitmap 原生虚表（逆向实测 g_aee_display_vtbl /
+ * g_aee_bitmap_vtbl @ .data:0x63E10 / 0x63DF4）----
+ * display 是全局单例，由 queryInterface(0x1000005) 返回。旧 GFX/GFX_VT
+ * 是早期对同一张表的误命名（实测偏移与本表吻合），已并入此处。
+ * bitmap 由 IDisplay.CreateBitmap/LoadBitmap 创建，这里用单个 BITMAP 单例
+ * 作为所有 bitmap 对象的 vtable 模板（真实多实例后续再扩展）。 */
+#define DISPLAY (SHIM_BASE + 0xA00U)    /* 全局 display 对象（0x1000005） */
+#define DISPLAY_VT (SHIM_BASE + 0xA80U) /* 58 槽 ×4B = 0xE8 */
+#define BITMAP (SHIM_BASE + 0xB80U)     /* bitmap 单例对象 */
+#define BITMAP_VT (SHIM_BASE + 0xC00U)  /* 7 槽 ×4B = 0x1C */
 
 //
 #define SIZE_SLOT                                                              \
@@ -92,14 +101,6 @@
 */
 #define TR_rt_queryInterface TRAP(RT_VT + 0x08U)
 #define TR_rt_getSystemInfo TRAP(RT_VT + 0x10U)
-// gfx
-
-#define TR_gfx_clear TRAP(GFX_VT + 0x20U)
-#define TR_gfx_fillRect TRAP(GFX_VT + 0x2CU)
-#define TR_gfx_commit TRAP(GFX_VT + 0x40U)
-#define TR_gfx_drawText TRAP(GFX_VT + 0x50U)
-#define TR_gfx_drawRect TRAP(GFX_VT + 0x6CU)
-#define TR_gfx_fillRect2 TRAP(GFX_VT + 0x70U)
 // fs
 /*
  * IFile 虚表（逆向实测：gAEEFileVtbl @ .data:00064010，函数指针均 +1 表示 Thumb）
@@ -170,6 +171,79 @@
 #define TR_dll_config TRAP(ROOT + 0x3DU)
 #define TR_dll_entry TRAP(ROOT + 0x3EU)
 #define TR_cbk_default TRAP(ROOT + 0x3FU)
+
+/* ---- ZMAEE IDisplay 原生虚表（g_aee_display_vtbl @ .data:0x63E10）----
+ * 偏移严格按逆向贴出的表。带「实测」的槽为旧 GFX 路径验证过的行为
+ * （gfx 与 display 本是同一张表），其余为按槽序推测命名，语义待 RE 校准。
+ * DISPLAY_VT 58 槽止于 +0xE4，更远的偏移（如旧 GFX 路径见过的 +0x114）
+ * 不在本表内，属其它对象/越界调用。 */
+#define TR_display_AddRef TRAP(DISPLAY_VT + 0x00U)
+#define TR_display_Release TRAP(DISPLAY_VT + 0x04U)
+#define TR_display_GetMaxLayerCount TRAP(DISPLAY_VT + 0x08U)
+#define TR_display_CreateLayer TRAP(DISPLAY_VT + 0x0CU)
+#define TR_display_CreateLayerExt TRAP(DISPLAY_VT + 0x10U)
+#define TR_display_FreeLayer TRAP(DISPLAY_VT + 0x14U)
+#define TR_display_x18 TRAP(DISPLAY_VT + 0x18U) /* 实测被调，功能未知 stub */
+#define TR_display_GetLayerInfo TRAP(DISPLAY_VT + 0x1CU)
+#define TR_display_clear TRAP(DISPLAY_VT + 0x20U) /* 实测：clear(color) */
+#define TR_display_SetLayerPosition TRAP(DISPLAY_VT + 0x24U)
+#define TR_display_Update TRAP(DISPLAY_VT + 0x28U)
+#define TR_display_fillRectR TRAP(DISPLAY_VT + 0x2CU) /* 实测：fillRect(rect_ptr)，空实现疑似 invalidate */
+#define TR_display_GetActiveLayer TRAP(DISPLAY_VT + 0x30U)
+#define TR_display_x34 TRAP(DISPLAY_VT + 0x34U) /* 实测被调，功能未知 stub */
+#define TR_display_UnlockScreen TRAP(DISPLAY_VT + 0x38U)
+#define TR_display_RegisterCustomFont TRAP(DISPLAY_VT + 0x3CU)
+#define TR_display_commit TRAP(DISPLAY_VT + 0x40U) /* 实测：commit 提交帧缓冲 */
+#define TR_display_GetFontWidth TRAP(DISPLAY_VT + 0x44U)
+#define TR_display_getWidth TRAP(DISPLAY_VT + 0x48U) /* 实测：返回屏幕宽度 */
+#define TR_display_measureChar TRAP(DISPLAY_VT + 0x4CU) /* 实测：measureChar(gfx, char_ptr, count, width_out, sp[metrics]) */
+#define TR_display_DrawText TRAP(DISPLAY_VT + 0x50U) /* 实测吻合：drawText */
+#define TR_display_SetTransColor TRAP(DISPLAY_VT + 0x54U)
+#define TR_display_SetOpacity TRAP(DISPLAY_VT + 0x58U)
+#define TR_display_SetClipRect TRAP(DISPLAY_VT + 0x5CU)
+#define TR_display_GetClipRect TRAP(DISPLAY_VT + 0x60U)
+#define TR_display_SetPixel TRAP(DISPLAY_VT + 0x64U)
+#define TR_display_DrawLine TRAP(DISPLAY_VT + 0x68U)
+#define TR_display_DrawRect TRAP(DISPLAY_VT + 0x6CU)   /* 实测吻合：drawRect */
+#define TR_display_FillRect TRAP(DISPLAY_VT + 0x70U)   /* 实测吻合：fillRect */
+#define TR_display_DrawRoundRect TRAP(DISPLAY_VT + 0x74U)
+#define TR_display_DrawCircle TRAP(DISPLAY_VT + 0x78U)
+#define TR_display_FillCircle TRAP(DISPLAY_VT + 0x7CU)
+#define TR_display_DrawArc TRAP(DISPLAY_VT + 0x80U)
+#define TR_display_FillArc TRAP(DISPLAY_VT + 0x84U)
+#define TR_display_FillGradientRect TRAP(DISPLAY_VT + 0x88U)
+#define TR_display_AlphaBlendRect TRAP(DISPLAY_VT + 0x8CU)
+#define TR_display_DrawImage TRAP(DISPLAY_VT + 0x90U)
+#define TR_display_DrawBitmap TRAP(DISPLAY_VT + 0x94U)
+#define TR_display_DrawBitmapEx TRAP(DISPLAY_VT + 0x98U)
+#define TR_display_DrawBitmapFrame TRAP(DISPLAY_VT + 0x9CU)
+#define TR_display_CreateBitmap TRAP(DISPLAY_VT + 0xA0U) /* 返回 BITMAP 单例 */
+#define TR_display_LoadBitmap TRAP(DISPLAY_VT + 0xA4U)   /* 返回 BITMAP 单例 */
+#define TR_display_CreateImage TRAP(DISPLAY_VT + 0xA8U)
+#define TR_display_BitBlt TRAP(DISPLAY_VT + 0xACU)
+#define TR_display_Flatten TRAP(DISPLAY_VT + 0xB0U)
+#define TR_display_StretchBlt TRAP(DISPLAY_VT + 0xB4U)
+#define TR_display_DrawAntialiasingLine TRAP(DISPLAY_VT + 0xB8U)
+#define TR_display_DrawWLine TRAP(DISPLAY_VT + 0xBCU)
+#define TR_display_GetDMLayerHdlr TRAP(DISPLAY_VT + 0xC0U)
+#define TR_display_RelevanceLayer TRAP(DISPLAY_VT + 0xC4U)
+#define TR_display_Refresh TRAP(DISPLAY_VT + 0xC8U)
+#define TR_display_DrawImageExt TRAP(DISPLAY_VT + 0xCCU)
+#define TR_display_DrawSysWallPaper TRAP(DISPLAY_VT + 0xD0U)
+#define TR_display_DrawBorderText TRAP(DISPLAY_VT + 0xD4U)
+#define TR_display_PushAndSetAlphaLayer TRAP(DISPLAY_VT + 0xD8U)
+#define TR_display_PopAndRestoreAlphaLayer TRAP(DISPLAY_VT + 0xDCU)
+#define TR_display_RotateScreen TRAP(DISPLAY_VT + 0xE0U)
+
+/* ---- ZMAEE IBitmap 原生虚表（g_aee_bitmap_vtbl @ .data:0x63DF4）----
+ * +0x0C/0x14/0x18 是 sub_25F78/sub_25F84/sub_25FF8（未知），接 stub。 */
+#define TR_bitmap_AddRef TRAP(BITMAP_VT + 0x00U)
+#define TR_bitmap_Release TRAP(BITMAP_VT + 0x04U)
+#define TR_bitmap_SetTransColor TRAP(BITMAP_VT + 0x08U)
+#define TR_bitmap_sub_25F78 TRAP(BITMAP_VT + 0x0CU)
+#define TR_bitmap_GetInfo TRAP(BITMAP_VT + 0x10U)
+#define TR_bitmap_sub_25F84 TRAP(BITMAP_VT + 0x14U)
+#define TR_bitmap_sub_25FF8 TRAP(BITMAP_VT + 0x18U)
 
 //
 #define TR_init_callback                                                       \
