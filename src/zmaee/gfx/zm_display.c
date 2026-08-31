@@ -4,6 +4,7 @@
 #include "../../event.h"
 #include "../../log/log.h"
 #include "../../tool/uc_helper.h"
+#include "../runtime/timer/zm_timer.h" /* zm_timer_poll：到期定时器检查 */
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
@@ -318,6 +319,8 @@ bool zm_display_event_loop(void (*on_click)(uint32_t x, uint32_t y),
     }
     if (timeout_ms != 0 && SDL_GetTicks() - start >= timeout_ms)
       return false; /* 超时 → 模拟结束 */
+    if (zm_timer_poll(SDL_GetTicks()))
+      return true; /* 定时器回调已挂上跳板 → 让模拟器执行 cb */
     SDL_Delay(16);
   }
 }

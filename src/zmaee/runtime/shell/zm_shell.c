@@ -113,6 +113,8 @@ uint32_t zm_shell_GetTickCount(uc_engine *uc) {
   return zm_root_get_tick(uc); /* SDL_GetTicks */
 }
 
+/* 定时器（+0x3C/+0x40/+0x44 及派发 sub_34394）已拆至 ../timer/zm_timer.c */
+
 /* +0x58 LoadDLL（RE sub_35230）：stub，返回 DLL_OBJ */
 uint32_t zm_shell_LoadDLL(uc_engine *uc, uint32_t name_ptr, uint32_t name_len,
                           uint32_t out_ptr) {
