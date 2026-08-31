@@ -3,7 +3,8 @@
 #include "./log/log.h"
 #include "./tool/uc_helper.h"
 #include "./ulibc/ulibc.h"
-#include "./zmaee/fs/zm_fs.h"
+#include "./zmaee/fs/zm_file_mgr.h"
+#include "./zmaee/fs/zm_file.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
