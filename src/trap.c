@@ -365,9 +365,13 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_file_seek:
     ret = zm_file_seek(uc, r0, r1, r2);
     break;
-  case TR_file_size:
-    ret = zm_file_size(uc, r0);
-    break; /* FILE_VT[0x24] file.size */
+  case TR_file_tell:
+    /*
+     * FILE_VT[0x24] = ZMAEE_IFile_Tell（逆向实测），返回当前读写位置。
+     * 取文件总大小的惯用法是 Seek(0,SEEK_END) 后调用本槽位。
+     */
+    ret = zm_file_tell(uc, r0);
+    break;
   /* ---- audio / ap ---- */
   case TR_audio_stop:
     ret = zm_audio_stop(uc);

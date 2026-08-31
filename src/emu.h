@@ -101,12 +101,34 @@
 #define TR_gfx_drawRect TRAP(GFX_VT + 0x6CU)
 #define TR_gfx_fillRect2 TRAP(GFX_VT + 0x70U)
 // fs
-
+/*
+ * IFile 虚表（逆向实测：gAEEFileVtbl @ .data:00064010，函数指针均 +1 表示 Thumb）
+ *
+ *   +0x00  ZMAEE_IFile_AddRef
+ *   +0x04  ZMAEE_IFile_Release   ← 本模拟器的 file.close
+ *   +0x08  ZMAEE_IFile_Read      ← 本模拟器的 file.read
+ *   +0x0C  ZMAEE_IFile_Write     （未接线）
+ *   +0x10  ZMAEE_IFile_Readable  （未接线）
+ *   +0x14  ZMAEE_IFile_Writeable （未接线）
+ *   +0x18  ZMAEE_IFile_Cancel    （未接线）
+ *   +0x1C  ZMAEE_IFile_Flush     （未接线）
+ *   +0x20  ZMAEE_IFile_Seek      ← 本模拟器的 file.seek
+ *   +0x24  ZMAEE_IFile_Tell      ← 本模拟器的 file.tell
+ *
+ * 关键点：表里**没有** GetSize/Size 槽位。取文件大小的惯用法只能是
+ *   Seek(0, SEEK_END) 然后 Tell()（此时位置恰好等于总大小）。
+ * 因此 +0x24 必须实现为 Tell（返回当前读写位置）。
+ * 之前实现成"返回总大小"是错的 —— 只在"先 seek 到末尾"这一种调用序列下
+ * 碰巧正确，在任意位置调用会给出错误结果。
+ *
+ * 注：seek 的参数序（whence/offset 谁在前）尚无 applet 覆盖验证，
+ * 保持现状未改动；若后续有 applet 用到 seek，需用 RE 数据核对。
+ */
 #define TR_fileMgr_open_file TRAP(FileMgr_VT + 0x08U)
-#define TR_file_close TRAP(FILE_VT + 0x04U)
+#define TR_file_close TRAP(FILE_VT + 0x04U) /* Release */
 #define TR_file_read TRAP(FILE_VT + 0x08U)
 #define TR_file_seek TRAP(FILE_VT + 0x20U)
-#define TR_file_size TRAP(FILE_VT + 0x24U) /* FILE[0x24]：返回文件总大小 */
+#define TR_file_tell TRAP(FILE_VT + 0x24U) /* Tell：返回当前读写位置 */
 // audio
 
 #define TR_audio_stop TRAP(AUDIO_VT + 0x14U)
