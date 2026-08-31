@@ -71,8 +71,8 @@ int zm_emu_build_vtables() {
   // root
   err = uc_write32(g_uc, ROOT, TR_root_getShell);
 
-  // runtime
-  err = uc_write32(g_uc, SHELL, RT_VT);
+  // shell（root.getShell 返回；SHELL 对象 → SHELL_VT = g_aee_shell_vtbl）
+  err = uc_write32(g_uc, SHELL, SHELL_VT);
 
   /* FileMgr_VT[0x30]：enumFile — sub_82584 枚举 app_list 下文件 */
   // err = uc_write32(g_uc, FileMgr_VT + 0x30, TR_fileMgr_enum);
@@ -85,13 +85,18 @@ int zm_emu_build_vtables() {
   err = uc_write32(g_uc, AUDIO, AUDIO_VT);
   err = uc_write32(g_uc, AP, AP_VT);
 
-  /* ---- 新增 runtime 服务对象 SVC04 / SVC09 ---- */
-  err = uc_write32(g_uc, SVC04, SVC04_VT);
+  /* ---- IShell.CreateInstance 返回的服务对象 ----
+   * NETMGR=0x1000004(INetMgr)、TAPI=0x1000009(ITAPI)。
+   * 注意：SVC09/TAPI 此前漏写对象→虚表指针，applet 拿到后调方法会
+   * 读到垃圾函数指针，现已补上。 */
+  err = uc_write32(g_uc, NETMGR, NETMGR_VT);
+  err = uc_write32(g_uc, TAPI, TAPI_VT);
 
   /* ---- CBK 回调对象（sub_84E04 返回，vt[+8] 会被 applet 覆写为 sub_82FF8）
    * ---- */
   err = uc_write32(g_uc, CBK_OBJ, CBK_OBJ_VT);
-  // err = uc_write32(g_uc, CBK_OBJ_VT + 0x08, TR_cbk_default);
+  /* vt[+8] 预写默认实现：applet 随后会覆写；覆写前若被调则走 stub 不崩 */
+  err = uc_write32(g_uc, CBK_OBJ_VT + 0x08, TR_cbk_default);
 
   /* ---- stub DLL 对象（loadDLL 返回） ---- */
   err = uc_write32(g_uc, DLL_OBJ, DLL_OBJ_VT);

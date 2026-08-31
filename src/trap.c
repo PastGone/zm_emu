@@ -16,7 +16,7 @@
 #include "./zmaee/fs/zm_file_mgr.h"
 #include "./zmaee/fs/zm_file.h"
 #include "./zmaee/gfx/zm_display.h" /* ZMAEE IDisplay / IBitmap + SDL 渲染后端 */
-#include "./zmaee/runtime/zm_runtime.h"
+#include "./zmaee/runtime/shell/zm_shell.h"
 #include "event.h"
 #include "zmaee/inc/zm_event_code.h"
 
@@ -320,12 +320,108 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
      */
     ret = zm_strchr(uc, r0, r1);
     break;
-  /* ---- runtime ---- */
-  case TR_rt_queryInterface:
-    ret = zm_rt_queryInterface(uc, r1, r2);
+  /* ---- shell（g_aee_shell_vtbl @ .data:0x64440，34 槽）---- */
+  case TR_shell_AddRef:
+    ret = zm_shell_AddRef(uc, r0);
     break;
-  case TR_rt_getSystemInfo:
-    ret = zm_rt_getSystemInfo(uc, r1);
+  case TR_shell_Release:
+    ret = zm_shell_Release(uc, r0);
+    break;
+  case TR_shell_CreateInstance: /* 旧称 queryInterface：按服务号返回对象 */
+    ret = zm_shell_CreateInstance(uc, r1, r2);
+    break;
+  case TR_shell_x0C: /* RE sub_34DE4，未知 */
+    ret = zm_shell_stub(uc, 0x0C, r0, r1, r2, r3);
+    break;
+  case TR_shell_GetDeviceInfo: /* 旧称 getSystemInfo：写设备信息 */
+    ret = zm_shell_GetDeviceInfo(uc, r1);
+    break;
+  case TR_shell_GetRootDir:
+    ret = zm_shell_stub(uc, 0x14, r0, r1, r2, r3);
+    break;
+  case TR_shell_SetWorkDir:
+    ret = zm_shell_stub(uc, 0x18, r0, r1, r2, r3);
+    break;
+  case TR_shell_GetWorkDir:
+    ret = zm_shell_stub(uc, 0x1C, r0, r1, r2, r3);
+    break;
+  case TR_shell_StartApplet:
+    ret = zm_shell_stub(uc, 0x20, r0, r1, r2, r3);
+    break;
+  case TR_shell_x24: /* RE sub_3482C，未知 */
+    ret = zm_shell_stub(uc, 0x24, r0, r1, r2, r3);
+    break;
+  case TR_shell_CanStartApplet:
+    ret = zm_shell_stub(uc, 0x28, r0, r1, r2, r3);
+    break;
+  case TR_shell_ActiveApplet:
+    ret = zm_shell_stub(uc, 0x2C, r0, r1, r2, r3);
+    break;
+  case TR_shell_GetApplet:
+    ret = zm_shell_stub(uc, 0x30, r0, r1, r2, r3);
+    break;
+  case TR_shell_x34: /* RE sub_34764，未知 */
+    ret = zm_shell_stub(uc, 0x34, r0, r1, r2, r3);
+    break;
+  case TR_shell_x38: /* RE sub_34C1C，未知 */
+    ret = zm_shell_stub(uc, 0x38, r0, r1, r2, r3);
+    break;
+  case TR_shell_SetTimer: /* 定时器待事件循环扩展，先 stub */
+    ret = zm_shell_stub(uc, 0x3C, r0, r1, r2, r3);
+    break;
+  case TR_shell_CancelTimer:
+    ret = zm_shell_stub(uc, 0x40, r0, r1, r2, r3);
+    break;
+  case TR_shell_CancelOwnerTimer:
+    ret = zm_shell_stub(uc, 0x44, r0, r1, r2, r3);
+    break;
+  case TR_shell_GetTickCount: /* 单调毫秒时间戳 */
+    ret = zm_shell_GetTickCount(uc);
+    break;
+  case TR_shell_OpenWapBrowser:
+    ret = zm_shell_stub(uc, 0x4C, r0, r1, r2, r3);
+    break;
+  case TR_shell_x50: /* RE sub_3474C，未知 */
+    ret = zm_shell_stub(uc, 0x50, r0, r1, r2, r3);
+    break;
+  case TR_shell_SetEndKeyMask:
+    ret = zm_shell_stub(uc, 0x54, r0, r1, r2, r3);
+    break;
+  case TR_shell_LoadDLL: /* RE sub_35230：applet 实测传 dll 名 */
+    ret = zm_shell_LoadDLL(uc, r1, r2, r3);
+    break;
+  case TR_shell_UnloadDLL: /* RE sub_346D8 */
+    ret = zm_shell_UnloadDLL(uc, r1);
+    break;
+  case TR_shell_GetAppletMask:
+    ret = zm_shell_stub(uc, 0x60, r0, r1, r2, r3);
+    break;
+  case TR_shell_SetAppletMask:
+    ret = zm_shell_stub(uc, 0x64, r0, r1, r2, r3);
+    break;
+  case TR_shell_IsLoadGlobalLibrary:
+    ret = zm_shell_stub(uc, 0x68, r0, r1, r2, r3);
+    break;
+  case TR_shell_LoadGlobalLibrary:
+    ret = zm_shell_stub(uc, 0x6C, r0, r1, r2, r3);
+    break;
+  case TR_shell_FreeGlobalLibrary:
+    ret = zm_shell_stub(uc, 0x70, r0, r1, r2, r3);
+    break;
+  case TR_shell_IsGlobalLibraryUseStaticMem:
+    ret = zm_shell_stub(uc, 0x74, r0, r1, r2, r3);
+    break;
+  case TR_shell_LoadLibraryExt: /* 旧称 loadDLL2：载 zmsys006.dll */
+    ret = zm_shell_LoadLibraryExt(uc, r0, r1, r2, r3);
+    break;
+  case TR_shell_EntryApplet:
+    ret = zm_shell_stub(uc, 0x7C, r0, r1, r2, r3);
+    break;
+  case TR_shell_GetAppDir:
+    ret = zm_shell_stub(uc, 0x80, r0, r1, r2, r3);
+    break;
+  case TR_shell_GetSupportHall:
+    ret = zm_shell_stub(uc, 0x84, r0, r1, r2, r3);
     break;
   /* ---- fs / file ---- */
   case TR_fileMgr_open_file:
@@ -561,33 +657,26 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_audio_get_status:
     ret = zm_audio_get_status(uc, r1, r2);
     break; /* AUDIO_VT[0x24] */
-    /* ---- 00000405.app：GFX vtable 缺失槽 ---- */
 
-  /* ---- 服务对象 / FS / RT / DLL / CBK ---- */
-  case TR_svc_release:
+  /* ---- 服务对象（IShell.CreateInstance 返回）/ FS / DLL / CBK ---- */
+  case TR_netmgr_release:
     ret = zm_svc_release(uc);
     break;
-  case TR_svc04_x1C:
-    ret = zm_svc04_x1C(uc, r0, r1, r2, r3);
+  case TR_netmgr_x1C:
+    ret = zm_netmgr_x1C(uc, r0, r1, r2, r3);
     break;
-  case TR_svc09_x2C:
-    ret = zm_svc09_x2C(uc, r0, r1, r2, r3);
+  case TR_tapi_release:
+    ret = zm_svc_release(uc);
     break;
-  case TR_svc09_x40:
-    ret = zm_svc09_x40(uc, r0, r1, r2, r3);
+  case TR_tapi_x2C:
+    ret = zm_tapi_x2C(uc, r0, r1, r2, r3);
+    break;
+  case TR_tapi_x40:
+    ret = zm_tapi_x40(uc, r0, r1, r2, r3);
     break;
   case TR_fs_release:
     ret = zm_fs_release(uc);
     break;
-  case TR_rt_loadDLL:
-    ret = zm_rt_loadDLL(uc, r1, r2, r3);
-    break;
-  case TR_rt_unloadDLL:
-    ret = zm_rt_unloadDLL(uc, r1);
-    break;
-  case TR_rt_loadDLL2:
-    ret = zm_rt_loadDLL2(uc, r0, r1, r2, r3);
-    break; /* RT_VT[0x78] */
   case TR_dll_init:
     ret = zm_dll_init(uc);
     break;
