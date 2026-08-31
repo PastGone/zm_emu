@@ -15,7 +15,7 @@
 #include "./zmaee/core/zm_str.h"
 #include "./zmaee/fs/zm_file_mgr.h"
 #include "./zmaee/fs/zm_file.h"
-#include "./zmaee/gfx/zm_gfx.h"
+#include "./zmaee/gfx/zm_display.h" /* ZMAEE IDisplay / IBitmap + SDL 渲染后端 */
 #include "./zmaee/runtime/zm_runtime.h"
 #include "event.h"
 #include "zmaee/inc/zm_event_code.h"
@@ -248,7 +248,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     const char *env = getenv("ZM_GFX_HOLD_MS");
     if (env && *env)
       hold_ms = (uint32_t)strtoul(env, NULL, 0);
-    if (!zm_gfx_event_loop(on_touch_click, hold_ms)) {
+    if (!zm_display_event_loop(on_touch_click, hold_ms)) {
       uc_emu_stop(uc);
     }
     return;
@@ -327,25 +327,6 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_rt_getSystemInfo:
     ret = zm_rt_getSystemInfo(uc, r1);
     break;
-  /* ---- gfx ---- */
-  case TR_gfx_clear:
-    ret = zm_gfx_clear(uc, r1);
-    break;
-  case TR_gfx_fillRect:
-    ret = zm_gfx_fillRect(uc, r1);
-    break;
-  case TR_gfx_commit:
-    ret = zm_gfx_commit(uc);
-    break;
-  case TR_gfx_drawText:
-    ret = zm_gfx_drawText(uc, r1, r2, r3, sp);
-    break;
-  case TR_gfx_drawRect:
-    ret = zm_gfx_drawRect(uc, r1, r2, r3, sp);
-    break;
-  case TR_gfx_fillRect2:
-    ret = zm_gfx_fillRect2(uc, r1, r2, r3, sp);
-    break;
   /* ---- fs / file ---- */
   case TR_fileMgr_open_file:
     log_debug("fs_open(r0=0x%X)", r0); // 此处的 r0 是 FileMgr的地址
@@ -372,6 +353,200 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
      * 取文件总大小的惯用法是 Seek(0,SEEK_END) 后调用本槽位。
      */
     ret = zm_file_tell(uc, r0);
+    break;
+  /* ---- ZMAEE IDisplay 原生虚表（g_aee_display_vtbl）---- */
+  case TR_display_AddRef:
+    ret = zm_display_AddRef(uc, r0);
+    break;
+  case TR_display_Release:
+    ret = zm_display_Release(uc, r0);
+    break;
+  case TR_display_GetMaxLayerCount:
+    ret = zm_display_GetMaxLayerCount(uc, r0);
+    break;
+  case TR_display_CreateLayer:
+    ret = zm_display_CreateLayer(uc, 0x0CU, r0, r1, r2, r3);
+    break;
+  case TR_display_CreateLayerExt:
+    ret = zm_display_CreateLayerExt(uc, 0x10U, r0, r1, r2, r3);
+    break;
+  case TR_display_FreeLayer:
+    ret = zm_display_FreeLayer(uc, r0, r1);
+    break;
+  case TR_display_x18: /* 实测被调（旧 GFX 路径），功能未知 */
+    ret = zm_display_stub(uc, 0x18, r0, r1, r2, r3);
+    break;
+  case TR_display_GetLayerInfo:
+    ret = zm_display_GetLayerInfo(uc, 0x1CU, r0, r1, r2, r3);
+    break;
+  case TR_display_clear: /* 实测：clear(color) */
+    ret = zm_display_clear(uc, r1);
+    break;
+  case TR_display_SetLayerPosition:
+    ret = zm_display_SetLayerPosition(uc, 0x24U, r0, r1, r2, r3);
+    break;
+  case TR_display_Update:
+    ret = zm_display_Update(uc, r0);
+    break;
+  case TR_display_fillRectR: /* 实测：fillRect(rect_ptr,...)，空实现疑似 invalidate */
+    ret = zm_display_fillRectR(uc, r1);
+    break;
+  case TR_display_GetActiveLayer:
+    ret = zm_display_GetActiveLayer(uc, r0);
+    break;
+  case TR_display_x34: /* 实测被调（旧 GFX 路径），功能未知 */
+    ret = zm_display_stub(uc, 0x34, r0, r1, r2, r3);
+    break;
+  case TR_display_UnlockScreen:
+    ret = zm_display_UnlockScreen(uc, r0);
+    break;
+  case TR_display_RegisterCustomFont:
+    ret = zm_display_RegisterCustomFont(uc, 0x3CU, r0, r1, r2, r3);
+    break;
+  case TR_display_commit: /* 实测：commit 提交帧缓冲 */
+    ret = zm_display_commit(uc);
+    break;
+  case TR_display_GetFontWidth:
+    ret = zm_display_GetFontWidth(uc, r0, r1);
+    break;
+  case TR_display_getWidth: /* 实测：返回屏幕宽度 */
+    ret = zm_display_getWidth(uc);
+    break;
+  case TR_display_measureChar: /* 实测：measureChar(disp, char_ptr, count, width_out, sp[metrics]) */
+    ret = zm_display_measureChar(uc, r0, r1, r2, r3);
+    break;
+  case TR_display_DrawText:
+    ret = zm_display_DrawText(uc, r1, r2, r3, sp);
+    break;
+  case TR_display_SetTransColor:
+    ret = zm_display_SetTransColor(uc, r0, r1);
+    break;
+  case TR_display_SetOpacity:
+    ret = zm_display_SetOpacity(uc, 0x58U, r0, r1, r2, r3);
+    break;
+  case TR_display_SetClipRect:
+    ret = zm_display_SetClipRect(uc, 0x5CU, r0, r1, r2, r3);
+    break;
+  case TR_display_GetClipRect:
+    ret = zm_display_GetClipRect(uc, 0x60U, r0, r1, r2, r3);
+    break;
+  case TR_display_SetPixel:
+    ret = zm_display_SetPixel(uc, 0x64U, r0, r1, r2, r3);
+    break;
+  case TR_display_DrawLine:
+    ret = zm_display_DrawLine(uc, 0x68U, r0, r1, r2, r3);
+    break;
+  case TR_display_DrawRect:
+    ret = zm_display_DrawRect(uc, r1, r2, r3, sp);
+    break;
+  case TR_display_FillRect:
+    ret = zm_display_FillRect(uc, r1, r2, r3, sp);
+    break;
+  case TR_display_DrawRoundRect:
+    ret = zm_display_DrawRoundRect(uc, 0x74U, r0, r1, r2, r3);
+    break;
+  case TR_display_DrawCircle:
+    ret = zm_display_DrawCircle(uc, 0x78U, r0, r1, r2, r3);
+    break;
+  case TR_display_FillCircle:
+    ret = zm_display_FillCircle(uc, 0x7CU, r0, r1, r2, r3);
+    break;
+  case TR_display_DrawArc:
+    ret = zm_display_DrawArc(uc, 0x80U, r0, r1, r2, r3);
+    break;
+  case TR_display_FillArc:
+    ret = zm_display_FillArc(uc, 0x84U, r0, r1, r2, r3);
+    break;
+  case TR_display_FillGradientRect:
+    ret = zm_display_FillGradientRect(uc, 0x88U, r0, r1, r2, r3);
+    break;
+  case TR_display_AlphaBlendRect:
+    ret = zm_display_AlphaBlendRect(uc, 0x8CU, r0, r1, r2, r3);
+    break;
+  case TR_display_DrawImage:
+    ret = zm_display_DrawImage(uc, 0x90U, r0, r1, r2, r3);
+    break;
+  case TR_display_DrawBitmap:
+    ret = zm_display_DrawBitmap(uc, 0x94U, r0, r1, r2, r3);
+    break;
+  case TR_display_DrawBitmapEx:
+    ret = zm_display_DrawBitmapEx(uc, 0x98U, r0, r1, r2, r3);
+    break;
+  case TR_display_DrawBitmapFrame:
+    ret = zm_display_DrawBitmapFrame(uc, 0x9CU, r0, r1, r2, r3);
+    break;
+  case TR_display_CreateBitmap:
+    ret = zm_display_CreateBitmap(uc, r0, r1, r2, r3);
+    break;
+  case TR_display_LoadBitmap:
+    ret = zm_display_LoadBitmap(uc, r0, r1);
+    break;
+  case TR_display_CreateImage:
+    ret = zm_display_CreateImage(uc, 0xA8U, r0, r1, r2, r3);
+    break;
+  case TR_display_BitBlt:
+    ret = zm_display_BitBlt(uc, 0xACU, r0, r1, r2, r3);
+    break;
+  case TR_display_Flatten:
+    ret = zm_display_Flatten(uc, 0xB0U, r0, r1, r2, r3);
+    break;
+  case TR_display_StretchBlt:
+    ret = zm_display_StretchBlt(uc, 0xB4U, r0, r1, r2, r3);
+    break;
+  case TR_display_DrawAntialiasingLine:
+    ret = zm_display_DrawAntialiasingLine(uc, 0xB8U, r0, r1, r2, r3);
+    break;
+  case TR_display_DrawWLine:
+    ret = zm_display_DrawWLine(uc, 0xBCU, r0, r1, r2, r3);
+    break;
+  case TR_display_GetDMLayerHdlr:
+    ret = zm_display_GetDMLayerHdlr(uc, 0xC0U, r0, r1, r2, r3);
+    break;
+  case TR_display_RelevanceLayer:
+    ret = zm_display_RelevanceLayer(uc, 0xC4U, r0, r1, r2, r3);
+    break;
+  case TR_display_Refresh:
+    ret = zm_display_Refresh(uc);
+    break;
+  case TR_display_DrawImageExt:
+    ret = zm_display_DrawImageExt(uc, 0xCCU, r0, r1, r2, r3);
+    break;
+  case TR_display_DrawSysWallPaper:
+    ret = zm_display_DrawSysWallPaper(uc, 0xD0U, r0, r1, r2, r3);
+    break;
+  case TR_display_DrawBorderText:
+    ret = zm_display_DrawBorderText(uc, 0xD4U, r0, r1, r2, r3);
+    break;
+  case TR_display_PushAndSetAlphaLayer:
+    ret = zm_display_PushAndSetAlphaLayer(uc, 0xD8U, r0, r1, r2, r3);
+    break;
+  case TR_display_PopAndRestoreAlphaLayer:
+    ret = zm_display_PopAndRestoreAlphaLayer(uc, 0xDCU, r0, r1, r2, r3);
+    break;
+  case TR_display_RotateScreen:
+    ret = zm_display_RotateScreen(uc, 0xE0U, r0, r1, r2, r3);
+    break;
+  /* ---- ZMAEE IBitmap 原生虚表（g_aee_bitmap_vtbl）---- */
+  case TR_bitmap_AddRef:
+    ret = zm_bitmap_AddRef(uc, r0);
+    break;
+  case TR_bitmap_Release:
+    ret = zm_bitmap_Release(uc, r0);
+    break;
+  case TR_bitmap_SetTransColor:
+    ret = zm_bitmap_SetTransColor(uc, r0, r1);
+    break;
+  case TR_bitmap_sub_25F78:
+    ret = zm_bitmap_sub_25F78(uc, 0x0CU, r0, r1, r2, r3);
+    break;
+  case TR_bitmap_GetInfo:
+    ret = zm_bitmap_GetInfo(uc, r0, r1);
+    break;
+  case TR_bitmap_sub_25F84:
+    ret = zm_bitmap_sub_25F84(uc, 0x14U, r0, r1, r2, r3);
+    break;
+  case TR_bitmap_sub_25FF8:
+    ret = zm_bitmap_sub_25FF8(uc, 0x18U, r0, r1, r2, r3);
     break;
   /* ---- audio / ap ---- */
   case TR_audio_stop:

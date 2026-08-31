@@ -74,9 +74,6 @@ int zm_emu_build_vtables() {
   // runtime
   err = uc_write32(g_uc, SHELL, RT_VT);
 
-  // gfx
-  err = uc_write32(g_uc, GFX, GFX_VT);
-
   /* FileMgr_VT[0x30]：enumFile — sub_82584 枚举 app_list 下文件 */
   // err = uc_write32(g_uc, FileMgr_VT + 0x30, TR_fileMgr_enum);
 
@@ -98,6 +95,10 @@ int zm_emu_build_vtables() {
 
   /* ---- stub DLL 对象（loadDLL 返回） ---- */
   err = uc_write32(g_uc, DLL_OBJ, DLL_OBJ_VT);
+
+  /* ---- ZMAEE IDisplay / IBitmap 原生虚表（全局单例 + bitmap 模板）---- */
+  err = uc_write32(g_uc, DISPLAY, DISPLAY_VT);
+  err = uc_write32(g_uc, BITMAP, BITMAP_VT);
 
   /* INIT_CTX 显式零填充（Unicorn 默认零，此处双保险，确保 r3+0x100 可读） */
   {

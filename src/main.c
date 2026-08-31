@@ -8,7 +8,7 @@
 #include "./zmaee/audio/zm_audio.h"
 #include "./zmaee/fs/zm_file_mgr.h"
 #include "./zmaee/fs/zm_file.h"
-#include "./zmaee/gfx/zm_gfx.h"
+#include "./zmaee/gfx/zm_display.h"
 //
 #include <SDL2/SDL.h>
 #include <capstone/capstone.h>
@@ -96,8 +96,8 @@ int main() {
 
   // 初始化 SDL2 渲染与音频
 
-  if (zm_gfx_init() != 0) {
-    log_warn("zm_gfx_init 失败，渲染将不可用（继续运行）");
+  if (zm_display_init() != 0) {
+    log_warn("zm_display_init 失败，渲染将不可用（继续运行）");
   }
   if (zm_audio_init() != 0) {
     log_warn("zm_audio_init 失败，音频将不可用（继续运行）");
@@ -165,7 +165,7 @@ int main() {
 
   // 释放资源
   zm_audio_shutdown();
-  zm_gfx_shutdown();
+  zm_display_shutdown();
   zm_fs_shutdown();
   cs_close(&g_cs_handle);
   uc_close(g_uc);
