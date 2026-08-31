@@ -2,7 +2,8 @@
 #include "../event.h"
 #include "../log/log.h"
 #include "../zmaee/audio/zm_audio.h"
-#include "../zmaee/fs/zm_fs.h"
+#include "../zmaee/fs/zm_file_mgr.h"
+#include "../zmaee/fs/zm_file.h"
 #include "../zmaee/gfx/zm_gfx.h"
 
 #include <stdio.h>

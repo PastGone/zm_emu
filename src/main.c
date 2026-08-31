@@ -6,7 +6,8 @@
 #include "./test/test_diag.h"
 #include "./tool/odds.h"
 #include "./zmaee/audio/zm_audio.h"
-#include "./zmaee/fs/zm_fs.h"
+#include "./zmaee/fs/zm_file_mgr.h"
+#include "./zmaee/fs/zm_file.h"
 #include "./zmaee/gfx/zm_gfx.h"
 //
 #include <SDL2/SDL.h>
