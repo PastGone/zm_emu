@@ -37,7 +37,7 @@
 /* -------------------- shim 虚表地址定义 -------------------- */
 #define ROOT (SHIM_BASE + 0x000U)
 #define SHELL (SHIM_BASE + 0x100U)
-#define RT_VT (SHIM_BASE + 0x180U)
+#define SHELL_VT (SHIM_BASE + 0x180U) /* g_aee_shell_vtbl @ .data:0x64440，34 槽 */
 #define FileMgr (SHIM_BASE + 0x300U)
 #define FileMgr_VT (SHIM_BASE + 0x380U)
 #define FILE1 (SHIM_BASE + 0x400U)
@@ -52,10 +52,12 @@
 
 /* 00000405.app 新增 shim 对象地址（0x800 起，与 DUMMY_BUF@0x750 不冲突） */
 #define INIT_CTX (SHIM_BASE + 0x800U) /* 256B 零填充：init 事件 r3 上下文 */
-#define SVC04 (SHIM_BASE + 0x900U)    /* 0x1000004 服务对象 */
-#define SVC04_VT (SHIM_BASE + 0x910U)
-#define SVC09 (SHIM_BASE + 0x940U) /* 0x1000009 服务对象 */
-#define SVC09_VT (SHIM_BASE + 0x950U)
+/* IShell.CreateInstance 返回的服务对象（RE 实测 CLSID：16777220=INetMgr、
+ * 16777225=ITAPI；旧名 SVC04/SVC09 为误命名） */
+#define NETMGR (SHIM_BASE + 0x900U) /* 0x1000004 INetMgr 服务对象 */
+#define NETMGR_VT (SHIM_BASE + 0x910U)
+#define TAPI (SHIM_BASE + 0x940U) /* 0x1000009 ITAPI 服务对象 */
+#define TAPI_VT (SHIM_BASE + 0x950U)
 #define CBK_OBJ (SHIM_BASE + 0x980U)    /* sub_84E04 返回的回调对象 */
 #define CBK_OBJ_VT (SHIM_BASE + 0x990U) /* 可写：applet 覆写 vt[+8] */
 #define DLL_OBJ (SHIM_BASE + 0x9C0U)    /* loadDLL 返回的 stub DLL 对象 */
@@ -99,8 +101,45 @@
 
 
 */
-#define TR_rt_queryInterface TRAP(RT_VT + 0x08U)
-#define TR_rt_getSystemInfo TRAP(RT_VT + 0x10U)
+/* ---- ZMAEE IShell 原生虚表（g_aee_shell_vtbl @ .data:0x64440，34 槽）----
+ * +0x08 CreateInstance（旧称 queryInterface）、+0x10 GetDeviceInfo（旧称
+ * getSystemInfo）、+0x58 LoadDLL（RE sub_35230）、+0x5C UnloadDLL
+ * （RE sub_346D8）、+0x78 LoadLibraryExt（旧称 loadDLL2）此前已按行为
+ * 实现；其余槽接 zm_shell_stub，保证不落 "非法的外部调用"。 */
+#define TR_shell_AddRef TRAP(SHELL_VT + 0x00U)
+#define TR_shell_Release TRAP(SHELL_VT + 0x04U)
+#define TR_shell_CreateInstance TRAP(SHELL_VT + 0x08U)
+#define TR_shell_x0C TRAP(SHELL_VT + 0x0CU) /* RE sub_34DE4，未知 */
+#define TR_shell_GetDeviceInfo TRAP(SHELL_VT + 0x10U)
+#define TR_shell_GetRootDir TRAP(SHELL_VT + 0x14U)
+#define TR_shell_SetWorkDir TRAP(SHELL_VT + 0x18U)
+#define TR_shell_GetWorkDir TRAP(SHELL_VT + 0x1CU)
+#define TR_shell_StartApplet TRAP(SHELL_VT + 0x20U)
+#define TR_shell_x24 TRAP(SHELL_VT + 0x24U) /* RE sub_3482C，未知 */
+#define TR_shell_CanStartApplet TRAP(SHELL_VT + 0x28U)
+#define TR_shell_ActiveApplet TRAP(SHELL_VT + 0x2CU)
+#define TR_shell_GetApplet TRAP(SHELL_VT + 0x30U)
+#define TR_shell_x34 TRAP(SHELL_VT + 0x34U) /* RE sub_34764，未知 */
+#define TR_shell_x38 TRAP(SHELL_VT + 0x38U) /* RE sub_34C1C，未知 */
+#define TR_shell_SetTimer TRAP(SHELL_VT + 0x3CU)
+#define TR_shell_CancelTimer TRAP(SHELL_VT + 0x40U)
+#define TR_shell_CancelOwnerTimer TRAP(SHELL_VT + 0x44U)
+#define TR_shell_GetTickCount TRAP(SHELL_VT + 0x48U)
+#define TR_shell_OpenWapBrowser TRAP(SHELL_VT + 0x4CU)
+#define TR_shell_x50 TRAP(SHELL_VT + 0x50U) /* RE sub_3474C，未知 */
+#define TR_shell_SetEndKeyMask TRAP(SHELL_VT + 0x54U)
+#define TR_shell_LoadDLL TRAP(SHELL_VT + 0x58U)
+#define TR_shell_UnloadDLL TRAP(SHELL_VT + 0x5CU)
+#define TR_shell_GetAppletMask TRAP(SHELL_VT + 0x60U)
+#define TR_shell_SetAppletMask TRAP(SHELL_VT + 0x64U)
+#define TR_shell_IsLoadGlobalLibrary TRAP(SHELL_VT + 0x68U)
+#define TR_shell_LoadGlobalLibrary TRAP(SHELL_VT + 0x6CU)
+#define TR_shell_FreeGlobalLibrary TRAP(SHELL_VT + 0x70U)
+#define TR_shell_IsGlobalLibraryUseStaticMem TRAP(SHELL_VT + 0x74U)
+#define TR_shell_LoadLibraryExt TRAP(SHELL_VT + 0x78U)
+#define TR_shell_EntryApplet TRAP(SHELL_VT + 0x7CU)
+#define TR_shell_GetAppDir TRAP(SHELL_VT + 0x80U)
+#define TR_shell_GetSupportHall TRAP(SHELL_VT + 0x84U)
 // fs
 /*
  * IFile 虚表（逆向实测：gAEEFileVtbl @ .data:00064010，函数指针均 +1 表示 Thumb）
@@ -157,20 +196,21 @@
 #define TR_root_create_cbk TRAP(ROOT + 0x154U)
 #define TR_root_x16C TRAP(ROOT + 0x16CU)
 
-/* 服务对象 / FS / RT / DLL / CBK trap（索引 46..57） */
-#define TR_svc_release TRAP(ROOT + 0x2EU)
-#define TR_svc04_x1C TRAP(ROOT + 0x2FU)
-#define TR_svc09_x2C TRAP(ROOT + 0x30U)
-#define TR_svc09_x40 TRAP(ROOT + 0x31U)
-#define TR_fs_release TRAP(ROOT + 0x32U)
-#define TR_fs_chdir TRAP(ROOT + 0x33U)
-#define TR_rt_loadDLL TRAP(ROOT + 0x34U)
-#define TR_rt_unloadDLL TRAP(ROOT + 0x35U)
-#define TR_rt_loadDLL2 TRAP(ROOT + 0x3BU) /* RT_VT[0x78] */
-#define TR_dll_init TRAP(ROOT + 0x3CU)
-#define TR_dll_config TRAP(ROOT + 0x3DU)
-#define TR_dll_entry TRAP(ROOT + 0x3EU)
-#define TR_cbk_default TRAP(ROOT + 0x3FU)
+/* ---- 服务对象 / FS / DLL / CBK trap ----
+ * 旧「索引 46..57」方案把这些宏挂在 ROOT+0x2E..0x3F 的伪造索引上，与
+ * SHIM↔TRAMP 对射派发不符：applet 经对象虚表发起的真实调用落在各自
+ * VT 槽位，伪造索引永不命中（与已修的 loadDLL 同病）。现按真实槽位挂接。
+ * fs_chdir 的真实槽位未知，暂缺（其 case 已删，待 RE 后补）。 */
+#define TR_netmgr_release TRAP(NETMGR_VT + 0x04U)
+#define TR_netmgr_x1C TRAP(NETMGR_VT + 0x1CU)
+#define TR_tapi_release TRAP(TAPI_VT + 0x04U)
+#define TR_tapi_x2C TRAP(TAPI_VT + 0x2CU)
+#define TR_tapi_x40 TRAP(TAPI_VT + 0x40U)
+#define TR_fs_release TRAP(FileMgr_VT + 0x04U)
+#define TR_dll_init TRAP(DLL_OBJ_VT + 0x08U)
+#define TR_dll_config TRAP(DLL_OBJ_VT + 0x0CU)
+#define TR_dll_entry TRAP(DLL_OBJ_VT + 0x10U)
+#define TR_cbk_default TRAP(CBK_OBJ_VT + 0x08U)
 
 /* ---- ZMAEE IDisplay 原生虚表（g_aee_display_vtbl @ .data:0x63E10）----
  * 偏移严格按逆向贴出的表。带「实测」的槽为旧 GFX 路径验证过的行为
