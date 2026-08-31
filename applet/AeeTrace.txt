@@ -1,0 +1,692 @@
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+00:16:45:778--zmold_fill_rect
+00:16:45:857--zmold_fill_rect
+00:16:45:866--zmold_fill_rect
+00:16:45:948--zmold_fill_rect
+00:16:45:958--zmold_fill_rect
+00:16:47:198--zmold_fill_rect
+00:16:47:213--zmold_fill_rect
+00:16:47:250--zmold_fill_rect
+00:16:47:254--zmold_fill_rect
+00:16:47:785--zmold_fill_rect
+00:16:47:808--zmold_fill_rect
+00:16:47:822--zmold_fill_rect
+00:16:47:826--zmold_fill_rect
+00:16:47:863--zmold_fill_rect
+00:16:47:878--zmold_fill_rect
+00:16:47:887--zmold_fill_rect
+00:16:47:896--zmold_fill_rect
+00:16:47:919--zmold_fill_rect
+00:16:47:933--zmold_fill_rect
+00:16:47:947--zmold_fill_rect
+00:16:47:952--zmold_fill_rect
+00:16:47:970--zmold_fill_rect
+00:16:47:979--zmold_fill_rect
+00:16:48:094--zmold_fill_rect
+00:16:48:108--zmold_fill_rect
+00:16:48:117--zmold_fill_rect
+00:16:48:126--zmold_fill_rect
+00:16:48:145--zmold_fill_rect
+00:16:48:154--zmold_fill_rect
+00:16:48:168--zmold_fill_rect
+00:16:48:177--zmold_fill_rect
+00:16:48:195--zmold_fill_rect
+00:16:48:200--zmold_fill_rect
+00:16:48:315--zmold_fill_rect
+00:16:48:329--zmold_fill_rect
+00:16:48:342--zmold_fill_rect
+00:16:48:347--zmold_fill_rect
+00:16:48:366--zmold_fill_rect
+00:16:48:384--zmold_fill_rect
+00:16:48:394--zmold_fill_rect
+00:16:48:403--zmold_fill_rect
+00:16:48:416--zmold_fill_rect
+00:16:48:426--zmold_fill_rect
+00:16:48:546--zmold_fill_rect
+00:16:48:560--zmold_fill_rect
+00:16:48:569--zmold_fill_rect
+00:16:48:579--zmold_fill_rect
+00:16:48:597--zmold_fill_rect
+00:16:48:606--zmold_fill_rect
+00:16:48:620--zmold_fill_rect
+00:16:48:629--zmold_fill_rect
+00:16:48:648--zmold_fill_rect
+00:16:48:653--zmold_fill_rect
+00:16:48:768--zmold_fill_rect
+00:16:48:782--zmold_fill_rect
+00:16:48:796--zmold_fill_rect
+00:16:48:801--zmold_fill_rect
+00:16:48:819--zmold_fill_rect
+00:16:48:833--zmold_fill_rect
+00:16:48:842--zmold_fill_rect
+00:16:48:851--zmold_fill_rect
+00:16:48:865--zmold_fill_rect
+00:16:48:878--zmold_fill_rect
+00:16:48:994--zmold_fill_rect
+00:16:49:007--zmold_fill_rect
+00:16:49:017--zmold_fill_rect
+00:16:49:026--zmold_fill_rect
+00:16:49:044--zmold_fill_rect
+00:16:49:054--zmold_fill_rect
+00:16:49:068--zmold_fill_rect
+00:16:49:077--zmold_fill_rect
+00:16:49:091--zmold_fill_rect
+00:16:49:100--zmold_fill_rect
+00:16:49:219--zmold_fill_rect
+00:16:49:233--zmold_fill_rect
+00:16:49:243--zmold_fill_rect
+00:16:49:252--zmold_fill_rect
+00:16:49:270--zmold_fill_rect
+00:16:49:284--zmold_fill_rect
+00:16:49:293--zmold_fill_rect
+00:16:49:302--zmold_fill_rect
+00:16:49:321--zmold_fill_rect
+00:16:49:326--zmold_fill_rect
+00:16:49:441--zmold_fill_rect
+00:16:49:455--zmold_fill_rect
+00:16:49:468--zmold_fill_rect
+00:16:49:473--zmold_fill_rect
+00:16:49:491--zmold_fill_rect
+00:16:49:510--zmold_fill_rect
+00:16:49:519--zmold_fill_rect
+00:16:49:528--zmold_fill_rect
+00:16:49:547--zmold_fill_rect
+00:16:49:556--zmold_fill_rect
+00:16:49:671--zmold_fill_rect
+00:16:49:686--zmold_fill_rect
+00:16:49:699--zmold_fill_rect
+00:16:49:704--zmold_fill_rect
+00:16:49:723--zmold_fill_rect
+00:16:49:736--zmold_fill_rect
+00:16:49:745--zmold_fill_rect
+00:16:49:755--zmold_fill_rect
+00:16:49:769--zmold_fill_rect
+00:16:49:778--zmold_fill_rect
+00:16:49:898--zmold_fill_rect
+00:16:49:912--zmold_fill_rect
+00:16:49:921--zmold_fill_rect
+00:16:49:930--zmold_fill_rect
+00:16:50:318--zmold_fill_rect
+00:16:50:414--zmold_fill_rect
+00:16:50:442--zmold_fill_rect
+00:16:50:451--zmold_fill_rect
+00:16:50:474--zmold_fill_rect
+00:16:50:483--zmold_fill_rect
+00:16:50:599--zmold_fill_rect
+00:16:50:618--zmold_fill_rect
+00:16:50:631--zmold_fill_rect
+00:16:50:636--zmold_fill_rect
+00:16:50:658--zmold_fill_rect
+00:16:50:672--zmold_fill_rect
+00:16:50:686--zmold_fill_rect
+00:16:50:691--zmold_fill_rect
+00:16:50:714--zmold_fill_rect
+00:16:50:723--zmold_fill_rect
+00:16:50:843--zmold_fill_rect
+00:16:50:862--zmold_fill_rect
+00:16:50:885--zmold_fill_rect
+00:16:50:894--zmold_fill_rect
+00:16:50:917--zmold_fill_rect
+00:16:50:936--zmold_fill_rect
+00:16:50:950--zmold_fill_rect
+00:16:50:959--zmold_fill_rect
+00:16:50:982--zmold_fill_rect
+00:16:50:996--zmold_fill_rect
+00:16:51:121--zmold_fill_rect
+00:16:51:139--zmold_fill_rect
+00:16:51:153--zmold_fill_rect
+00:16:51:167--zmold_fill_rect
+00:16:51:190--zmold_fill_rect
+00:16:51:204--zmold_fill_rect
+00:16:51:222--zmold_fill_rect
+00:16:51:231--zmold_fill_rect
+00:16:51:273--zmold_fill_rect
+00:16:51:291--zmold_fill_rect
+00:16:51:337--zmold_fill_rect
+00:16:51:356--zmold_fill_rect
+00:16:51:369--zmold_fill_rect
+00:16:51:374--zmold_fill_rect
+00:16:51:406--zmold_fill_rect
+00:16:51:430--zmold_fill_rect
+00:16:51:443--zmold_fill_rect
+00:16:51:448--zmold_fill_rect
+00:16:51:495--zmold_fill_rect
+00:16:51:572--zmold_fill_rect
+00:16:51:595--zmold_fill_rect
+00:16:51:637--zmold_fill_rect
+00:16:51:646--zmold_fill_rect
+00:04:40:948--SmsFilterPluginApp_HandleEvent begin.....
+00:04:41:138--SmsFilterPluginApp_HandleEvent begin.....
+00:04:41:147--SmsFilterPluginApp_HandleEvent00:04:41:157--SmsFilter content00000000:04:41:161--【流量福利大放送】尊敬的重庆移动客户，本月赠送您2GB全国通用流量月包，现已到账。如您本月使用流量超过500MB，2019年2月18号前将继续赠送2GB。赠送的流量限本机本月内在国内(不含港澳00:04:41:170--ZMAEE_SmsFilter_Handler: content = 【流量福利大放送】尊敬的重庆移动客户，本月赠送您2GB全国通用流量月包，现已到账。如您本月使用流量超过500MB，2019年2月18号前将继续赠送2GB。赠送的流量限本机本月内在国内(不含港澳00:04:41:184--ZMAEE_SmsFilter_Handler: phone = 1008600:04:41:189--ZMAEE_SmsFilter_Handler: type = 100:04:41:198--ZMAEE_SmsFilter_Handler: keyword = 未经&授权&未成功&10086&开通00:04:41:207--ZMAEE_SmsFilter_Handler: reply = 00:04:41:216--pos_key = 未经00:04:41:221--goto check_return 1111
+00:04:41:231--ZMAEE_SmsFilter_Handler: content = 【流量福利大放送】尊敬的重庆移动客户，本月赠送您2GB全国通用流量月包，现已到账。如您本月使用流量超过500MB，2019年2月18号前将继续赠送2GB。赠送的流量限本机本月内在国内(不含港澳00:04:41:240--ZMAEE_SmsFilter_Handler: phone = 1008600:04:41:249--ZMAEE_SmsFilter_Handler: type = 100:04:41:253--ZMAEE_SmsFilter_Handler: keyword = 用户&关闭&开关&无法定制00:04:41:263--ZMAEE_SmsFilter_Handler: reply = 00:04:41:272--pos_key = 用户00:04:41:281--goto check_return 1111
+00:04:41:290--ZMAEE_SmsFilter_Check: keyword = E:\zmaee\000005f9\000005f9.sms00:04:41:300--ZMAEE_SmsFilter_Check: pFile is null00:04:41:309--notify handle: ret = -100:04:41:323--SmsFilter begin.....00:04:41:327--SmsFilter phone00:04:41:337--1008600:04:41:346--SmsFilter content00:04:41:351--25000:04:41:360--【流量福利大放送】尊敬的重庆移动客户，本月赠送您2GB全国通用流量月包，现已到账。如您本月使用流量超过500MB，2019年2月18号前将继续赠送2GB。赠送的流量限本机本月内在国内(不含港澳00:04:41:373--pThis->m_reply00:04:41:378--00:04:41:387--pThis->m_reply_phone00:04:41:396--00:04:41:405--ZMAEE_SmsFilter_Check ret=00:04:41:415---100:04:41:419--ZMAEE_SmsFilter_Check nType=00:04:41:428--000:04:41:437--ZMAEE_SmsFilter_Check nAction=00:04:41:442--000:04:41:452--SmsFilterPluginApp_HandleEvent begin.....
+00:08:30:649--SmsFilterPluginApp_HandleEvent begin.....
+00:08:30:662--SmsFilterPluginApp_HandleEvent begin.....
+00:08:30:809--SmsFilterPluginApp_HandleEvent00:08:30:902--SmsFilter content00000000:08:30:911--尊敬的客户：【流量提醒】截至1月15日20时53分，您本月通用流量剩余2GB，专属流量剩余0MB。★关注重庆移动微信公众号进入自助00:08:30:920--ZMAEE_SmsFilter_Handler: content = 尊敬的客户：【流量提醒】截至1月15日20时53分，您本月通用流量剩余2GB，专属流量剩余0MB。★关注重庆移动微信公众号进入自助00:08:30:930--ZMAEE_SmsFilter_Handler: phone = 1008600:08:30:939--ZMAEE_SmsFilter_Handler: type = 100:08:30:948--ZMAEE_SmsFilter_Handler: keyword = 未经&授权&未成功&10086&开通00:08:30:953--ZMAEE_SmsFilter_Handler: reply = 00:08:30:962--pos_key = 未经00:08:30:972--goto check_return 1111
+00:08:30:981--ZMAEE_SmsFilter_Handler: content = 尊敬的客户：【流量提醒】截至1月15日20时53分，您本月通用流量剩余2GB，专属流量剩余0MB。★关注重庆移动微信公众号进入自助00:08:30:990--ZMAEE_SmsFilter_Handler: phone = 1008600:08:30:999--ZMAEE_SmsFilter_Handler: type = 100:08:31:009--ZMAEE_SmsFilter_Handler: keyword = 用户&关闭&开关&无法定制00:08:31:013--ZMAEE_SmsFilter_Handler: reply = 00:08:31:022--pos_key = 用户00:08:31:031--goto check_return 1111
+00:08:31:041--ZMAEE_SmsFilter_Check: keyword = E:\zmaee\000005f9\000005f9.sms00:08:31:055--ZMAEE_SmsFilter_Check: pFile is null00:08:31:064--notify handle: ret = -100:08:31:077--SmsFilter begin.....00:08:31:086--SmsFilter phone00:08:31:095--1008600:08:31:104--SmsFilter content00:08:31:109--16900:08:31:119--尊敬的客户：【流量提醒】截至1月15日20时53分，您本月通用流量剩余2GB，专属流量剩余0MB。★关注重庆移动微信公众号进入自助00:08:31:128--pThis->m_reply00:08:31:137--00:08:31:146--pThis->m_reply_phone00:08:31:156--00:08:31:165--ZMAEE_SmsFilter_Check ret=00:08:31:169---100:08:31:178--ZMAEE_SmsFilter_Check nType=00:08:31:188--000:08:31:193--ZMAEE_SmsFilter_Check nAction=00:08:31:202--000:08:31:211--SmsFilterPluginApp_HandleEvent begin.....
+00:17:56:287--zmold_fill_rect
+00:17:56:450--zmold_fill_rect
+00:17:56:536--zmold_fill_rect
+00:17:56:619--zmold_fill_rect
+00:17:56:629--zmold_fill_rect
+11:57:08:697--SmsFilterPluginApp_HandleEvent begin.....
+11:57:08:799--SmsFilterPluginApp_HandleEvent begin.....
+11:57:08:891--SmsFilterPluginApp_HandleEvent11:57:08:895--SmsFilter content00000011:57:08:904--【中国移动　和包支付】尊敬的客户：您于2019年01月18日成功充话费10元。11:57:08:918--ZMAEE_SmsFilter_Handler: content = 【中国移动　和包支付】尊敬的客户：您于2019年01月18日成功充话费10元。11:57:08:923--ZMAEE_SmsFilter_Handler: phone = 1065888811:57:08:932--ZMAEE_SmsFilter_Handler: type = 111:57:08:941--ZMAEE_SmsFilter_Handler: keyword = 未经&授权&未成功&10086&开通11:57:08:950--ZMAEE_SmsFilter_Handler: reply = 11:57:08:955--pos_key = 未经11:57:08:965--goto check_return 1111
+11:57:08:974--ZMAEE_SmsFilter_Handler: content = 【中国移动　和包支付】尊敬的客户：您于2019年01月18日成功充话费10元。11:57:08:983--ZMAEE_SmsFilter_Handler: phone = 1065888811:57:08:992--ZMAEE_SmsFilter_Handler: type = 111:57:08:997--ZMAEE_SmsFilter_Handler: keyword = 用户&关闭&开关&无法定制11:57:09:006--ZMAEE_SmsFilter_Handler: reply = 11:57:09:015--pos_key = 用户11:57:09:020--goto check_return 1111
+11:57:09:029--ZMAEE_SmsFilter_Check: keyword = E:\zmaee\000005f9\000005f9.sms11:57:09:039--ZMAEE_SmsFilter_Check: pFile is null11:57:09:052--notify handle: ret = -111:57:09:061--SmsFilter begin.....11:57:09:071--SmsFilter phone11:57:09:076--1065888811:57:09:085--SmsFilter content11:57:09:094--9711:57:09:098--【中国移动　和包支付】尊敬的客户：您于2019年01月18日成功充话费10元。11:57:09:108--pThis->m_reply11:57:09:117--11:57:09:126--pThis->m_reply_phone11:57:09:135--11:57:09:140--ZMAEE_SmsFilter_Check ret=11:57:09:149---111:57:09:158--ZMAEE_SmsFilter_Check nType=11:57:09:167--011:57:09:176--ZMAEE_SmsFilter_Check nAction=11:57:09:287--011:57:09:375--SmsFilterPluginApp_HandleEvent begin.....
+11:57:17:475--SmsFilterPluginApp_HandleEvent begin.....
+11:57:17:490--SmsFilterPluginApp_HandleEvent begin.....
+11:57:17:494--SmsFilterPluginApp_HandleEvent11:57:17:503--SmsFilter content00000011:57:17:512--[交费提醒]您本次通过中国移动商城成功交费10.00元，截至目前余额为-7.46元，积分为：541。短信回复102可查余额，余额以您实11:57:17:517--ZMAEE_SmsFilter_Handler: content = [交费提醒]您本次通过中国移动商城成功交费10.00元，截至目前余额为-7.46元，积分为：541。短信回复102可查余额，余额以您实11:57:17:531--ZMAEE_SmsFilter_Handler: phone = 1008611:57:17:536--ZMAEE_SmsFilter_Handler: type = 111:57:17:545--ZMAEE_SmsFilter_Handler: keyword = 未经&授权&未成功&10086&开通11:57:17:559--ZMAEE_SmsFilter_Handler: reply = 11:57:17:568--pos_key = 未经11:57:17:577--goto check_return 1111
+11:57:17:582--ZMAEE_SmsFilter_Handler: content = [交费提醒]您本次通过中国移动商城成功交费10.00元，截至目前余额为-7.46元，积分为：541。短信回复102可查余额，余额以您实11:57:17:596--ZMAEE_SmsFilter_Handler: phone = 1008611:57:17:601--ZMAEE_SmsFilter_Handler: type = 111:57:17:610--ZMAEE_SmsFilter_Handler: keyword = 用户&关闭&开关&无法定制11:57:17:614--ZMAEE_SmsFilter_Handler: reply = 11:57:17:623--pos_key = 用户11:57:17:633--goto check_return 1111
+11:57:17:642--ZMAEE_SmsFilter_Check: keyword = E:\zmaee\000005f9\000005f9.sms11:57:17:656--ZMAEE_SmsFilter_Check: pFile is null11:57:17:665--notify handle: ret = -111:57:17:679--SmsFilter begin.....11:57:17:684--SmsFilter phone11:57:17:693--1008611:57:17:702--SmsFilter content11:57:17:711--16511:57:17:715--[交费提醒]您本次通过中国移动商城成功交费10.00元，截至目前余额为-7.46元，积分为：541。短信回复102可查余额，余额以您实11:57:17:724--pThis->m_reply11:57:17:733--11:57:17:743--pThis->m_reply_phone11:57:17:752--11:57:17:757--ZMAEE_SmsFilter_Check ret=11:57:17:766---111:57:17:775--ZMAEE_SmsFilter_Check nType=11:57:17:785--011:57:17:789--ZMAEE_SmsFilter_Check nAction=11:57:17:798--011:57:17:807--SmsFilterPluginApp_HandleEvent begin.....
+12:03:13:958--SmsFilterPluginApp_HandleEvent begin.....
+12:03:13:968--SmsFilterPluginApp_HandleEvent begin.....
+12:03:13:977--SmsFilterPluginApp_HandleEvent12:03:13:986--SmsFilter content00000012:03:13:995--[欠费提醒]截至18日09点13分，您目前的欠费合计7.46元，现已启用重庆移动为您提供的20元话费透支额度，本月超过此额度将会停机，12:03:14:005--ZMAEE_SmsFilter_Handler: content = [欠费提醒]截至18日09点13分，您目前的欠费合计7.46元，现已启用重庆移动为您提供的20元话费透支额度，本月超过此额度将会停机，12:03:14:014--ZMAEE_SmsFilter_Handler: phone = 1008612:03:14:018--ZMAEE_SmsFilter_Handler: type = 112:03:14:027--ZMAEE_SmsFilter_Handler: keyword = 未经&授权&未成功&10086&开通12:03:14:037--ZMAEE_SmsFilter_Handler: reply = 12:03:14:046--pos_key = 未经12:03:14:055--goto check_return 1111
+12:03:14:064--ZMAEE_SmsFilter_Handler: content = [欠费提醒]截至18日09点13分，您目前的欠费合计7.46元，现已启用重庆移动为您提供的20元话费透支额度，本月超过此额度将会停机，12:03:14:069--ZMAEE_SmsFilter_Handler: phone = 1008612:03:14:078--ZMAEE_SmsFilter_Handler: type = 112:03:14:087--ZMAEE_SmsFilter_Handler: keyword = 用户&关闭&开关&无法定制12:03:14:096--ZMAEE_SmsFilter_Handler: reply = 12:03:14:100--pos_key = 用户12:03:14:110--goto check_return 1111
+12:03:14:115--ZMAEE_SmsFilter_Check: keyword = E:\zmaee\000005f9\000005f9.sms12:03:14:128--ZMAEE_SmsFilter_Check: pFile is null12:03:14:133--notify handle: ret = -112:03:14:147--SmsFilter begin.....12:03:14:156--SmsFilter phone12:03:14:165--1008612:03:14:170--SmsFilter content12:03:14:179--17312:03:14:189--[欠费提醒]截至18日09点13分，您目前的欠费合计7.46元，现已启用重庆移动为您提供的20元话费透支额度，本月超过此额度将会停机，12:03:14:300--pThis->m_reply12:03:14:386--12:03:14:395--pThis->m_reply_phone12:03:14:405--12:03:14:414--ZMAEE_SmsFilter_Check ret=12:03:14:419---112:03:14:428--ZMAEE_SmsFilter_Check nType=12:03:14:437--012:03:14:447--ZMAEE_SmsFilter_Check nAction=12:03:14:456--012:03:14:465--SmsFilterPluginApp_HandleEvent begin.....
+15:05:20:658--SmsFilterPluginApp_HandleEvent begin.....
+15:05:20:667--SmsFilterPluginApp_HandleEvent begin.....
+15:05:20:672--SmsFilterPluginApp_HandleEvent15:05:20:681--SmsFilter content00000015:05:20:685--尊敬的客户：【流量提醒】截至1月18日12时21分，您本月通用流量剩余1GB195.94MB，专属流量剩余0MB。★关注重庆移动微15:05:20:694--ZMAEE_SmsFilter_Handler: content = 尊敬的客户：【流量提醒】截至1月18日12时21分，您本月通用流量剩余1GB195.94MB，专属流量剩余0MB。★关注重庆移动微15:05:20:699--ZMAEE_SmsFilter_Handler: phone = 1008615:05:20:717--ZMAEE_SmsFilter_Handler: type = 115:05:20:722--ZMAEE_SmsFilter_Handler: keyword = 未经&授权&未成功&10086&开通15:05:20:727--ZMAEE_SmsFilter_Handler: reply = 15:05:20:736--pos_key = 未经15:05:20:740--goto check_return 1111
+15:05:20:745--ZMAEE_SmsFilter_Handler: content = 尊敬的客户：【流量提醒】截至1月18日12时21分，您本月通用流量剩余1GB195.94MB，专属流量剩余0MB。★关注重庆移动微15:05:20:754--ZMAEE_SmsFilter_Handler: phone = 1008615:05:20:759--ZMAEE_SmsFilter_Handler: type = 115:05:20:773--ZMAEE_SmsFilter_Handler: keyword = 用户&关闭&开关&无法定制15:05:20:777--ZMAEE_SmsFilter_Handler: reply = 15:05:20:782--pos_key = 用户15:05:20:786--goto check_return 1111
+15:05:20:796--ZMAEE_SmsFilter_Check: keyword = E:\zmaee\000005f9\000005f9.sms15:05:20:801--ZMAEE_SmsFilter_Check: pFile is null15:05:20:810--notify handle: ret = -115:05:20:819--SmsFilter begin.....15:05:20:823--SmsFilter phone15:05:20:833--1008615:05:20:838--SmsFilter content15:05:20:847--15315:05:20:851--尊敬的客户：【流量提醒】截至1月18日12时21分，您本月通用流量剩余1GB195.94MB，专属流量剩余0MB。★关注重庆移动微15:05:20:860--pThis->m_reply15:05:20:865--15:05:20:870--pThis->m_reply_phone15:05:20:879--15:05:20:884--ZMAEE_SmsFilter_Check ret=15:05:20:888---115:05:20:897--ZMAEE_SmsFilter_Check nType=15:05:20:902--015:05:20:907--ZMAEE_SmsFilter_Check nAction=15:05:20:912--015:05:20:921--SmsFilterPluginApp_HandleEvent begin.....
+01:09:10:569--SmsFilterPluginApp_HandleEvent begin.....
+01:09:10:749--SmsFilterPluginApp_HandleEvent begin.....
+01:09:10:758--SmsFilterPluginApp_HandleEvent01:09:10:767--SmsFilter content00000001:09:10:772--尊敬的客户：【流量提醒】截至1月21日19时2分，您本月通用流量剩余2.45MB，专属流量剩余29GB369.79MB。★关注重庆01:09:10:781--ZMAEE_SmsFilter_Handler: content = 尊敬的客户：【流量提醒】截至1月21日19时2分，您本月通用流量剩余2.45MB，专属流量剩余29GB369.79MB。★关注重庆01:09:10:795--ZMAEE_SmsFilter_Handler: phone = 1008601:09:10:804--ZMAEE_SmsFilter_Handler: type = 101:09:10:814--ZMAEE_SmsFilter_Handler: keyword = 未经&授权&未成功&10086&开通01:09:10:818--ZMAEE_SmsFilter_Handler: reply = 01:09:10:827--pos_key = 未经01:09:10:836--goto check_return 1111
+01:09:10:846--ZMAEE_SmsFilter_Handler: content = 尊敬的客户：【流量提醒】截至1月21日19时2分，您本月通用流量剩余2.45MB，专属流量剩余29GB369.79MB。★关注重庆01:09:10:855--ZMAEE_SmsFilter_Handler: phone = 1008601:09:10:864--ZMAEE_SmsFilter_Handler: type = 101:09:10:873--ZMAEE_SmsFilter_Handler: keyword = 用户&关闭&开关&无法定制01:09:10:883--ZMAEE_SmsFilter_Handler: reply = 01:09:10:888--pos_key = 用户01:09:10:897--goto check_return 1111
+01:09:10:906--ZMAEE_SmsFilter_Check: keyword = E:\zmaee\000005f9\000005f9.sms01:09:10:915--ZMAEE_SmsFilter_Check: pFile is null01:09:10:924--notify handle: ret = -101:09:10:937--SmsFilter begin.....01:09:10:942--SmsFilter phone01:09:11:141--1008601:09:11:146--SmsFilter content01:09:11:155--14701:09:11:164--尊敬的客户：【流量提醒】截至1月21日19时2分，您本月通用流量剩余2.45MB，专属流量剩余29GB369.79MB。★关注重庆01:09:11:168--pThis->m_reply01:09:11:178--01:09:11:187--pThis->m_reply_phone01:09:11:196--01:09:11:205--ZMAEE_SmsFilter_Check ret=01:09:11:210---101:09:11:220--ZMAEE_SmsFilter_Check nType=01:09:11:229--001:09:11:238--ZMAEE_SmsFilter_Check nAction=01:09:11:242--001:09:11:257--SmsFilterPluginApp_HandleEvent begin.....
+01:29:15:171--SmsFilterPluginApp_HandleEvent begin.....
+01:29:15:185--SmsFilterPluginApp_HandleEvent begin.....
+01:29:15:189--SmsFilterPluginApp_HandleEvent01:29:15:203--SmsFilter content00000001:29:15:208--【潼南高新区管委会】就业不用去远方，家乡就是好地方！潼南高新区49家本地企业联合举办2019年春节集中招聘会，提供普工、技工、会计、管01:29:15:217--ZMAEE_SmsFilter_Handler: content = 【潼南高新区管委会】就业不用去远方，家乡就是好地方！潼南高新区49家本地企业联合举办2019年春节集中招聘会，提供普工、技工、会计、管01:29:15:226--ZMAEE_SmsFilter_Handler: phone = 10657300716801:29:15:240--ZMAEE_SmsFilter_Handler: type = 101:29:15:244--ZMAEE_SmsFilter_Handler: keyword = 未经&授权&未成功&10086&开通01:29:15:253--ZMAEE_SmsFilter_Handler: reply = 01:29:15:262--pos_key = 未经01:29:15:271--goto check_return 1111
+01:29:15:276--ZMAEE_SmsFilter_Handler: content = 【潼南高新区管委会】就业不用去远方，家乡就是好地方！潼南高新区49家本地企业联合举办2019年春节集中招聘会，提供普工、技工、会计、管01:29:15:290--ZMAEE_SmsFilter_Handler: phone = 10657300716801:29:15:299--ZMAEE_SmsFilter_Handler: type = 101:29:15:304--ZMAEE_SmsFilter_Handler: keyword = 用户&关闭&开关&无法定制01:29:15:313--ZMAEE_SmsFilter_Handler: reply = 01:29:15:323--pos_key = 用户01:29:15:332--goto check_return 1111
+01:29:15:341--ZMAEE_SmsFilter_Check: keyword = E:\zmaee\000005f9\000005f9.sms01:29:15:350--ZMAEE_SmsFilter_Check: pFile is null01:29:15:360--notify handle: ret = -101:29:15:373--SmsFilter begin.....01:29:15:378--SmsFilter phone01:29:15:387--10657300716801:29:15:397--SmsFilter content01:29:15:406--18901:29:15:410--【潼南高新区管委会】就业不用去远方，家乡就是好地方！潼南高新区49家本地企业联合举办2019年春节集中招聘会，提供普工、技工、会计、管01:29:15:419--pThis->m_reply01:29:15:429--01:29:15:438--pThis->m_reply_phone01:29:15:447--01:29:15:456--ZMAEE_SmsFilter_Check ret=01:29:15:461---101:29:15:471--ZMAEE_SmsFilter_Check nType=01:29:15:480--001:29:15:484--ZMAEE_SmsFilter_Check nAction=01:29:15:493--001:29:15:498--SmsFilterPluginApp_HandleEvent begin.....
+11:28:00:180--zmold_fill_rect
+11:28:00:337--zmold_fill_rect
+11:28:00:433--zmold_fill_rect
+11:28:00:512--zmold_fill_rect
+11:28:00:521--zmold_fill_rect
+12:44:38:173--SmsFilterPluginApp_HandleEvent begin.....
+12:44:38:436--SmsFilterPluginApp_HandleEvent begin.....
+12:44:38:529--SmsFilterPluginApp_HandleEvent12:44:38:543--SmsFilter content00000012:44:38:552--尊敬的客户：【流量提醒】截至1月24日10时0分，您本月通用流量剩余642.51MB，专属流量剩余0MB。★关注重庆移动微信公众号进入自助服务或点击http://wap.cq.10086.cn/z/llcx  实时查看流量使用详情12:44:38:561--ZMAEE_SmsFilter_Handler: content = 尊敬的客户：【流量提醒】截至1月24日10时0分，您本月通用流量剩余642.51MB，专属流量剩余0MB。★关注重庆移动微信公众号进入自助服务或点击http://wap.cq.10086.cn/z/llcx  实时查看流量使用详情12:44:38:575--ZMAEE_SmsFilter_Handler: phone = 1008612:44:38:580--ZMAEE_SmsFilter_Handler: type = 112:44:38:589--ZMAEE_SmsFilter_Handler: keyword = 未经&授权&未成功&10086&开通12:44:38:598--ZMAEE_SmsFilter_Handler: reply = 12:44:38:607--pos_key = 未经12:44:38:616--goto check_return 1111
+12:44:38:625--ZMAEE_SmsFilter_Handler: content = 尊敬的客户：【流量提醒】截至1月24日10时0分，您本月通用流量剩余642.51MB，专属流量剩余0MB。★关注重庆移动微信公众号进入自助服务或点击http://wap.cq.10086.cn/z/llcx  实时查看流量使用详情12:44:38:810--ZMAEE_SmsFilter_Handler: phone = 1008612:44:38:819--ZMAEE_SmsFilter_Handler: type = 112:44:38:829--ZMAEE_SmsFilter_Handler: keyword = 用户&关闭&开关&无法定制12:44:38:838--ZMAEE_SmsFilter_Handler: reply = 12:44:38:847--pos_key = 用户12:44:38:856--goto check_return 1111
+12:44:38:866--ZMAEE_SmsFilter_Check: keyword = E:\zmaee\000005f9\000005f9.sms12:44:38:875--ZMAEE_SmsFilter_Check: pFile is null12:44:38:884--notify handle: ret = -112:44:38:893--SmsFilter begin.....12:44:38:902--SmsFilter phone12:44:38:911--1008612:44:38:915--SmsFilter content12:44:38:920--24912:44:38:929--尊敬的客户：【流量提醒】截至1月24日10时0分，您本月通用流量剩余642.51MB，专属流量剩余0MB。★关注重庆移动微信公众号进入自助服务或点击http://wap.cq.10086.cn/z/llcx  实时查看流量使用详情12:44:38:939--pThis->m_reply12:44:38:948--12:44:38:952--pThis->m_reply_phone12:44:38:961--12:44:38:971--ZMAEE_SmsFilter_Check ret=12:44:38:976---112:44:38:985--ZMAEE_SmsFilter_Check nType=12:44:38:989--012:44:38:998--ZMAEE_SmsFilter_Check nAction=12:44:39:008--012:44:39:017--SmsFilterPluginApp_HandleEvent begin.....
+00:09:59:749--SmsFilterPluginApp_HandleEvent begin.....
+00:09:59:934--SmsFilterPluginApp_HandleEvent begin.....
+00:10:00:105--SmsFilterPluginApp_HandleEvent00:10:00:110--SmsFilter content00000000:10:00:119--【送10GB流量】 新年新气象，重庆移动送流量！微信新关注并绑定“重庆移动”公众号，回复“新年”即可免费领取10GB流量新年礼！【中国移动】【用心服务，为您10分满意】00:10:00:128--ZMAEE_SmsFilter_Handler: content = 【送10GB流量】 新年新气象，重庆移动送流量！微信新关注并绑定“重庆移动”公众号，回复“新年”即可免费领取10GB流量新年礼！【中国移动】【用心服务，为您10分满意】00:10:00:138--ZMAEE_SmsFilter_Handler: phone = 1008600:10:00:147--ZMAEE_SmsFilter_Handler: type = 100:10:00:156--ZMAEE_SmsFilter_Handler: keyword = 未经&授权&未成功&10086&开通00:10:00:160--ZMAEE_SmsFilter_Handler: reply = 00:10:00:170--pos_key = 未经00:10:00:179--goto check_return 1111
+00:10:00:188--ZMAEE_SmsFilter_Handler: content = 【送10GB流量】 新年新气象，重庆移动送流量！微信新关注并绑定“重庆移动”公众号，回复“新年”即可免费领取10GB流量新年礼！【中国移动】【用心服务，为您10分满意】00:10:00:197--ZMAEE_SmsFilter_Handler: phone = 1008600:10:00:207--ZMAEE_SmsFilter_Handler: type = 100:10:00:216--ZMAEE_SmsFilter_Handler: keyword = 用户&关闭&开关&无法定制00:10:00:225--ZMAEE_SmsFilter_Handler: reply = 00:10:00:234--pos_key = 用户00:10:00:239--goto check_return 1111
+00:10:00:252--ZMAEE_SmsFilter_Check: keyword = E:\zmaee\000005f9\000005f9.sms00:10:00:266--ZMAEE_SmsFilter_Check: pFile is null00:10:00:275--notify handle: ret = -100:10:00:285--SmsFilter begin.....00:10:00:298--SmsFilter phone00:10:00:307--1008600:10:00:317--SmsFilter content00:10:00:326--23000:10:00:335--【送10GB流量】 新年新气象，重庆移动送流量！微信新关注并绑定“重庆移动”公众号，回复“新年”即可免费领取10GB流量新年礼！【中国移动】【用心服务，为您10分满意】00:10:00:344--pThis->m_reply00:10:00:354--00:10:00:359--pThis->m_reply_phone00:10:00:368--00:10:00:377--ZMAEE_SmsFilter_Check ret=00:10:00:386---100:10:00:396--ZMAEE_SmsFilter_Check nType=00:10:00:400--000:10:00:409--ZMAEE_SmsFilter_Check nAction=00:10:00:418--000:10:00:428--SmsFilterPluginApp_HandleEvent begin.....
+13:03:07:566--SmsFilterPluginApp_HandleEvent begin.....
+13:03:07:746--SmsFilterPluginApp_HandleEvent begin.....
+13:03:07:916--SmsFilterPluginApp_HandleEvent13:03:08:004--SmsFilter content00000013:03:08:013--警方提示：春运期间，为确保群众出行的安全畅通，全市公安交管部门将全天候、全覆盖严管、严查、严处酒驾、“三超一疲劳”、客车凌晨2时至5时违规运行、非法运输危化品和违法运输烟13:03:08:193--ZMAEE_SmsFilter_Handler: content = 警方提示：春运期间，为确保群众出行的安全畅通，全市公安交管部门将全天候、全覆盖严管、严查、严处酒驾、“三超一疲劳”、客车凌晨2时至5时违规运行、非法运输危化品和违法运输烟13:03:08:206--ZMAEE_SmsFilter_Handler: phone = 1008613:03:08:211--ZMAEE_SmsFilter_Handler: type = 113:03:08:220--ZMAEE_SmsFilter_Handler: keyword = 未经&授权&未成功&10086&开通13:03:08:230--ZMAEE_SmsFilter_Handler: reply = 13:03:08:234--pos_key = 未经13:03:08:243--goto check_return 1111
+13:03:08:252--ZMAEE_SmsFilter_Handler: content = 警方提示：春运期间，为确保群众出行的安全畅通，全市公安交管部门将全天候、全覆盖严管、严查、严处酒驾、“三超一疲劳”、客车凌晨2时至5时违规运行、非法运输危化品和违法运输烟13:03:08:262--ZMAEE_SmsFilter_Handler: phone = 1008613:03:08:354--ZMAEE_SmsFilter_Handler: type = 113:03:08:447--ZMAEE_SmsFilter_Handler: keyword = 用户&关闭&开关&无法定制13:03:08:456--ZMAEE_SmsFilter_Handler: reply = 13:03:08:465--pos_key = 用户13:03:08:474--goto check_return 1111
+13:03:08:484--ZMAEE_SmsFilter_Check: keyword = E:\zmaee\000005f9\000005f9.sms13:03:08:493--ZMAEE_SmsFilter_Check: pFile is null13:03:08:502--notify handle: ret = -113:03:08:516--SmsFilter begin.....13:03:08:530--SmsFilter phone13:03:08:539--1008613:03:08:548--SmsFilter content13:03:08:558--25113:03:08:563--警方提示：春运期间，为确保群众出行的安全畅通，全市公安交管部门将全天候、全覆盖严管、严查、严处酒驾、“三超一疲劳”、客车凌晨2时至5时违规运行、非法运输危化品和违法运输烟13:03:08:572--pThis->m_reply13:03:08:581--13:03:08:590--pThis->m_reply_phone13:03:08:600--13:03:08:604--ZMAEE_SmsFilter_Check ret=13:03:08:618---113:03:08:627--ZMAEE_SmsFilter_Check nType=13:03:08:632--013:03:08:641--ZMAEE_SmsFilter_Check nAction=13:03:08:650--013:03:08:659--SmsFilterPluginApp_HandleEvent begin.....
+36:08:18:383--SmsFilterPluginApp_HandleEvent begin.....
+36:08:18:498--SmsFilterPluginApp_HandleEvent begin.....
+36:08:18:586--SmsFilterPluginApp_HandleEvent36:08:18:596--SmsFilter content00000036:08:18:600--尊敬的客户：【流量提醒】截至1月26日9时48分，您本月通用流量剩余530.45MB，专属流量剩余0MB。★关注重庆移动微信公众号36:08:18:609--ZMAEE_SmsFilter_Handler: content = 尊敬的客户：【流量提醒】截至1月26日9时48分，您本月通用流量剩余530.45MB，专属流量剩余0MB。★关注重庆移动微信公众号36:08:18:614--ZMAEE_SmsFilter_Handler: phone = 1008636:08:18:623--ZMAEE_SmsFilter_Handler: type = 136:08:18:628--ZMAEE_SmsFilter_Handler: keyword = 未经&授权&未成功&10086&开通36:08:18:637--ZMAEE_SmsFilter_Handler: reply = 36:08:18:646--pos_key = 未经36:08:18:651--goto check_return 1111
+36:08:18:655--ZMAEE_SmsFilter_Handler: content = 尊敬的客户：【流量提醒】截至1月26日9时48分，您本月通用流量剩余530.45MB，专属流量剩余0MB。★关注重庆移动微信公众号36:08:18:660--ZMAEE_SmsFilter_Handler: phone = 1008636:08:18:669--ZMAEE_SmsFilter_Handler: type = 136:08:18:673--ZMAEE_SmsFilter_Handler: keyword = 用户&关闭&开关&无法定制36:08:18:682--ZMAEE_SmsFilter_Handler: reply = 36:08:18:687--pos_key = 用户36:08:18:691--goto check_return 1111
+36:08:18:701--ZMAEE_SmsFilter_Check: keyword = E:\zmaee\000005f9\000005f9.sms36:08:18:710--ZMAEE_SmsFilter_Check: pFile is null36:08:18:715--notify handle: ret = -136:08:18:728--SmsFilter begin.....36:08:18:738--SmsFilter phone36:08:18:743--1008636:08:18:752--SmsFilter content36:08:18:756--16136:08:18:761--尊敬的客户：【流量提醒】截至1月26日9时48分，您本月通用流量剩余530.45MB，专属流量剩余0MB。★关注重庆移动微信公众号36:08:18:941--pThis->m_reply36:08:18:946--36:08:18:955--pThis->m_reply_phone36:08:18:960--36:08:18:969--ZMAEE_SmsFilter_Check ret=36:08:18:978---136:08:18:983--ZMAEE_SmsFilter_Check nType=36:08:18:987--036:08:18:997--ZMAEE_SmsFilter_Check nAction=36:08:19:002--036:08:19:011--SmsFilterPluginApp_HandleEvent begin.....
+00:01:40:482--zmold_fill_rect
+00:01:40:533--zmold_fill_rect
+00:01:40:612--zmold_fill_rect
+00:01:40:616--zmold_fill_rect
+00:02:43:743--zmold_fill_rect
+00:02:43:795--zmold_fill_rect
+00:02:43:836--zmold_fill_rect
+00:02:43:845--zmold_fill_rect
+Trace:ValidateApplet: T E:\zmaee\00000001\00000001.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1
+Trace:PreEntryCheck: nClsId = 1
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\000004ff\000004ff.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1279
+Trace:PreEntryCheck: nClsId = 1279
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\00000506\00000506.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1286
+Trace:PreEntryCheck: nClsId = 1286
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\00000409\00000409.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1033
+Trace:PreEntryCheck: nClsId = 1033
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\000004ff\000004ff.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1279
+Trace:PreEntryCheck: nClsId = 1279
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\000004ff\000004ff.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1279
+Trace:PreEntryCheck: nClsId = 1279
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\00000440\00000440.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1088
+Trace:PreEntryCheck: nClsId = 1088
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = -3
+Trace:ValidateApplet: T E:\zmaee\00000440\00000440.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1088
+Trace:PreEntryCheck: nClsId = 1088
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = -3
+Trace:ValidateApplet: T E:\zmaee\000004ff\000004ff.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1279
+Trace:PreEntryCheck: nClsId = 1279
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\000004ff\000004ff.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1279
+Trace:PreEntryCheck: nClsId = 1279
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\00000400\00000400.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1024
+Trace:PreEntryCheck: nClsId = 1024
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\000003e8\000003e8.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1000
+Trace:PreEntryCheck: nClsId = 1000
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\00000448\00000448.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1096
+Trace:PreEntryCheck: nClsId = 1096
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\00001b62\00001b62.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 7010
+Trace:PreEntryCheck: nClsId = 7010
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\00000403\00000403.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1027
+Trace:PreEntryCheck: nClsId = 1027
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\00000506\00000506.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1286
+Trace:PreEntryCheck: nClsId = 1286
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\00000001\00000001.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1
+Trace:PreEntryCheck: nClsId = 1
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\000004ff\000004ff.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1279
+Trace:PreEntryCheck: nClsId = 1279
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\000004ff\000004ff.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1279
+Trace:PreEntryCheck: nClsId = 1279
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\000004ff\000004ff.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1279
+Trace:PreEntryCheck: nClsId = 1279
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\00000509\00000509.md
+Trace:ValidateApplet: Sys C:\zmaee\00000509\00000509.md
+Trace:StartServer: nRet = 0, nValidate = 0, appID = 1289
+Trace:GetHostName: aeewap4.zmapp.com
+Trace:zmaee_download_install_start: di->m_host = aeewap4.zmapp.com
+Trace:ValidateApplet: T E:\zmaee\00000440\00000440.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1088
+Trace:PreEntryCheck: nClsId = 1088
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = -3
+Trace:ValidateApplet: T E:\zmaee\00000504\00000504.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1284
+Trace:PreEntryCheck: nClsId = 1284
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = -3
+Trace:ValidateApplet: T E:\zmaee\00000001\00000001.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1
+Trace:PreEntryCheck: nClsId = 1
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\00000403\00000403.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1027
+Trace:PreEntryCheck: nClsId = 1027
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\00000501\00000501.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1281
+Trace:PreEntryCheck: nClsId = 1281
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\00000501\00000501.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1281
+Trace:PreEntryCheck: nClsId = 1281
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\00001b62\00001b62.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 7010
+Trace:PreEntryCheck: nClsId = 7010
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\00000001\00000001.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1
+Trace:PreEntryCheck: nClsId = 1
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: T E:\zmaee\00000001\00000001.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1
+Trace:PreEntryCheck: nClsId = 1
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:zm_game_chargeinfo_draw begin
+Trace:zm_game_chargeinfo_draw end
+Trace:ValidateApplet: T E:\zmaee\000004ff\000004ff.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1279
+Trace:PreEntryCheck: nClsId = 1279
+Trace:PreEntryCheck: 1 [E:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [E:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\0000050b\0000050b.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1291
+Trace:PreEntryCheck: nClsId = 1291
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\000004ff\000004ff.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1279
+Trace:PreEntryCheck: nClsId = 1279
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\00000509\00000509.md
+Trace:StartServer: nRet = 0, nValidate = 0, appID = 1289
+Trace:GetHostName: aeewap5.zmapp.com
+Trace:zmaee_download_install_start: di->m_host = aeewap5.zmapp.com
+Trace:ValidateApplet: Sys D:\zmaee\00000400\00000400.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1024
+Trace:PreEntryCheck: nClsId = 1024
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\00000448\00000448.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1096
+Trace:PreEntryCheck: nClsId = 1096
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\00000409\00000409.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1033
+Trace:PreEntryCheck: nClsId = 1033
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\00000440\00000440.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1088
+Trace:PreEntryCheck: nClsId = 1088
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\0000043d\0000043d.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1085
+Trace:PreEntryCheck: nClsId = 1085
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\0000043d\0000043d.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1085
+Trace:PreEntryCheck: nClsId = 1085
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\000003e8\000003e8.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1000
+Trace:PreEntryCheck: nClsId = 1000
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\00000506\00000506.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1286
+Trace:PreEntryCheck: nClsId = 1286
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\00001b62\00001b62.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 7010
+Trace:PreEntryCheck: nClsId = 7010
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\000005f9\000005f9.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1529
+Trace:PreEntryCheck: nClsId = 1529
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\00000501\00000501.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1281
+Trace:PreEntryCheck: nClsId = 1281
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\00000504\00000504.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1284
+Trace:PreEntryCheck: nClsId = 1284
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\00000403\00000403.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1027
+Trace:PreEntryCheck: nClsId = 1027
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\0000050b\0000050b.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1291
+Trace:PreEntryCheck: nClsId = 1291
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\000004ff\000004ff.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1279
+Trace:PreEntryCheck: nClsId = 1279
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\00000400\00000400.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1024
+Trace:PreEntryCheck: nClsId = 1024
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\00000001\00000001.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1
+Trace:PreEntryCheck: nClsId = 1
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\00000001\00000001.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1
+Trace:PreEntryCheck: nClsId = 1
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\00000409\00000409.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1033
+Trace:PreEntryCheck: nClsId = 1033
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\0000050b\0000050b.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1291
+Trace:PreEntryCheck: nClsId = 1291
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\000004ff\000004ff.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1279
+Trace:PreEntryCheck: nClsId = 1279
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\00000506\00000506.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1286
+Trace:PreEntryCheck: nClsId = 1286
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\00000501\00000501.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1281
+Trace:PreEntryCheck: nClsId = 1281
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\0000050b\0000050b.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1291
+Trace:PreEntryCheck: nClsId = 1291
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\000004ff\000004ff.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1279
+Trace:PreEntryCheck: nClsId = 1279
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:ValidateApplet: Sys D:\zmaee\000005f9\000005f9.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1529
+Trace:PreEntryCheck: nClsId = 1529
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\00000403\00000403.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1027
+Trace:PreEntryCheck: nClsId = 1027
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\00000409\00000409.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1033
+Trace:PreEntryCheck: nClsId = 1033
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\00000501\00000501.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1281
+Trace:PreEntryCheck: nClsId = 1281
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\0000050b\0000050b.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1291
+Trace:PreEntryCheck: nClsId = 1291
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\000004ff\000004ff.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1279
+Trace:PreEntryCheck: nClsId = 1279
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\00000400\00000400.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1024
+Trace:PreEntryCheck: nClsId = 1024
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\00000403\00000403.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1027
+Trace:PreEntryCheck: nClsId = 1027
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\00000403\00000403.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1027
+Trace:PreEntryCheck: nClsId = 1027
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
+Trace:ValidateApplet: Sys D:\zmaee\00000001\00000001.md
+Trace:StartServer: nRet = 1, nValidate = 1, appID = 1
+Trace:PreEntryCheck: nClsId = 1
+Trace:PreEntryCheck: 1 [D:\zmaee\000004ff\Dll\weixin_dll.dll] Load=0
+Trace:PreEntryCheck: 2 [D:\zmaee\00000507\Dll\weixin_dll.dll] Load=0
+Trace:StartAppletTimerCb: nRet = 0
