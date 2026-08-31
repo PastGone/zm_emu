@@ -49,6 +49,9 @@ uint32_t zm_shell_GetDeviceInfo(uc_engine *uc, uint32_t out_ptr);
  * SDL_GetTicks） */
 uint32_t zm_shell_GetTickCount(uc_engine *uc);
 
+/* +0x3C SetTimer / +0x40 CancelTimer / +0x44 CancelOwnerTimer 及到期
+ * 派发（sub_34394）已拆至 ../timer/zm_timer.h（zm_timer_*）。 */
+
 /**
  * +0x58 LoadDLL(this, name_ptr, name_len, out_ptr)（RE sub_35230）
  *

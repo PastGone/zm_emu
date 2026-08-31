@@ -8,6 +8,7 @@
 
 #include "./emu.h"
 #include "./tool/odds.h"
+#include "./tool/uc_helper.h" /* uc_read32/uc_write32（读栈上参数 a5） */
 #include "./ulibc/ulibc.h" /* 客户机 libc：malloc/free/memcpy/sprintf/str* 等 */
 #include "./zmaee/audio/zm_audio.h"
 #include "./zmaee/core/zm_mem.h"
@@ -17,6 +18,7 @@
 #include "./zmaee/fs/zm_file.h"
 #include "./zmaee/gfx/zm_display.h" /* ZMAEE IDisplay / IBitmap + SDL 渲染后端 */
 #include "./zmaee/runtime/shell/zm_shell.h"
+#include "./zmaee/runtime/timer/zm_timer.h" /* IShell 定时器子系统 */
 #include "event.h"
 #include "zmaee/inc/zm_event_code.h"
 
@@ -366,14 +368,14 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_shell_x38: /* RE sub_34C1C，未知 */
     ret = zm_shell_stub(uc, 0x38, r0, r1, r2, r3);
     break;
-  case TR_shell_SetTimer: /* 定时器待事件循环扩展，先 stub */
-    ret = zm_shell_stub(uc, 0x3C, r0, r1, r2, r3);
+  case TR_shell_SetTimer: /* RE：a2=r1=时长ms cb=r2 owner=r3 a5=sp[0] */
+    ret = zm_timer_SetTimer(uc, r1, r2, r3, uc_read32(uc, sp));
     break;
-  case TR_shell_CancelTimer:
-    ret = zm_shell_stub(uc, 0x40, r0, r1, r2, r3);
+  case TR_shell_CancelTimer: /* RE：按 timer ID 取消 */
+    ret = zm_timer_CancelTimer(uc, r1);
     break;
-  case TR_shell_CancelOwnerTimer:
-    ret = zm_shell_stub(uc, 0x44, r0, r1, r2, r3);
+  case TR_shell_CancelOwnerTimer: /* RE：删全部 entry[1]==owner（r1）的定时器 */
+    ret = zm_timer_CancelOwnerTimer(uc, r1);
     break;
   case TR_shell_GetTickCount: /* 单调毫秒时间戳 */
     ret = zm_shell_GetTickCount(uc);
