@@ -24,8 +24,9 @@ uint32_t zm_file_read(uc_engine *uc, uint32_t file_id, uint32_t buf,
 uint32_t zm_file_seek(uc_engine *uc, uint32_t file_id, uint32_t whence,
                       uint32_t offset);
 
-/* 获取文件大小 */
-uint32_t zm_file_size(uc_engine *uc, uint32_t file_id);
+/* IFile.Tell（vtable +0x24 = ZMAEE_IFile_Tell）：返回当前读写游标位置。
+ * 取文件总大小的惯用法是 Seek(0, SEEK_END) 后调用本函数。 */
+uint32_t zm_file_tell(uc_engine *uc, uint32_t file_id);
 
 /* 释放 FS 资源（空实现，保留接口兼容） */
 uint32_t zm_fs_release(uc_engine *uc);

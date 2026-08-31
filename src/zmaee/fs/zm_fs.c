@@ -167,10 +167,15 @@ uint32_t zm_file_seek(uc_engine *uc, uint32_t file_id, uint32_t whence,
   return 0;
 }
 
-uint32_t zm_file_size(uc_engine *uc, uint32_t file_id) {
+uint32_t zm_file_tell(uc_engine *uc, uint32_t file_id) {
   (void)uc;
+  /*
+   * IFile vtable +0x24 是 ZMAEE_IFile_Tell（逆向实测），返回**当前读写位置**。
+   * 之前实现为"返回总大小"，只在 Seek(0,SEEK_END) 之后调用才碰巧正确。
+   * 取总大小请走 Seek(0, SEEK_END) + Tell() 这个惯用法。
+   */
   if (file_id == FILE1 && g_file_data)
-    return (uint32_t)g_file_size;
+    return g_file_pos;
   return 0;
 }
 
