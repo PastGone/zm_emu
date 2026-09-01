@@ -8,9 +8,9 @@
 #include "../../log/log.h"
 #include "../../tool/uc_helper.h"
 
-/* ---------- SDL_mixer 音频后端 ----------
- * ap.play 传入的音频数据一般是 MP3（带 ID3 头），由 SDL_mixer 的
- * Mix_LoadMUST_RW 自动识别格式并解码。
+/* ---------- SDL_mixer 音频后端（ZMAEE IMedia）----------
+ * IMedia.play（+0x10）传入的音频数据一般是 MP3（带 ID3 头），由
+ * SDL_mixer 的 Mix_LoadMUS_RW 自动识别格式并解码。
  */
 
 /* 当前正在播放的 music 及其底层数据缓冲。
@@ -53,21 +53,22 @@ void zm_audio_shutdown(void) {
   SDL_QuitSubSystem(SDL_INIT_AUDIO);
 }
 
-/* audio.stop：停止音频 */
-uint32_t zm_audio_stop(uc_engine *uc) {
+/* IMedia 通用 stub（未实现槽） */
+uint32_t zm_media_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
+                       uint32_t r2, uint32_t r3) {
   (void)uc;
-  release_music();
-  Mix_HaltChannel(-1);
+  log_debug("media stub[0x%X] r0=0x%X r1=0x%X r2=0x%X r3=0x%X", off, r0, r1,
+            r2, r3);
   return 0;
 }
 
 /**
- * @brief ap.play：播放音频
+ * @brief IMedia.play（+0x10）：播放音频
  *
  * 从客户机地址 buf_ptr 读取 buf_len 字节音频数据，交给 SDL_mixer
  * 解码播放。MP3 / WAV / OGG 等格式可自动识别。
  */
-uint32_t zm_ap_play(uc_engine *uc, uint32_t buf_ptr, uint32_t buf_len) {
+uint32_t zm_media_play(uc_engine *uc, uint32_t buf_ptr, uint32_t buf_len) {
   if (!buf_ptr || !buf_len)
     return 0;
 
@@ -76,14 +77,14 @@ uint32_t zm_ap_play(uc_engine *uc, uint32_t buf_ptr, uint32_t buf_len) {
 
   g_music_data = malloc(buf_len);
   if (!g_music_data) {
-    log_error("ap.play: malloc(%u) failed", buf_len);
+    log_error("IMedia.play: malloc(%u) failed", buf_len);
     return 0;
   }
   uc_mem_read(uc, buf_ptr, g_music_data, buf_len);
 
   int is_mp3 = (buf_len >= 3 && g_music_data[0] == 'I' &&
                 g_music_data[1] == 'D' && g_music_data[2] == '3');
-  log_info("  ap.play len=%u mp3=%d", buf_len, is_mp3);
+  log_info("  IMedia.play len=%u mp3=%d", buf_len, is_mp3);
 
   SDL_RWops *rw = SDL_RWFromMem(g_music_data, (int)buf_len);
   if (!rw) {
@@ -107,24 +108,9 @@ uint32_t zm_ap_play(uc_engine *uc, uint32_t buf_ptr, uint32_t buf_len) {
   return 0;
 }
 
-/* ap.stop：停止播放 */
-uint32_t zm_ap_stop(uc_engine *uc) {
+/* IMedia.stop（+0x14）：停止播放 */
+uint32_t zm_media_stop(uc_engine *uc) {
   (void)uc;
   release_music();
-  return 0;
-}
-
-/* AUDIO_VT[0x24] audio.getStatus(this, out4, out_buf)
- * sub_83D44 用它取音频状态，返回 0 表成功；applet 比较 out_buf[0..2]
- * 与 instance[122..124] 决定是否重初始化。stub：写 0 使比较命中，返 0。 */
-uint32_t zm_audio_get_status(uc_engine *uc, uint32_t out4, uint32_t out_buf) {
-  if (out4)
-    uc_write32(uc, out4, 0);
-  if (out_buf) {
-    /* out_buf 至少 3 个 dword（v7[0..2]） */
-    uc_write32(uc, out_buf, 0);
-    uc_write32(uc, out_buf + 4, 0);
-    uc_write32(uc, out_buf + 8, 0);
-  }
   return 0;
 }

@@ -364,7 +364,21 @@ uint32_t zm_display_FreeLayer(uc_engine *uc, uint32_t r0, uint32_t r1) {
 }
 uint32_t zm_display_GetLayerInfo(uc_engine *uc, uint32_t off, uint32_t r0,
                                  uint32_t r1, uint32_t r2, uint32_t r3) {
-  return zm_display_stub(uc, off, r0, r1, r2, r3);
+  /* +0x1C GetLayerInfo(display, layer, out)
+   * RE（ZMAEE_IDisplay_GetLayerInfo @0x2768C）：无效参数返 -4；
+   * layer 表项 +72 标志非 0 才有效，把 +36 起 0x34(52) 字节拷到 out。
+   * 模拟器无真 layer 表：向 out 写 0x34 字节全 0（layer_info 结构），返 0，
+   * 避免 applet 读脏内存或把 0 当有效层。 */
+  (void)off;
+  (void)r0;
+  (void)r1;
+  (void)r2;
+  (void)r3;
+  if (r0 == 0 || r2 == 0)
+    return (uint32_t)-4; /* display==0 或 out==null */
+  uint8_t zero[52] = {0};
+  uc_mem_write(uc, r2, zero, sizeof(zero));
+  return 0;
 }
 uint32_t zm_display_SetLayerPosition(uc_engine *uc, uint32_t off, uint32_t r0,
                                      uint32_t r1, uint32_t r2, uint32_t r3) {

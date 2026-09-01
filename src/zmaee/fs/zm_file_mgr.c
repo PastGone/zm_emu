@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h> /* access/F_OK（TestFile 存在性检查） */
+#include <iconv.h>  /* GBK→UTF-8（applet 文件名为固件 GBK 编码） */
 
 #include "../../emu.h"
 #include "../../log/log.h"
@@ -26,21 +28,118 @@
 static char s_data_dir[1024] = {0};
 
 /* ========== 内部工具 ========== */
-static void basename_of(const char *path, char *out, size_t out_cap) {
-  const char *base = path;
-  for (const char *p = path; *p; p++) {
-    if (*p == '/' || *p == '\\')
-      base = p + 1;
-  }
-  size_t n = strlen(base);
-  if (n > out_cap - 1)
-    n = out_cap - 1;
-  memcpy(out, base, n);
-  out[n] = '\0';
-}
-
 static void read_filename(uc_engine *uc, uint32_t ptr, char *buf, size_t cap) {
   zm_read_str_obj(uc, ptr, buf, cap);
+}
+
+/* GBK→UTF-8（applet 的中文文件名为固件 GBK 编码，宿主文件系统是
+ * UTF-8；找不到时做一次转换回退）。成功返转换后长度，失败返 -1。 */
+static int gbk_to_utf8(const char *in, char *out, size_t out_cap) {
+  iconv_t cd = iconv_open("UTF-8", "GBK");
+  if (cd == (iconv_t)-1)
+    return -1;
+  char *src = (char *)in, *dst = out;
+  size_t slen = strlen(in), dleft = out_cap - 1;
+  size_t r = iconv(cd, &src, &slen, &dst, &dleft);
+  iconv_close(cd);
+  if (r == (size_t)-1)
+    return -1;
+  *dst = '\0';
+  return (int)(dst - out);
+}
+
+/* 判断字符串是否含高位字节（可能是 GBK 中文） */
+static int has_high_byte(const char *s) {
+  for (; *s; s++)
+    if ((unsigned char)*s >= 0x80)
+      return 1;
+  return 0;
+}
+
+/* ========== ConvertFileName 宿主版（RE：ZMAEE_IFileMgr_ConvertFileName）==========
+ * 固件流程：归一化（'\'→'/'、解析 ./ 与 ../、压缩分隔符）→ 按盘符分类：
+ *   c:/e: → 内置盘（Android 变体映射 /data/data/<pkg>/...，返 1）
+ *   其它盘 → 外置卡（Android 变体映射 GetSdcardPath()/mnt/sdcard，返 2；
+ *             含 "assets.zip" 返 3 → 走 zip 包测试链
+ *             TestPkgItem/TestPkgItemEx + sub_2A75C 缓存句柄）
+ * 注意：RE 来自 Android 移植变体——接口同构但存储映射是安卓专属，
+ * 模拟器按宿主语义等价实现：所有盘统一映射到 applet 数据目录，
+ * 不照搬 /data/data、/mnt/sdcard 等路径。
+ * 返回：1=内置盘 2=外置卡 3=assets.zip -1=非法（归一化后为空）。
+ * out 收到不含盘符的相对路径（以 '/' 开头）。 */
+static int convert_file_name(const char *in, char *out, size_t cap) {
+  const char *p = in;
+  int cls = 2; /* 无盘符 → 按外置卡语义（数据目录） */
+  if (((p[0] >= 'A' && p[0] <= 'Z') || (p[0] >= 'a' && p[0] <= 'z')) &&
+      p[1] == ':') {
+    char d = (char)(p[0] | 0x20);
+    cls = (d == 'c' || d == 'e') ? 1 : 2;
+    p += 2;
+  }
+  /* 组件栈解析（RE 同款语义）：记录每段在 out 中的起始偏移，
+   * ".." 弹栈、"." 跳过、分隔符压缩 */
+  size_t off[64];
+  int n = 0;
+  size_t o = 0;
+  out[0] = '\0';
+  while (*p) {
+    while (*p == '/' || *p == '\\')
+      p++;
+    if (!*p)
+      break;
+    if (p[0] == '.') {
+      if (p[1] == '/' || p[1] == '\\' || p[1] == '\0') {
+        p++;
+        continue;
+      }
+      if (p[1] == '.' && (p[2] == '/' || p[2] == '\\' || p[2] == '\0')) {
+        p += 2;
+        if (n > 0) {
+          o = off[--n];
+          out[o] = '\0';
+        }
+        continue;
+      }
+    }
+    if (n >= 64)
+      return -1;
+    off[n++] = o;
+    if (o + 1 < cap)
+      out[o++] = '/';
+    while (*p && *p != '/' && *p != '\\') {
+      if (o + 1 < cap)
+        out[o++] = *p;
+      p++;
+    }
+  }
+  out[o] = '\0';
+  if (o == 0)
+    return -1;
+  if (strstr(out, "assets.zip"))
+    return 3;
+  return cls;
+}
+
+/* TestFile 专用：按 zmaee 字符串对象布局稳健读取文件名。
+ * 固件布局：+0 data_ptr、+12 起内联缓冲（str_assign/str_ctor 同款）。
+ * 顺序：解引用 data_ptr → 直接读 ptr+12 → 裸读 ptr。
+ * 不复用 zm_read_str_obj 的启发式——内联区首字节为 0 时它会回退到
+ * 裸读，把 +0 的指针字节误当文本（00001b62 实测产出"塞"）。 */
+static void read_filename_obj(uc_engine *uc, uint32_t ptr, char *buf,
+                              size_t cap) {
+  buf[0] = '\0';
+  if (ptr == 0)
+    return;
+  uint32_t dp = 0;
+  if (uc_mem_read(uc, ptr, &dp, 4) == UC_ERR_OK && dp != 0) {
+    read_cstr(uc, dp, buf, (int)cap);
+  }
+  if (buf[0] == '\0') {
+    read_cstr(uc, ptr + 12, buf, (int)cap);
+  }
+  if (buf[0] == '\0') {
+    read_cstr(uc, ptr, buf, (int)cap);
+  }
 }
 
 /* ========== 对外 API ========== */
@@ -67,12 +166,89 @@ void zm_fs_set_data_dir(const char *dir) {
  * 打开文件 —— 自动关闭前一个文件，加载新文件到内存，返回 FILE1。
  * 成功返回 FILE1，失败返回 0。
  */
+/* IFileMgr 通用 stub（g_filemgr_vtbl 未实现槽） */
+uint32_t zm_fileMgr_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
+                         uint32_t r2, uint32_t r3) {
+  (void)uc;
+  log_debug("fileMgr stub[0x%X] r0=0x%X r1=0x%X r2=0x%X r3=0x%X", off, r0, r1,
+            r2, r3);
+  return 0;
+}
+
+/* +0x20 TestFile（RE sub_2A7BC）：检查文件是否存在。
+ * 固件流程：ConvertFileName 归一化并分类（见 convert_file_name）——
+ *   case 0 → 包内资源表（AndroidAEE_TestPkgItem：zip_open+zip_fopen）
+ *   case 3 → assets.zip 打包路径（sub_2A75C 缓存句柄 + TestPkgItemEx）
+ *   default → 文件系统 access(name, F_OK)
+ * 返回：存在 0；不存在 -1；参数空 -4。
+ * 模拟器：convert_file_name 统一映射到数据目录；assets.zip 暂不
+ * 支持（返 -1，applet 走外置文件回退）。 */
+uint32_t zm_fileMgr_TestFile(uc_engine *uc, uint32_t r0, uint32_t name_ptr) {
+  if (r0 == 0 || name_ptr == 0)
+    return (uint32_t)-4;
+  char name[256];
+  read_filename_obj(uc, name_ptr, name, sizeof(name));
+  /* GBK 中文文件名 → UTF-8 回退（固件 GBK / 宿主 UTF-8） */
+  char utf[256];
+  if (has_high_byte(name) && gbk_to_utf8(name, utf, sizeof(utf)) > 0)
+    snprintf(name, sizeof(name), "%s", utf);
+  char rel[512];
+  int cls = convert_file_name(name, rel, sizeof(rel));
+  if (cls < 0) {
+    log_info("fileMgr.TestFile(\"%s\") -> -1 (归一化后为空)", name);
+    return (uint32_t)-1;
+  }
+  if (cls == 3) {
+    /* assets.zip 打包路径（RE：TestPkgItemEx 走 zip_fopen 成员测试）——
+     * 模拟器暂不支持 zip 资源，返不存在，applet 走外置文件回退 */
+    log_info("fileMgr.TestFile(\"%s\") -> -1 (assets.zip 暂不支持)", name);
+    return (uint32_t)-1;
+  }
+  int ok = 0;
+  char full[1280];
+  if (s_data_dir[0]) {
+    snprintf(full, sizeof(full), "%s%s", s_data_dir, rel);
+    if (access(full, F_OK) == 0)
+      ok = 1;
+    if (!ok) { /* 回退 app_list/ 子目录（与 open_file 一致） */
+      snprintf(full, sizeof(full), "%s/app_list%s", s_data_dir, rel);
+      if (access(full, F_OK) == 0)
+        ok = 1;
+    }
+  }
+  if (!ok && access(rel + 1, F_OK) == 0) /* 相对 CWD（rel 以 '/' 开头） */
+    ok = 1;
+  log_info("fileMgr.TestFile(\"%s\" cls=%d) -> %d", name, cls, ok ? 0 : -1);
+  return ok ? 0 : (uint32_t)-1;
+}
+
+/* +0x30 存储区支持查询（RE sub_29E40）。
+ * 返回 ASCII 盘符代码：67='C'（内置盘）、69='E'、84='T'（SD）。
+ * a2>=2 时固件走完整 JNI 链（RE：AndroidAEE_CallIntMethod →
+ * AEEJni_GetEnv → FindClass("com/zmapp/aee/AEEJNIBridge") →
+ * GetMethodID("isSDCardMounted") → CallIntMethod）向 Java 宿主查询
+ * SD 卡挂载状态。模拟器角色即"宿主替身"（同 GetTickCount→SDL_GetTicks
+ * 的边界决策），宿主目录即"卡"，恒视为已挂载返 84。 */
+uint32_t zm_fileMgr_StorageSupport(uc_engine *uc, uint32_t r0, uint32_t type) {
+  if (r0 == 0)
+    return 0;
+  if (type == 0)
+    return 67; /* 'C' 内置盘 */
+  if (type == 1)
+    return 69; /* 'E' */
+  return 84;   /* 'T' SD 卡（恒挂载） */
+}
+
 uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr) {
   (void)uc;
   char name[256];
   read_filename(uc, filename_ptr, name, sizeof(name));
-  char bn[64];
-  basename_of(name, bn, sizeof(bn));
+  char rel[512];
+  int cls = convert_file_name(name, rel, sizeof(rel));
+  if (cls < 0) {
+    log_warn("fs.open(\"%s\") -> 0 (归一化后为空)", name);
+    return 0;
+  }
 
   /* 先关闭之前打开的文件 */
   if (g_file_data) {
@@ -83,16 +259,25 @@ uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr) {
   }
 
   if (s_data_dir[0] == '\0') {
-    log_error("zm_fs_open: 未设置数据目录，无法打开 \"%s\"", bn);
+    log_error("zm_fs_open: 未设置数据目录，无法打开 \"%s\"", name);
     return 0;
   }
 
   char full_path[1280];
-  snprintf(full_path, sizeof(full_path), "%s/%s", s_data_dir, bn);
+  snprintf(full_path, sizeof(full_path), "%s%s", s_data_dir, rel);
 
   FILE *fp = fopen(full_path, "rb");
+  /* 回退：00000405 的 \config.b 实际在 app_list/ 子目录下
+   * （applet 运行工作目录是 app_list）。 */
   if (!fp) {
-    log_warn("zm_fs_open: 找不到文件 \"%s\" (全路径: %s)", bn, full_path);
+    char alt[1536];
+    snprintf(alt, sizeof(alt), "%s/app_list%s", s_data_dir, rel);
+    fp = fopen(alt, "rb");
+    if (fp)
+      snprintf(full_path, sizeof(full_path), "%s", alt);
+  }
+  if (!fp) {
+    log_warn("zm_fs_open: 找不到文件 \"%s\" (全路径: %s)", name, full_path);
     return 0;
   }
 
@@ -120,7 +305,7 @@ uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr) {
   g_file_size = (size_t)sz;
   g_file_pos = 0;
 
-  log_info("fs.open(\"%s\") -> FILE1 (size=%zu)", bn, g_file_size);
+  log_info("fs.open(\"%s\") -> FILE1 (size=%zu)", name, g_file_size);
   return FILE1; /* FILE1 是预定义的虚拟句柄地址 */
 }
 

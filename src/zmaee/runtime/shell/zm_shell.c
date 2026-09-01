@@ -1,11 +1,12 @@
 #include "zm_shell.h"
 
-#include "../../../emu.h"
+#include "../../../emu.h" /* g_instance（GetApplet 返回当前实例） */
 #include "../../../log/log.h"
 #include "../../../tool/uc_helper.h"
 #include "../../core/zm_root.h" /* zm_root_get_tick（SDL_GetTicks） */
 #include "../../core/zm_str.h"  /* read_cstr */
 #include <stdint.h>
+#include <string.h> /* memset（GetDeviceInfo 整块清零） */
 
 /* =========================================================================
  * ZMAEE IShell 原生虚表处理函数（g_aee_shell_vtbl @ .data:0x64440，34 槽）
@@ -71,14 +72,11 @@ uint32_t zm_shell_CreateInstance(uc_engine *uc, uint32_t svc, uint32_t out_ptr) 
   case 0x1000009: /* ITAPI */
     outobj = TAPI;
     break;
-  case 0x100000B:
-    /* RE 变体把 0x100000B 分给 ISetting；但目标 applet 实测：该对象被调
-     * +0x14 stop / +0x24 get_status，行为是音频控制，故保留 AUDIO 接线。
-     * 真实归属待目标固件（非此变体）反汇编确认。 */
-    outobj = AUDIO;
+  case 0x100000B: /* ISetting（RE：ZMAEE_ISetting_New） */
+    outobj = SETTING;
     break;
-  case 0x100000C: /* IMedia（即原 AP 对象：play/stop，语义吻合） */
-    outobj = AP;
+  case 0x100000C: /* IMedia = 音频（RE：ZMAEE_IMedia_New，用户确认） */
+    outobj = MEDIA;
     break;
   case 0x1000006: /* IGps      —— 尚未实现 */
   case 0x1000007: /* IGSensor  —— 尚未实现 */
@@ -99,18 +97,48 @@ uint32_t zm_shell_CreateInstance(uc_engine *uc, uint32_t svc, uint32_t out_ptr) 
   return (uint32_t)ret;
 }
 
-/* +0x10 GetDeviceInfo：写 {0, 0, ScreenW, ScreenH} */
+/* +0x10 GetDeviceInfo：填设备信息结构（RE：nativeAEEGetDeviceInfo）
+ * 结构为 91 个 dword，固件调用前先 memset 0x168 清零，再逐项格式化：
+ *   [0]version  [1]userid  [2]width  [3]height
+ *   [4]color_depth（经 nativeColorDepthToString）
+ *   [5]dwLang（经 nativeLanguageToString）
+ *   [6]cap      [7]bKbd   [8]bTouchScreen  [9]nMaxRam
+ *   [10..13]szCompany  [14..17]szOS  [18..65]szModel  [66..]szBuildDate
+ *
+ * 此前只写前 16 字节就返回，剩余约 348 字节留作客户机脏数据——其中
+ * [8] bTouchScreen 若为脏值/0，applet 可能据此关闭触摸。现先整块清零
+ * （与固件一致），再填确定项；语义未定的字段保持 0（即固件 memset 值）。
+ */
+#define ZM_DEVICE_INFO_DWORDS 91
 uint32_t zm_shell_GetDeviceInfo(uc_engine *uc, uint32_t out_ptr) {
-  uc_write32(uc, out_ptr, 0);
-  uc_write32(uc, out_ptr + 4, 0);
-  uc_write32(uc, out_ptr + 8, g_header.ScreenW);
-  uc_write32(uc, out_ptr + 12, g_header.ScreenH);
+  uint8_t zeros[ZM_DEVICE_INFO_DWORDS * 4];
+  memset(zeros, 0, sizeof(zeros));
+  uc_mem_write(uc, out_ptr, zeros, sizeof(zeros)); /* 与固件 memset 同款清零 */
+
+  /* 确定项：屏幕宽高（RE 中 resolution = %dx%d 取 [2]、[3]） */
+  uc_write32(uc, out_ptr + 4 * 2, g_header.ScreenW);
+  uc_write32(uc, out_ptr + 4 * 3, g_header.ScreenH);
+  /* 确定项：本设备是触摸屏（语义明确；置 0 会让 applet 关闭触摸交互） */
+  uc_write32(uc, out_ptr + 4 * 8, 1); /* [8] bTouchScreen */
+
+  /* 语义待 RE 的字段（保持 memset 的 0，不臆造）：
+   *   [4] color_depth —— 需 nativeColorDepthToString 确定枚举
+   *   [5] dwLang      —— 需 nativeLanguageToString 确定枚举
+   *   [6] cap / [7] bKbd / [9] nMaxRam / 各字符串字段 */
+  log_debug("GetDeviceInfo -> %ux%u (bTouchScreen=1)", g_header.ScreenW,
+            g_header.ScreenH);
   return 0;
 }
 
 /* +0x48 GetTickCount：单调毫秒时间戳 */
 uint32_t zm_shell_GetTickCount(uc_engine *uc) {
   return zm_root_get_tick(uc); /* SDL_GetTicks */
+}
+
+/* +0x30 GetApplet：返回当前 applet 实例（g_instance，create_cbk 时记录） */
+uint32_t zm_shell_GetApplet(uc_engine *uc, uint32_t index) {
+  (void)index; /* 固件固定用 index=0 取当前 applet */
+  return g_instance;
 }
 
 /* 定时器（+0x3C/+0x40/+0x44 及派发 sub_34394）已拆至 ../timer/zm_timer.c */
@@ -184,6 +212,32 @@ uint32_t zm_tapi_x40(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
                      uint32_t r3) {
   (void)uc;
   log_info("stub tapi[0x40] r0=%u r1=%u r2=%u r3=%u", r0, r1, r2, r3);
+  return 0;
+}
+
+/* ---- ISetting（0x100000B，g_aee_setting_vtbl @ .data:0x64408，14 槽）----
+ * 各槽语义待 RE（+0x00 sub_33D60、+0x04 sub_34118、+0x08 sub_34050、
+ * +0x0C sub_33D74、+0x10 sub_33D78、+0x14 sub_33D7C、+0x18 sub_33FB4、
+ * +0x1C sub_33E2C、+0x20 sub_33EFC、+0x24 sub_33F4C、+0x28 sub_33D80、
+ * +0x2C sub_33D84、+0x30 sub_33E98、+0x34 sub_33DFC）。 */
+uint32_t zm_setting_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
+                         uint32_t r2, uint32_t r3) {
+  (void)uc;
+  log_debug("setting stub[0x%X] r0=0x%X r1=0x%X r2=0x%X r3=0x%X", off, r0, r1,
+            r2, r3);
+  return 0;
+}
+
+/* ISetting[+0x24]：保留既有"写 0"行为（详见 zm_shell.h 注释） */
+uint32_t zm_setting_x24(uc_engine *uc, uint32_t out4, uint32_t out_buf) {
+  if (out4)
+    uc_write32(uc, out4, 0);
+  if (out_buf) {
+    /* out_buf 至少 3 个 dword */
+    uc_write32(uc, out_buf, 0);
+    uc_write32(uc, out_buf + 4, 0);
+    uc_write32(uc, out_buf + 8, 0);
+  }
   return 0;
 }
 
