@@ -250,6 +250,16 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     const char *env = getenv("ZM_GFX_HOLD_MS");
     if (env && *env)
       hold_ms = (uint32_t)strtoul(env, NULL, 0);
+    /* 实验：00001b62 的 sub_37584 case 3（EV_RESUME=3）才创建 display
+     * （CreateInstance(0x1000005)）。init(事件0) 后补发 RESUME，让 applet
+     * 进入可绘制分支。默认关（ZM_AUTO_RESUME=1 开启），避免影响其他 applet。
+     * 注意：sub_37584 case 3 依赖 v7+72 是可用对象（host 注入），若该对象
+     * 未初始化仍会崩——这是验证"缺事件3"是否为主因的最小改动。 */
+    const char *ar = getenv("ZM_AUTO_RESUME");
+    if (ar && ar[0] == '1') {
+      log_info("补发 RESUME(evt=3) 事件 -> handler=0x%X", g_handler);
+      dispatch_applet_event(3, 0, 0);
+    }
     if (!zm_display_event_loop(on_touch_click, hold_ms)) {
       uc_emu_stop(uc);
     }
@@ -300,16 +310,34 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     /* ROOT[0x88] str_ctor(dst=r0, src=r1)：含 '\0' 一起拷，返回 dst */
     ret = u_strcpy(uc, r0, r1);
     break;
+  case TR_root_strchr:
+    /* ROOT[0x90] strchr(s=r0, c=r1)：找字符 c 在串 s 中首次出现位置。
+     * 00001b62 调用现场 r1=0x72('r') 且随后 strb 写回，属 strchr 家族；
+     * 相邻 +0x88 str_ctor / +0xA8 亦为字符串族。命中返回客户机地址，否则 0。 */
+    ret = u_strchr(uc, r0, (int)r1);
+    break;
+  case TR_root_memcmp:
+    /* ROOT[0x50] memcmp(a=r0, b=r1, n=r2)
+     * RE zmaee_memcmp @0x363E8（tramp 桩 0xb9b50）；00001b62 调用后
+     * cmp r0,#0 判断，返回值当布尔用。 */
+    ret = (uint32_t)u_memcmp(uc, r0, r1, r2);
+    break;
+  case TR_root_memcpy:
+    /* ROOT[0x5C] memcpy(dst=r0, src=r1, n=r2)
+     * RE zmaee_memcpy @0x36470（tramp 桩 0xb9b40）；00001b62 定长 4
+     * 字节拷贝，返回值当 dst 用。 */
+    ret = u_memcpy(uc, r0, r1, r2);
+    break;
   case TR_root_memset:
     /* ROOT[0x60] memset(dst=r0, val=r1, len=r2) */
     ret = u_memset(uc, r0, r1, r2);
     break;
-    /*
-     * 注：TR_root_str_assign 暂未接线 —— 它与 TR_svc09_x2C 在 emu.h 中
-     * 都被定义为 ROOT+0x30（槽位冲突），且它写的是 zmaee 字符串对象
-     * 三元组，属 zmaee 领域结构而非 libc 语义，应留在 zm_root。
-     * 待 emu.h 的槽位表理清后再接。
-     */
+  case TR_root_str_assign:
+    /* ROOT[0x78] str_assign(str_obj=r0, cstr=r1)：把 C 串赋给 zmaee
+     * 字符串对象（写 data_ptr/len/内联缓冲三元组）。实现久备，
+     * 此前因伪索引槽位冲突未接；00001b62 高频调用此槽。 */
+    ret = zm_root_str_assign(uc, r0, r1);
+    break;
   case TR_root_spec_lookup:
     ret = zm_spec_lookup(uc, r0);
     break; /* spec_lookup：zmaee 规格表查询，非 libc */
@@ -360,7 +388,10 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     ret = zm_shell_stub(uc, 0x2C, r0, r1, r2, r3);
     break;
   case TR_shell_GetApplet:
-    ret = zm_shell_stub(uc, 0x30, r0, r1, r2, r3);
+    /* RE（nativeAEERepaint）：GetApplet(shell, 0) 返回当前 applet 对象，
+     * 随后调 (*applet_vt+8)(applet, 4, 0, 0) 做重绘。
+     * g_instance 由 create_cbk 时记录（trap.c:238）。 */
+    ret = zm_shell_GetApplet(uc, r1);
     break;
   case TR_shell_x34: /* RE sub_34764，未知 */
     ret = zm_shell_stub(uc, 0x34, r0, r1, r2, r3);
@@ -425,7 +456,13 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_shell_GetSupportHall:
     ret = zm_shell_stub(uc, 0x84, r0, r1, r2, r3);
     break;
-  /* ---- fs / file ---- */
+  /* ---- fs / file（IFileMgr g_filemgr_vtbl @.data:0x64038，16 槽）---- */
+  case TR_fileMgr_AddRef:
+    ret = zm_fileMgr_stub(uc, 0x00, r0, r1, r2, r3);
+    break;
+  case TR_fileMgr_Release:
+    ret = zm_fileMgr_stub(uc, 0x04, r0, r1, r2, r3);
+    break;
   case TR_fileMgr_open_file:
     log_debug("fs_open(r0=0x%X)", r0); // 此处的 r0 是 FileMgr的地址
     log_debug("FileMgr=0x%X", FileMgr);
@@ -435,6 +472,42 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     } else {
       ret = zm_fileMgr_open_file(uc, r1); // 这地方为什么是r1呀
     }
+    break;
+  case TR_fileMgr_x0C: /* RE sub_2A550 */
+    ret = zm_fileMgr_stub(uc, 0x0C, r0, r1, r2, r3);
+    break;
+  case TR_fileMgr_x10: /* RE sub_2A4E0 */
+    ret = zm_fileMgr_stub(uc, 0x10, r0, r1, r2, r3);
+    break;
+  case TR_fileMgr_x14: /* RE sub_2A45C */
+    ret = zm_fileMgr_stub(uc, 0x14, r0, r1, r2, r3);
+    break;
+  case TR_fileMgr_x18: /* RE sub_2A3F4 */
+    ret = zm_fileMgr_stub(uc, 0x18, r0, r1, r2, r3);
+    break;
+  case TR_fileMgr_x1C: /* RE sub_2A344 */
+    ret = zm_fileMgr_stub(uc, 0x1C, r0, r1, r2, r3);
+    break;
+  case TR_fileMgr_x20: /* RE sub_2A7BC：TestFile，存在 0/不存在 -1/参数 -4 */
+    ret = zm_fileMgr_TestFile(uc, r0, r1);
+    break;
+  case TR_fileMgr_x24: /* RE sub_2A2D0 */
+    ret = zm_fileMgr_stub(uc, 0x24, r0, r1, r2, r3);
+    break;
+  case TR_fileMgr_x28: /* RE sub_29EA0 */
+    ret = zm_fileMgr_stub(uc, 0x28, r0, r1, r2, r3);
+    break;
+  case TR_fileMgr_x2C: /* RE sub_29E7C */
+    ret = zm_fileMgr_stub(uc, 0x2C, r0, r1, r2, r3);
+    break;
+  case TR_fileMgr_x30: /* RE sub_29E40：存储区支持查询（'C'/'E'/'T'） */
+    ret = zm_fileMgr_StorageSupport(uc, r0, r1);
+    break;
+  case TR_fileMgr_x34: /* RE sub_29E08 */
+    ret = zm_fileMgr_stub(uc, 0x34, r0, r1, r2, r3);
+    break;
+  case TR_fileMgr_x38: /* RE sub_29E00 */
+    ret = zm_fileMgr_stub(uc, 0x38, r0, r1, r2, r3);
     break;
   case TR_file_close:
     ret = zm_file_close(uc, r0);
@@ -646,19 +719,120 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_bitmap_sub_25FF8:
     ret = zm_bitmap_sub_25FF8(uc, 0x18U, r0, r1, r2, r3);
     break;
-  /* ---- audio / ap ---- */
-  case TR_audio_stop:
-    ret = zm_audio_stop(uc);
+  /* ---- ZMAEE IMedia（音频，0x100000C，g_aee_media_vtbl，25 槽）---- */
+  case TR_media_AddRef:
+    ret = 1; /* 单例 */
     break;
-  case TR_ap_play:
-    ret = zm_ap_play(uc, r2, r3);
+  case TR_media_Release:
+    ret = zm_svc_release(uc);
     break;
-  case TR_ap_stop:
-    ret = zm_ap_stop(uc);
+  case TR_media_x08:
+    ret = zm_media_stub(uc, 0x08, r0, r1, r2, r3);
     break;
-  case TR_audio_get_status:
-    ret = zm_audio_get_status(uc, r1, r2);
-    break; /* AUDIO_VT[0x24] */
+  case TR_media_x0C:
+    ret = zm_media_stub(uc, 0x0C, r0, r1, r2, r3);
+    break;
+  case TR_media_play: /* +0x10：真实 SDL_mixer 播放 */
+    ret = zm_media_play(uc, r2, r3);
+    break;
+  case TR_media_stop: /* +0x14：停止播放 */
+    ret = zm_media_stop(uc);
+    break;
+  case TR_media_x18:
+    ret = zm_media_stub(uc, 0x18, r0, r1, r2, r3);
+    break;
+  case TR_media_x1C:
+    ret = zm_media_stub(uc, 0x1C, r0, r1, r2, r3);
+    break;
+  case TR_media_x20:
+    ret = zm_media_stub(uc, 0x20, r0, r1, r2, r3);
+    break;
+  case TR_media_x24:
+    ret = zm_media_stub(uc, 0x24, r0, r1, r2, r3);
+    break;
+  case TR_media_x28:
+    ret = zm_media_stub(uc, 0x28, r0, r1, r2, r3);
+    break;
+  case TR_media_x2C:
+    ret = zm_media_stub(uc, 0x2C, r0, r1, r2, r3);
+    break;
+  case TR_media_x30:
+    ret = zm_media_stub(uc, 0x30, r0, r1, r2, r3);
+    break;
+  case TR_media_x34:
+    ret = zm_media_stub(uc, 0x34, r0, r1, r2, r3);
+    break;
+  case TR_media_x38:
+    ret = zm_media_stub(uc, 0x38, r0, r1, r2, r3);
+    break;
+  case TR_media_x3C:
+    ret = zm_media_stub(uc, 0x3C, r0, r1, r2, r3);
+    break;
+  case TR_media_x40:
+    ret = zm_media_stub(uc, 0x40, r0, r1, r2, r3);
+    break;
+  case TR_media_x44:
+    ret = zm_media_stub(uc, 0x44, r0, r1, r2, r3);
+    break;
+  case TR_media_x48:
+    ret = zm_media_stub(uc, 0x48, r0, r1, r2, r3);
+    break;
+  case TR_media_x4C:
+    ret = zm_media_stub(uc, 0x4C, r0, r1, r2, r3);
+    break;
+  case TR_media_x50:
+    ret = zm_media_stub(uc, 0x50, r0, r1, r2, r3);
+    break;
+  case TR_media_x54:
+    ret = zm_media_stub(uc, 0x54, r0, r1, r2, r3);
+    break;
+  case TR_media_x58:
+    ret = zm_media_stub(uc, 0x58, r0, r1, r2, r3);
+    break;
+
+  /* ---- ZMAEE ISetting（0x100000B，g_aee_setting_vtbl，14 槽）---- */
+  case TR_setting_AddRef:
+    ret = 1; /* 单例 */
+    break;
+  case TR_setting_Release:
+    ret = zm_svc_release(uc);
+    break;
+  case TR_setting_x08:
+    ret = zm_setting_stub(uc, 0x08, r0, r1, r2, r3);
+    break;
+  case TR_setting_x0C:
+    ret = zm_setting_stub(uc, 0x0C, r0, r1, r2, r3);
+    break;
+  case TR_setting_x10:
+    ret = zm_setting_stub(uc, 0x10, r0, r1, r2, r3);
+    break;
+  case TR_setting_x14:
+    ret = zm_setting_stub(uc, 0x14, r0, r1, r2, r3);
+    break;
+  case TR_setting_x18:
+    ret = zm_setting_stub(uc, 0x18, r0, r1, r2, r3);
+    break;
+  case TR_setting_x1C:
+    ret = zm_setting_stub(uc, 0x1C, r0, r1, r2, r3);
+    break;
+  case TR_setting_x20:
+    ret = zm_setting_stub(uc, 0x20, r0, r1, r2, r3);
+    break;
+  case TR_setting_x24: /* 保留既有"写 0"行为，applet 依赖其分支判断 */
+    ret = zm_setting_x24(uc, r1, r2);
+    break;
+  case TR_setting_x28:
+    ret = zm_setting_stub(uc, 0x28, r0, r1, r2, r3);
+    break;
+  case TR_setting_x2C:
+    ret = zm_setting_stub(uc, 0x2C, r0, r1, r2, r3);
+    break;
+  case TR_setting_x30:
+    ret = zm_setting_stub(uc, 0x30, r0, r1, r2, r3);
+    break;
+  case TR_setting_x34:
+    ret = zm_setting_stub(uc, 0x34, r0, r1, r2, r3);
+    break;
 
   /* ---- 服务对象（IShell.CreateInstance 返回）/ FS / DLL / CBK ---- */
   case TR_netmgr_release:
@@ -675,9 +849,6 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break;
   case TR_tapi_x40:
     ret = zm_tapi_x40(uc, r0, r1, r2, r3);
-    break;
-  case TR_fs_release:
-    ret = zm_fs_release(uc);
     break;
   case TR_dll_init:
     ret = zm_dll_init(uc);
@@ -708,8 +879,20 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     ret = zm_root_create_cbk(uc);
     break;
   default:
-    log_error("非法的外部调用: 0x%08" PRIx32, trap_address);
-    pause_console();
+    /* ROOT 槽位尚未接线。打印调用现场寄存器，便于按参数签名反推该槽
+     * 对应的 libc 函数（ROOT 在安卓变体里是普通全局函数指针表，
+     * 无 g_aee_root_vtbl 符号可查）。 */
+    if (trap_address >= TRAMP_BASE &&
+        trap_address < TRAMP_BASE + TRAMP_SIZE) {
+      uint32_t slot = trap_address - TRAMP_BASE;
+      log_error("非法的外部调用: 0x%08X (SHIM槽+0x%X) r0=0x%X r1=0x%X "
+                "r2=0x%X r3=0x%X sp[0]=0x%X sp[4]=0x%X lr=0x%X",
+                trap_address, slot, r0, r1, r2, r3, uc_read32(uc, sp),
+                uc_read32(uc, sp + 4), lr);
+    } else {
+      log_error("非法的外部调用: 0x%08" PRIx32, trap_address);
+    }
+    // pause_console(); // 仅注释掉阻塞，让模拟器继续往下跑（暴露更深的下一层）
     break;
   }
 

@@ -32,22 +32,35 @@ uint32_t zm_shell_Release(uc_engine *uc, uint32_t r0);
  * CLSID 表严格按 RE 反编译（16777219=0x1000003 起，详见 zm_shell.c）：
  *   0x1000003 IFileMgr → FileMgr     0x1000004 INetMgr  → NETMGR
  *   0x1000005 IDisplay → DISPLAY     0x1000009 ITAPI    → TAPI
- *   0x100000B ISetting?→ AUDIO(实测) 0x100000C IMedia   → AP
+ *   0x100000B ISetting → SETTING     0x100000C IMedia(音频) → MEDIA
  *   其余（IGps/IGSensor/IAddrBook/IMemStream/IZip/IStatusBar/IUtil）
  *   尚未实现：*out=0，返回 -3（RE default 语义）。
  */
 uint32_t zm_shell_CreateInstance(uc_engine *uc, uint32_t svc, uint32_t out_ptr);
 
 /**
- * +0x10 GetDeviceInfo(this, info_ptr)：写设备信息。
- * 布局：+0=0, +4=0, +8=ScreenW, +12=ScreenH（取自 AppHeader，
- * 保证 applet 布局与渲染窗口一致）。
+ * +0x10 GetDeviceInfo(this, info_ptr)：写设备信息结构（91 个 dword）。
+ *
+ * 布局（RE：nativeAEEGetDeviceInfo，按 dword 下标）：
+ *   [0]version [1]userid [2]ScreenW [3]ScreenH [4]color_depth [5]dwLang
+ *   [6]cap [7]bKbd [8]bTouchScreen [9]nMaxRam
+ *   [10..]szCompany [14..]szOS [18..]szModel [66..]szBuildDate
+ * 实现先整块清零（与固件 memset 一致），再填 ScreenW/ScreenH（取自
+ * AppHeader，保证 applet 布局与渲染窗口一致）与 bTouchScreen=1；
+ * 其余字段的枚举语义待 RE，暂保持 0。
  */
 uint32_t zm_shell_GetDeviceInfo(uc_engine *uc, uint32_t out_ptr);
 
 /* +0x48 GetTickCount(this)：单调毫秒时间戳（复用 zm_root_get_tick /
  * SDL_GetTicks） */
 uint32_t zm_shell_GetTickCount(uc_engine *uc);
+
+/* +0x30 GetApplet(this, index)：返回当前 applet 实例对象。
+ * RE（nativeAEERepaint）：GetApplet(shell, 0) 返回当前 applet 对象，
+ * 随后调 (*applet_vt+8)(applet, 4, 0, 0) 触发重绘；applet_vt[+8] 即
+ * 事件回调（事件码 4=重绘），与 create_cbk 的 handler 机制一致。
+ * 实现直接返回 g_instance（create_cbk 时记录）。 */
+uint32_t zm_shell_GetApplet(uc_engine *uc, uint32_t index);
 
 /* +0x3C SetTimer / +0x40 CancelTimer / +0x44 CancelOwnerTimer 及到期
  * 派发（sub_34394）已拆至 ../timer/zm_timer.h（zm_timer_*）。 */
@@ -92,6 +105,17 @@ uint32_t zm_tapi_x2C(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
                      uint32_t r3);
 uint32_t zm_tapi_x40(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
                      uint32_t r3);
+
+/* ISetting（0x100000B，g_aee_setting_vtbl @ .data:0x64408，14 槽）通用
+ * stub —— 各槽语义待 RE。 */
+uint32_t zm_setting_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
+                         uint32_t r2, uint32_t r3);
+
+/* ISetting[+0x24]（RE sub_33F4C）。此前被误当作"audio.getStatus"实现。
+ * 保留既有行为：向 out4 与 out_buf[0..2] 写 0 并返回 0 —— 00000405 的
+ * sub_83D44 依赖该返回值与输出做后续分支判断（与 instance[122..124]
+ * 比较），改掉会改变 applet 走向。 */
+uint32_t zm_setting_x24(uc_engine *uc, uint32_t out4, uint32_t out_buf);
 
 /* stub DLL 对象 vtable 方法（loadDLL 返回的 DLL_OBJ） */
 uint32_t zm_dll_init(uc_engine *uc);

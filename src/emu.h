@@ -36,32 +36,59 @@
 
 /* -------------------- shim 虚表地址定义 -------------------- */
 #define ROOT (SHIM_BASE + 0x000U)
-#define SHELL (SHIM_BASE + 0x100U)
-#define SHELL_VT (SHIM_BASE + 0x180U) /* g_aee_shell_vtbl @ .data:0x64440，34 槽 */
-#define FileMgr (SHIM_BASE + 0x300U)
-#define FileMgr_VT (SHIM_BASE + 0x380U)
-#define FILE1 (SHIM_BASE + 0x400U)
-#define FILE_VT (SHIM_BASE + 0x480U)
-#define AUDIO (SHIM_BASE + 0x500U)
-#define AUDIO_VT (SHIM_BASE + 0x580U)
-#define AP (SHIM_BASE + 0x600U)
-#define AP_VT (SHIM_BASE + 0x680U)
-#define DUMMY_BUF (SHIM_BASE + 0x750U)
+/* SHELL 必须避开 ROOT 的函数指针表区。
+ * emu.c 把整个 SHIM 按 4 字节步长填成 TRAMP_BASE+i，因此 ROOT 的表从
+ * 0x000 起连续铺开，已知最高槽 +0x154（create_cbk）→ 表区至少
+ * 0x000..0x158。SHELL 原先在 0x100、字段延伸到 0x218，正好压住
+ * ROOT 的 0x100..0x158 段（+0x154 create_cbk 落在 SHELL+0x54），
+ * 一旦 applet 写 shell 字段就会破坏该槽。现从 0x200 起，给 ROOT
+ * 表留出完整 0x200 字节。 */
+#define SHELL (SHIM_BASE + 0x200U)
+/* SHELL_VT 必须避开 SHELL 的对象字段区。
+ * RE 依据（ZMAEE_IShell_ActiveApplet）：IShell 对象是「vptr + 数据字段」，
+ * 字段至少到 +0x118（读 a1+276 与 a1+280），故对象区约 0x100..0x220。
+ * 虚表原先放在 0x180，正好压在对象 +0x80..+0x108 的字段上——一旦 applet
+ * 直接访问 shell 字段（SDK 内联访问器常见）就会重写虚表，与当初 CBK_OBJ
+ * 踩碎 DISPLAY vptr 的崩溃同型。现移到 0x240（34 槽 → 0x2C8，不与
+ * FileMgr@0x300 冲突）。 */
+/* 对象字段区约 0x200..0x31F，虚表独立放 0x400（34 槽 → 0x488，
+ * 与 FileMgr@0x500 不冲突） */
+#define SHELL_VT (SHIM_BASE + 0x400U) /* g_aee_shell_vtbl @ .data:0x64440，34 槽 */
+#define FileMgr (SHIM_BASE + 0x500U)
+#define FileMgr_VT (SHIM_BASE + 0x580U) /* 16 槽 → 0x5C0 */
+#define FILE1 (SHIM_BASE + 0x600U)
+#define FILE_VT (SHIM_BASE + 0x680U) /* 10 槽 → 0x6A8 */
+#define DUMMY_BUF (SHIM_BASE + 0x700U) /* scratch；至 INIT_CTX@0x800 有 0x100 余量（原 0x750 头顶仅 0xB0） */
+/* 0x100000B ISetting（RE：g_aee_setting_vtbl @ .data:0x64408，14 槽）。
+ * 旧名 AUDIO 是误命名：该对象被用于 +0x14 / +0x24，曾按"音频状态"实现；
+ * 真实接口是 ISetting（配置读写），音频是下面的 MEDIA。 */
+#define SETTING (SHIM_BASE + 0x1800U)
+#define SETTING_VT (SHIM_BASE + 0x1880U) /* 14 槽 → 0x18B8 */
+/* 0x100000C IMedia = 音频（用户确认；RE：g_aee_media_vtbl @ .data:0x640E4，
+ * 25 槽）。旧名 AP 是误命名。 */
+#define MEDIA (SHIM_BASE + 0x1900U)
+#define MEDIA_VT (SHIM_BASE + 0x1980U) /* 25 槽 → 0x19E4 */
 
 //
 
 /* 00000405.app 新增 shim 对象地址（0x800 起，与 DUMMY_BUF@0x750 不冲突） */
 #define INIT_CTX (SHIM_BASE + 0x800U) /* 256B 零填充：init 事件 r3 上下文 */
-/* IShell.CreateInstance 返回的服务对象（RE 实测 CLSID：16777220=INetMgr、
- * 16777225=ITAPI；旧名 SVC04/SVC09 为误命名） */
+/* ---- 服务对象区（每个对象/VT 间隔 0x100+，见下方布局说明）----
+ * 布局教训（00001b62 实测）：applet 会把 root.create_cbk 返回的
+ * CBK_OBJ 当 ≥0x170 字节的大上下文结构体用（+0x48 存 SHELL、+0x4C 起
+ * 存 CreateInstance 服务对象表、+0x128 起填句柄数组）。真实固件里
+ * 各对象在 RAM 中相距甚远，互不干扰；此前的紧凑布局（0x900~0xC00
+ * 挤 7 个对象）被 applet 上下文写入踩碎 DISPLAY vptr / DISPLAY_VT /
+ * DLL_OBJ_VT，导致读回空指针崩溃。现按每对象 0x800~0x100 间隔拉开。 */
 #define NETMGR (SHIM_BASE + 0x900U) /* 0x1000004 INetMgr 服务对象 */
-#define NETMGR_VT (SHIM_BASE + 0x910U)
-#define TAPI (SHIM_BASE + 0x940U) /* 0x1000009 ITAPI 服务对象 */
-#define TAPI_VT (SHIM_BASE + 0x950U)
-#define CBK_OBJ (SHIM_BASE + 0x980U)    /* sub_84E04 返回的回调对象 */
-#define CBK_OBJ_VT (SHIM_BASE + 0x990U) /* 可写：applet 覆写 vt[+8] */
-#define DLL_OBJ (SHIM_BASE + 0x9C0U)    /* loadDLL 返回的 stub DLL 对象 */
-#define DLL_OBJ_VT (SHIM_BASE + 0x9D0U)
+#define NETMGR_VT (SHIM_BASE + 0x980U)
+#define TAPI (SHIM_BASE + 0xA00U) /* 0x1000009 ITAPI 服务对象 */
+#define TAPI_VT (SHIM_BASE + 0xA80U)
+#define CBK_OBJ (SHIM_BASE + 0xB00U)    /* create_cbk 返回对象；
+                                           applet 当大上下文用，留 0x800 */
+#define CBK_OBJ_VT (SHIM_BASE + 0x1300U) /* 可写：applet 覆写 vt[+8] */
+#define DLL_OBJ (SHIM_BASE + 0x1400U)    /* loadDLL 返回的 stub DLL 对象 */
+#define DLL_OBJ_VT (SHIM_BASE + 0x1480U)
 
 /* ---- ZMAEE IDisplay / IBitmap 原生虚表（逆向实测 g_aee_display_vtbl /
  * g_aee_bitmap_vtbl @ .data:0x63E10 / 0x63DF4）----
@@ -69,10 +96,10 @@
  * 是早期对同一张表的误命名（实测偏移与本表吻合），已并入此处。
  * bitmap 由 IDisplay.CreateBitmap/LoadBitmap 创建，这里用单个 BITMAP 单例
  * 作为所有 bitmap 对象的 vtable 模板（真实多实例后续再扩展）。 */
-#define DISPLAY (SHIM_BASE + 0xA00U)    /* 全局 display 对象（0x1000005） */
-#define DISPLAY_VT (SHIM_BASE + 0xA80U) /* 58 槽 ×4B = 0xE8 */
-#define BITMAP (SHIM_BASE + 0xB80U)     /* bitmap 单例对象 */
-#define BITMAP_VT (SHIM_BASE + 0xC00U)  /* 7 槽 ×4B = 0x1C */
+#define DISPLAY (SHIM_BASE + 0x1500U)   /* 全局 display 对象（0x1000005） */
+#define DISPLAY_VT (SHIM_BASE + 0x1580U) /* 58 槽 ×4B = 0xE8 */
+#define BITMAP (SHIM_BASE + 0x1700U)     /* bitmap 单例对象 */
+#define BITMAP_VT (SHIM_BASE + 0x1780U)  /* 7 槽 ×4B = 0x1C */
 
 //
 #define SIZE_SLOT                                                              \
@@ -164,17 +191,92 @@
  * 注：seek 的参数序（whence/offset 谁在前）尚无 applet 覆盖验证，
  * 保持现状未改动；若后续有 applet 用到 seek，需用 RE 数据核对。
  */
+/* ---- ZMAEE IFileMgr 原生虚表（RE 实测：g_filemgr_vtbl @ .data:00064038，
+ * 16 槽；紧随 gAEEFileVtbl @0x64010 之后）----
+ *   +0x00 sub_29DE8  +0x04 sub_29DF0   （惯例 AddRef/Release）
+ *   +0x08 ZMAEE_IFileMgr_OpenFile
+ *   +0x0C sub_2A550  +0x10 sub_2A4E0  +0x14 sub_2A45C  +0x18 sub_2A3F4
+ *   +0x1C sub_2A344  +0x20 sub_2A7BC  +0x24 sub_2A2D0  +0x28 sub_29EA0
+ *   +0x2C sub_29E7C  +0x30 sub_29E40  +0x34 sub_29E08  +0x38 sub_29E00
+ * 注：+0x30 RE 已证伪"enumFile"旧说——实为存储区支持查询
+ * （a2: 0→'C'内置盘，1→'E'，>=2→SD 挂载?'T':0）。
+ * +0x20 RE=sub_2A7BC：TestFile 存在性检查（ConvertFileName 分派
+ * 包内/ assets.zip / 文件系统三路），非目录枚举；枚举槽待 RE。 */
+#define TR_fileMgr_AddRef TRAP(FileMgr_VT + 0x00U)
+#define TR_fileMgr_Release TRAP(FileMgr_VT + 0x04U)
 #define TR_fileMgr_open_file TRAP(FileMgr_VT + 0x08U)
+#define TR_fileMgr_x0C TRAP(FileMgr_VT + 0x0CU)  /* RE sub_2A550 */
+#define TR_fileMgr_x10 TRAP(FileMgr_VT + 0x10U)  /* RE sub_2A4E0 */
+#define TR_fileMgr_x14 TRAP(FileMgr_VT + 0x14U)  /* RE sub_2A45C */
+#define TR_fileMgr_x18 TRAP(FileMgr_VT + 0x18U)  /* RE sub_2A3F4 */
+#define TR_fileMgr_x1C TRAP(FileMgr_VT + 0x1CU)  /* RE sub_2A344 */
+#define TR_fileMgr_x20 TRAP(FileMgr_VT + 0x20U)  /* RE sub_2A7BC（00001b62 高频） */
+#define TR_fileMgr_x24 TRAP(FileMgr_VT + 0x24U)  /* RE sub_2A2D0 */
+#define TR_fileMgr_x28 TRAP(FileMgr_VT + 0x28U)  /* RE sub_29EA0 */
+#define TR_fileMgr_x2C TRAP(FileMgr_VT + 0x2CU)  /* RE sub_29E7C */
+#define TR_fileMgr_x30 TRAP(FileMgr_VT + 0x30U)  /* RE sub_29E40（旧称 enumFile） */
+#define TR_fileMgr_x34 TRAP(FileMgr_VT + 0x34U)  /* RE sub_29E08 */
+#define TR_fileMgr_x38 TRAP(FileMgr_VT + 0x38U)  /* RE sub_29E00 */
 #define TR_file_close TRAP(FILE_VT + 0x04U) /* Release */
 #define TR_file_read TRAP(FILE_VT + 0x08U)
 #define TR_file_seek TRAP(FILE_VT + 0x20U)
 #define TR_file_tell TRAP(FILE_VT + 0x24U) /* Tell：返回当前读写位置 */
-// audio
+/* ---- ZMAEE IMedia 原生虚表（RE：g_aee_media_vtbl @ .data:0x640E4，25 槽）
+ * ---- IMedia 即音频（用户确认）。偏移逐槽按 RE：
+ *   +0x00 sub_32BC8(AddRef)  +0x04 sub_32BCC(Release)  +0x08 sub_32BD0
+ *   +0x0C sub_32BD8          +0x10 sub_32E80(play)     +0x14 sub_32D0C(stop)
+ *   +0x18 sub_32CE8  +0x1C sub_32CC4  +0x20 sub_32DF8  +0x24 sub_32DD8
+ *   +0x28 sub_32DB4  +0x2C sub_32D4C  +0x30 sub_32C60  +0x34 sub_32C00
+ *   +0x38 sub_32BDC  +0x3C sub_32BE4  +0x40 sub_32BE8  +0x44 sub_32BF0
+ *   +0x48 sub_32BF4  +0x4C sub_32BF8  +0x50 sub_32BFC  +0x54 sub_33128
+ *   +0x58 sub_32D44
+ * play/stop 已有真实 SDL_mixer 实现；其余接 zm_media_stub。 */
+#define TR_media_AddRef TRAP(MEDIA_VT + 0x00U)
+#define TR_media_Release TRAP(MEDIA_VT + 0x04U)
+#define TR_media_x08 TRAP(MEDIA_VT + 0x08U)
+#define TR_media_x0C TRAP(MEDIA_VT + 0x0CU)
+#define TR_media_play TRAP(MEDIA_VT + 0x10U)
+#define TR_media_stop TRAP(MEDIA_VT + 0x14U)
+#define TR_media_x18 TRAP(MEDIA_VT + 0x18U)
+#define TR_media_x1C TRAP(MEDIA_VT + 0x1CU)
+#define TR_media_x20 TRAP(MEDIA_VT + 0x20U)
+#define TR_media_x24 TRAP(MEDIA_VT + 0x24U)
+#define TR_media_x28 TRAP(MEDIA_VT + 0x28U)
+#define TR_media_x2C TRAP(MEDIA_VT + 0x2CU)
+#define TR_media_x30 TRAP(MEDIA_VT + 0x30U)
+#define TR_media_x34 TRAP(MEDIA_VT + 0x34U)
+#define TR_media_x38 TRAP(MEDIA_VT + 0x38U)
+#define TR_media_x3C TRAP(MEDIA_VT + 0x3CU)
+#define TR_media_x40 TRAP(MEDIA_VT + 0x40U)
+#define TR_media_x44 TRAP(MEDIA_VT + 0x44U)
+#define TR_media_x48 TRAP(MEDIA_VT + 0x48U)
+#define TR_media_x4C TRAP(MEDIA_VT + 0x4CU)
+#define TR_media_x50 TRAP(MEDIA_VT + 0x50U)
+#define TR_media_x54 TRAP(MEDIA_VT + 0x54U)
+#define TR_media_x58 TRAP(MEDIA_VT + 0x58U)
 
-#define TR_audio_stop TRAP(AUDIO_VT + 0x14U)
-#define TR_ap_play TRAP(AP_VT + 0x10U)
-#define TR_ap_stop TRAP(AP_VT + 0x14U)
-#define TR_audio_get_status TRAP(AUDIO_VT + 0x24U) /* AUDIO_VT[0x24] */
+/* ---- ZMAEE ISetting 原生虚表（RE：g_aee_setting_vtbl @ .data:0x64408，
+ * 14 槽）----
+ *   +0x00 sub_33D60  +0x04 sub_34118  +0x08 sub_34050  +0x0C sub_33D74
+ *   +0x10 sub_33D78  +0x14 sub_33D7C  +0x18 sub_33FB4  +0x1C sub_33E2C
+ *   +0x20 sub_33EFC  +0x24 sub_33F4C  +0x28 sub_33D80  +0x2C sub_33D84
+ *   +0x30 sub_33E98  +0x34 sub_33DFC
+ * 语义待各自 RE；+0x24 保留"写 0 到 out4/out_buf"的既有行为（applet
+ * 依赖它做后续分支判断），其余接 zm_setting_stub。 */
+#define TR_setting_AddRef TRAP(SETTING_VT + 0x00U)
+#define TR_setting_Release TRAP(SETTING_VT + 0x04U)
+#define TR_setting_x08 TRAP(SETTING_VT + 0x08U)
+#define TR_setting_x0C TRAP(SETTING_VT + 0x0CU)
+#define TR_setting_x10 TRAP(SETTING_VT + 0x10U)
+#define TR_setting_x14 TRAP(SETTING_VT + 0x14U)
+#define TR_setting_x18 TRAP(SETTING_VT + 0x18U)
+#define TR_setting_x1C TRAP(SETTING_VT + 0x1CU)
+#define TR_setting_x20 TRAP(SETTING_VT + 0x20U)
+#define TR_setting_x24 TRAP(SETTING_VT + 0x24U)
+#define TR_setting_x28 TRAP(SETTING_VT + 0x28U)
+#define TR_setting_x2C TRAP(SETTING_VT + 0x2CU)
+#define TR_setting_x30 TRAP(SETTING_VT + 0x30U)
+#define TR_setting_x34 TRAP(SETTING_VT + 0x34U)
 
 /* 00000405.app：FS vtable 缺失槽 */
 #define TR_fs_enum TRAP(FS_VT + 0x30U) /* FS_VT[0x30]：enumFile */
@@ -187,8 +289,13 @@
  * 注意这一段的偏移与注释普遍对不上，其他条目待逐个用真实 applet 验证。
  */
 #define TR_root_memset TRAP(ROOT + 0x60U)
-#define TR_root_x74 TRAP(ROOT + 0x29U)
-#define TR_root_str_assign TRAP(ROOT + 0x30U) /* ROOT[0x78] */
+/* +0x50 memcmp（RE zmaee_memcmp @0x363E8，tramp 桩 0xb9b50）；+0x5C memcpy
+ * （RE zmaee_memcpy @0x36470，桩 0xb9b40）。00001b62 调用现场+返回值用法确认。 */
+#define TR_root_memcmp TRAP(ROOT + 0x50U)
+#define TR_root_memcpy TRAP(ROOT + 0x5CU)
+/* +0x90 strchr：调用现场 r1='r' + strb 写回，strchr 家族 */
+#define TR_root_strchr TRAP(ROOT + 0x90U)
+#define TR_root_str_assign TRAP(ROOT + 0x78U) /* str_assign(str_obj, cstr) */
 #define TR_root_get_tick TRAP(ROOT + 0xD8U)   /* ROOT[0xD8] */
 #define TR_root_x12C TRAP(ROOT + 0x12CU)
 #define TR_root_x130 TRAP(ROOT + 0x130U)
@@ -206,7 +313,6 @@
 #define TR_tapi_release TRAP(TAPI_VT + 0x04U)
 #define TR_tapi_x2C TRAP(TAPI_VT + 0x2CU)
 #define TR_tapi_x40 TRAP(TAPI_VT + 0x40U)
-#define TR_fs_release TRAP(FileMgr_VT + 0x04U)
 #define TR_dll_init TRAP(DLL_OBJ_VT + 0x08U)
 #define TR_dll_config TRAP(DLL_OBJ_VT + 0x0CU)
 #define TR_dll_entry TRAP(DLL_OBJ_VT + 0x10U)

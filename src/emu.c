@@ -68,6 +68,8 @@ int zm_emu_build_vtables() {
       return -1;
     }
   }
+  log_info("布局: SHIM_BASE=0x%X TRAMP_BASE=0x%X ROOT=0x%X SHELL=0x%X",
+           SHIM_BASE, TRAMP_BASE, ROOT, SHELL);
   // root
   err = uc_write32(g_uc, ROOT, TR_root_getShell);
 
@@ -81,9 +83,9 @@ int zm_emu_build_vtables() {
   err = uc_write32(g_uc, FileMgr, FileMgr_VT);
   err = uc_write32(g_uc, FILE1, FILE_VT);
 
-  // audio
-  err = uc_write32(g_uc, AUDIO, AUDIO_VT);
-  err = uc_write32(g_uc, AP, AP_VT);
+  // ISetting（0x100000B）/ IMedia 音频（0x100000C）
+  err = uc_write32(g_uc, SETTING, SETTING_VT);
+  err = uc_write32(g_uc, MEDIA, MEDIA_VT);
 
   /* ---- IShell.CreateInstance 返回的服务对象 ----
    * NETMGR=0x1000004(INetMgr)、TAPI=0x1000009(ITAPI)。
