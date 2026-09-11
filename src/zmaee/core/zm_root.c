@@ -47,6 +47,34 @@ uint32_t zm_root_create_cbk(uc_engine *uc) {
 }
 
 /* ROOT[0xD8]：返回 SDL_GetTicks() 时间戳 */
+uint32_t zm_root_x68C(uc_engine *uc, uint32_t obj, uint32_t out_buf,
+                      uint32_t len, uint32_t self) {
+  (void)self;
+  if (obj == 0)
+    return 0;
+
+  uint32_t head = 0;
+  if (uc_mem_read(uc, obj, &head, 4) != UC_ERR_OK)
+    return 0;
+
+  /* 把对象的载荷（+0x14 起，若可读）拷进调用方缓冲。
+   * 真机这里做的是"惰性加载资源数据"，模拟器没有对应的数据源，
+   * 保持缓冲原样、只回填头字段即可保证调用方不读飞。 */
+  if (out_buf && len) {
+    uint32_t src = obj + 0x14;
+    uint8_t probe = 0;
+    if (uc_mem_read(uc, src, &probe, 1) == UC_ERR_OK) {
+      uint32_t n = len > 0x40 ? 0x40 : len;
+      uint8_t tmp[0x40];
+      if (uc_mem_read(uc, src, tmp, n) == UC_ERR_OK)
+        uc_mem_write(uc, out_buf, tmp, n);
+    }
+  }
+  log_debug("root[0x68C]: obj=0x%X head=%u out=0x%X len=%u", obj, head, out_buf,
+            len);
+  return head;
+}
+
 uint32_t zm_root_get_tick(uc_engine *uc) {
   (void)uc;
   return (uint32_t)SDL_GetTicks();

@@ -12,7 +12,21 @@
 #define ONE_MB (0x100000U)
 #define HALF_MB (0x80000U)
 //
-#define BLOB_BASE (0x80000U)
+/* payload 在客户机中的映射基址。
+ *
+ * 关键：applet 的**绝对地址体系就是"文件偏移"**，payload 必须映射到低地址。
+ * 证据（00000506）：
+ *   1) payload 内的字面量池项是 IDA 标注的相对表达式，例如
+ *        off_18D68 DCD loc_188 - 0x18B38   （实际值 0xFFFE7650）
+ *      按 VA = 文件偏移 还原得到目标 0x3C0（sub_3A0 的指令），198/198 项全部
+ *      落在 payload 范围内；而若按 VA = 偏移 + 0x80000 还原则一项都对不上。
+ *   2) 入口 stub（文件偏移 0x188）经 ROOT 槽写入的 handler = 0x11108C，
+ *      它是 applet 自己算出的绝对地址；只有 VA = 文件偏移时该地址才落在
+ *      payload 内部（否则读到的是未映射内存里的全 0，执行后 PC 飞出）。
+ *
+ * 因此这里保持 0：applet 被映射到 [0, payload_size)，其内部绝对地址直接可用。
+ * （0 页不映射，payload 实际落在 [0x1000, payload_size) 的映射区间内。） */
+#define BLOB_BASE (0x0U)
 #define BLOB_SIZE (1 * ONE_MB)
 
 #define STACK_BASE (BLOB_BASE + BLOB_SIZE)
@@ -35,6 +49,22 @@
 #define APPLET_ENTRY_POINT (BLOB_BASE + APPLET_ENTRY_OFF)
 
 /* -------------------- shim 虚表地址定义 -------------------- */
+/* ---- 客户机可见的"显示层"像素缓冲 ----
+ *
+ * applet 通过 IDisplay::GetLayerInfo(disp, 1, &info) 取 layer_info，其中
+ *   info[0xC] = 宽、info[0x10] = 高（已实测确认），
+ *   info[0x24] = **层像素缓冲指针**（逆向 sub_10248 @0x10318-0x1033C：
+ *     surf[0x0]=info[0xC] 宽、surf[0x4]=info[0x10] 高、surf[0x8]=1(格式)、
+ *     surf[0x1C]=info[0x24] → 随后把 surf 作为 BitBlt 的源）。
+ *
+ * 模拟器把这块缓冲放在 SHIM 区（0x8000 起，避开已用的表区），布局为
+ * RGB565、宽高 LAYER_W×LAYER_H；applet 直接读写它，present 时再转成
+ * ARGB 上传到 SDL 纹理显示。 */
+#define LAYER_W 240
+#define LAYER_H 320
+#define LAYER_BUF (SHIM_BASE + 0x8000U)
+#define LAYER_BUF_SIZE (LAYER_W * LAYER_H * 2)
+
 #define ROOT (SHIM_BASE + 0x000U)
 /* SHELL 必须避开 ROOT 的函数指针表区。
  * emu.c 把整个 SHIM 按 4 字节步长填成 TRAMP_BASE+i，因此 ROOT 的表从
@@ -98,8 +128,37 @@
  * 作为所有 bitmap 对象的 vtable 模板（真实多实例后续再扩展）。 */
 #define DISPLAY (SHIM_BASE + 0x1500U)   /* 全局 display 对象（0x1000005） */
 #define DISPLAY_VT (SHIM_BASE + 0x1580U) /* 58 槽 ×4B = 0xE8 */
-#define BITMAP (SHIM_BASE + 0x1700U)     /* bitmap 单例对象 */
+#define BITMAP (SHIM_BASE + 0x1700U)     /* bitmap 单例对象（CreateBitmap 旧桩） */
 #define BITMAP_VT (SHIM_BASE + 0x1780U)  /* 7 槽 ×4B = 0x1C */
+
+/* ---- ZMAEE ImageEntry：IDisplay::CreateImage 返回的**数据对象** ----
+ * 逆向（00000506 sub_3644 → sub_37B4 → vt[0xAC] BitBlt）：
+ *   entry  = CreateImage(disp, alloc, free, &entry)
+ *   entry->vt[8] : SetData(entry, 0, name, strlen(name))   ← 文件名，非文件句柄
+ *   entry->vt[28]: Decode(entry, alloc, free, &surf, 0)    ← 出绘制用 surface
+ *   entry[4]  : 逐帧偏移表指针
+ *   entry[8]  : 解码后像素基址（surface，传给 BitBlt 的就是这个）
+ *   entry[0x38]: 名字/相对路径（"%s\\%s" 的第二个 %s）
+ * 即 BitBlt 的 surface 参数 = entry+8（真图形对象），不是 entry 本身。
+ * 注意：游戏里绝大多数 BitBlt 的 surface 其实是 applet **自己在栈上构造**
+ * 的 ZMAEE_GDI_Surface（{宽,高,位深,透明色}+像素），见 zm_image.h。
+ * 两者都用 IMAGE_POOL 的槽（entry 在前，surf 紧随其后一个槽），
+ * 因此池容量按“每张图 2 个槽”规划。 */
+#define IMAGE_ENTRY_OFF_SURF 0x08U
+
+/* ---- IImage / 解码 IBitmap 对象池 ----
+ * IDisplay::CreateImage(alloc, free, &out) 造的 IImage 与
+ * IImage::Decode 解出的 IBitmap 在真实固件里是**堆对象**（尺寸/格式随图变），
+ * applet 只经虚表使用、不摸字段，因此这里用固定地址池 + 宿主侧记录表实现多实例
+ * （旧实现返回 0/单例，导致 applet 拿到空指针直接崩）。
+ * 池区从 0x2000 起（SETTING/MEDIA 之后），每对象 0x40 字节。 */
+#define IMAGE_POOL (SHIM_BASE + 0x2000U)  /* 64 × 0x40 = 0x1000 */
+#define IMAGE_VT (SHIM_BASE + 0x3000U)    /* 32 槽 ×4B = 0x80 */
+#define IMAGE_SLOT_SIZE 0x40U
+#define IMAGE_SLOT_COUNT 64
+#define BITMAP_POOL (SHIM_BASE + 0x3100U) /* 64 × 0x40 = 0x1000 */
+#define BITMAP_SLOT_SIZE 0x40U
+#define BITMAP_SLOT_COUNT 64
 
 //
 #define SIZE_SLOT                                                              \
@@ -122,6 +181,11 @@
 #define TR_root_sprintf TRAP(ROOT + 0x6cU)
 #define TR_root_str_ctor TRAP(ROOT + 0x88U)
 #define TR_root_spec_lookup TRAP(ROOT + 0xa4U)
+
+/* ROOT+0xB0 = zmaee_strstr(haystack, needle)：子串查找。
+ * applet 用它判断资源名后缀（如 strstr(name, ".zbmp")），
+ * 未实现会导致 .zbmp 资源被误判成 png → 走错加载分支而崩溃。 */
+#define TR_root_strstr TRAP(ROOT + 0xb0U)
 #define TR_root_str_find TRAP(ROOT + 0xa8U)
 // runtime
 /*
@@ -303,6 +367,12 @@
 #define TR_root_create_cbk TRAP(ROOT + 0x154U)
 #define TR_root_x16C TRAP(ROOT + 0x16CU)
 
+/* ROOT+0x68C（经 00000506 实测：r0 指向含 "data" 的对象 0x820600，
+ * r1 是个 0x40 字节缓冲，r2=0x28，r3=调用槽地址本身）。
+ * 语义按 zmaee 的惰性资源加载（"resourceData" 的包装对象）处理，
+ * 见 zm_root_x68C：把对象数据拷进调用方缓冲，并返回对象首字段。 */
+#define TR_root_x68C TRAP(ROOT + 0x68CU)
+
 /* ---- 服务对象 / FS / DLL / CBK trap ----
  * 旧「索引 46..57」方案把这些宏挂在 ROOT+0x2E..0x3F 的伪造索引上，与
  * SHIM↔TRAMP 对射派发不符：applet 经对象虚表发起的真实调用落在各自
@@ -381,6 +451,59 @@
 #define TR_display_PopAndRestoreAlphaLayer TRAP(DISPLAY_VT + 0xDCU)
 #define TR_display_RotateScreen TRAP(DISPLAY_VT + 0xE0U)
 
+/* ---- ZMAEE IImage 原生虚表（IDisplay::CreateImage 造出的解码器对象）----
+ * 槽位按 00000506 sub_313C / 88AB8 等资源加载现场定：
+ *   +0x08 SetData(this, 0, name_ptr, len) —— 按文件名装入（0=成功）
+ *   +0x10 / +0x14                        —— 无参准备调用（applet 不看返回值）
+ *   +0x1C Decode(this, alloc, free, &bmp, 0) —— 解码出 IBitmap（0=成功）
+ * 其余槽接 zm_image_stub，保证不落"非法的外部调用"。 */
+#define TR_image_AddRef TRAP(IMAGE_VT + 0x00U)
+#define TR_image_Release TRAP(IMAGE_VT + 0x04U)
+#define TR_image_SetData TRAP(IMAGE_VT + 0x08U)
+#define TR_image_x0C TRAP(IMAGE_VT + 0x0CU)
+#define TR_image_x10 TRAP(IMAGE_VT + 0x10U)
+#define TR_image_x14 TRAP(IMAGE_VT + 0x14U)
+#define TR_image_Width TRAP(IMAGE_VT + 0x18U)
+#define TR_image_Decode TRAP(IMAGE_VT + 0x1CU)
+/* ---- ZMAEE surface 门面虚表（IImage::Decode 的 out 对象）----
+ * 对象字段（00000506 运行期确认）：
+ *   +0 = vt   +4 = 原始 surface 指针   +8 = 宽   +0xC = 高
+ * 关键槽（逆向 sub_388 type1 / sub_4A0）：
+ *   +0x10 GetRect(this, out) → 写 int16 矩形 {l,t,r,b}（分派器据此绘制）
+ * 其它槽按对象族的常规顺序给安全的空实现/固定值，避免落到"非法外部调用"。
+ * 共 21 槽（0x54 字节）。 */
+#define SURF_VT (SHIM_BASE + 0x3200U)
+#define TR_surf_release TRAP(SURF_VT + 0x00U)  /* 析构 */
+#define TR_surf_x04 TRAP(SURF_VT + 0x04U)
+#define TR_surf_x08 TRAP(SURF_VT + 0x08U)
+#define TR_surf_x0C TRAP(SURF_VT + 0x0CU)
+#define TR_surf_getrect TRAP(SURF_VT + 0x10U)  /* GetRect(this,out)：实测使用 */
+#define TR_surf_x14 TRAP(SURF_VT + 0x14U)
+#define TR_surf_x18 TRAP(SURF_VT + 0x18U)
+#define TR_surf_x1C TRAP(SURF_VT + 0x1CU)
+#define TR_surf_x20 TRAP(SURF_VT + 0x20U)
+#define TR_surf_x24 TRAP(SURF_VT + 0x24U)
+#define TR_surf_x28 TRAP(SURF_VT + 0x28U)
+#define TR_surf_x2C TRAP(SURF_VT + 0x2CU)
+#define TR_surf_x30 TRAP(SURF_VT + 0x30U)
+#define TR_surf_x34 TRAP(SURF_VT + 0x34U)
+#define TR_surf_x38 TRAP(SURF_VT + 0x38U)
+#define TR_surf_x3C TRAP(SURF_VT + 0x3CU)
+#define TR_surf_x40 TRAP(SURF_VT + 0x40U)
+#define TR_surf_x44 TRAP(SURF_VT + 0x44U)
+#define TR_surf_x48 TRAP(SURF_VT + 0x48U)
+#define TR_surf_x4C TRAP(SURF_VT + 0x4CU)
+#define TR_surf_x50 TRAP(SURF_VT + 0x50U)
+
+#define TR_image_x20 TRAP(IMAGE_VT + 0x20U)
+#define TR_image_x24 TRAP(IMAGE_VT + 0x24U)
+#define TR_image_x28 TRAP(IMAGE_VT + 0x28U)
+#define TR_image_x2C TRAP(IMAGE_VT + 0x2CU)
+#define TR_image_x30 TRAP(IMAGE_VT + 0x30U)
+#define TR_image_x34 TRAP(IMAGE_VT + 0x34U)
+#define TR_image_x38 TRAP(IMAGE_VT + 0x38U)
+#define TR_image_x3C TRAP(IMAGE_VT + 0x3CU)
+
 /* ---- ZMAEE IBitmap 原生虚表（g_aee_bitmap_vtbl @ .data:0x63DF4）----
  * +0x0C/0x14/0x18 是 sub_25F78/sub_25F84/sub_25FF8（未知），接 stub。 */
 #define TR_bitmap_AddRef TRAP(BITMAP_VT + 0x00U)
@@ -397,6 +520,17 @@
 
 // 事件回调因为 apple 是没有主循环的所以要用外部来完成这个主循环
 #define TR_enter_event_loop TRAP(ROOT + 0x1180U)
+
+/* TR_init_callback 执行期间，applet 会调用 ROOT+0x1184 把事件循环的入口
+ * 传出来（"注册主循环"）。模拟器据此单独调用 handler，而不是依赖那个
+ * 已经退化的 LR 约定——实测 00000506 的 init 顺序是
+ *   ROOT+0x1184(handler) → ROOT+0x118c() → 返回
+ * 所以必须真正注册，否则像 00000506 这类 applet 会在 init 返回后
+ * 直接退出（PC 飞出 blob）。 */
+#define TR_register_event_loop TRAP(ROOT + 0x1184U)
+
+/* applet 通过它向宿主请求退出（实测 00000506 参数字符串为 "aborted"）。 */
+#define TR_abort TRAP(ROOT + 0x0014U)
 
 // -------------------- 全局变量 --------------------
 extern uc_engine *g_uc;
@@ -422,6 +556,8 @@ extern int g_ulibc_heap;
 
 extern uint32_t g_instance;
 extern uint32_t g_handler;
+/* applet 通过 ROOT+0x1184 注册的事件循环入口（0 = 未注册） */
+extern uint32_t g_registered_loop;
 extern int g_trap_pause;
 extern int g_disasm;
 

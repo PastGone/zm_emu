@@ -20,6 +20,10 @@ target("zm_emu")
     -- add_defines("LOG_USE_COLOR")  -- <--- 添加这一行来启用颜色输出 log/log.h
     add_ldflags("-Wl,--allow-multiple-definition")
 
+    -- IImage 资源解码需要 PNG/JPEG（applet 的 res/*.png|*.jpg 由固件
+    -- 的 IImage 解码后交给 IDisplay 绘制；模拟器用系统 libpng/libjpeg 实现）
+    add_syslinks("png16", "jpeg", "z", "m")
+
 -- 
     add_packages("libsdl2") -- 链接 SDL2 库
     add_packages("libsdl2_ttf") -- 链接 SDL2_ttf 库

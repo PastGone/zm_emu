@@ -46,7 +46,7 @@ bool hook_mem_unmapped(uc_engine *uc, uc_mem_type type, uint64_t address,
   /* 调试：dump applet 固定区 0x180 的 ROOT 指针与 ROOT 表前 16 字节，
    * 定位 sub_84410 读 [ROOT+8] 得到 0 的原因。 */
   uint32_t root_slot = 0, root0 = 0, root8 = 0, rootc = 0;
-  uc_mem_read(uc, 0x80000 + 0x180, &root_slot, 4);
+  uc_mem_read(uc, BLOB_BASE + ROOT_SLOT_OFF, &root_slot, 4);
   uc_mem_read(uc, root_slot + 0, &root0, 4);
   uc_mem_read(uc, root_slot + 8, &root8, 4);
   uc_mem_read(uc, root_slot + 0xC, &rootc, 4);

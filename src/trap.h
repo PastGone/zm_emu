@@ -16,4 +16,13 @@
  */
 void handle_trap(uc_engine *uc, uint32_t trap_address);
 
+/**
+ * @brief 读取第 n 个客户机调用参数（n=0.. 对应 r0/r1/r2/r3/栈）
+ *
+ * 前提：当前 PC 必须停在被调函数的第一条指令（trap 入口即如此），
+ * 此时 r0..r3 是前 4 个参数，第 5 个起在 SP + (n-4)*4。
+ * 供 display/image 等需要 5 个以上参数的槽使用。
+ */
+uint32_t getArg(uc_engine *uc, uint32_t n);
+
 #endif
