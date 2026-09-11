@@ -34,6 +34,17 @@
  *                  u_va_start_ap() / u_va_start_va()：直接吃客户机 va_list
  *                  （ARM 上 va_list 就是一个指向下一个参数的指针）。
  *
+ *   U_VA_MEM8  —— 【SDK 的 sprintf 转发格式，实测 31 个 applet 全部一致】
+ *                  参数区由 applet 自带的"溢出变参"助手构造：
+ *                      +0   : 变参个数（dword）
+ *                      +4   : 第 1 个变参（4 字节值）
+ *                      +12  : 第 2 个变参
+ *                      ...    即每个槽 8 字节，值放在槽首
+ *                  整型/指针取 4 字节；double 由助手写 8 字节（会跨到下一槽
+ *                  起始处），因此 64 位值需要连读 8 字节。
+ *                  applet 的 sprintf 包装（如 00000506 sub_18EDC /
+ *                  00001b62 同型代码）把该区地址放在 r2 后调用 ROOT[0x6C]。
+ *
  *   U_VA_ARRAY —— 参数已在宿主侧 uint32_t 数组里（老 trap 处理函数常用），
  *                  零拷贝，最省事。
  *
@@ -47,7 +58,7 @@
 #include <stdint.h>
 #include <unicorn/unicorn.h>
 
-enum { U_VA_REGS = 0, U_VA_MEM = 1, U_VA_ARRAY = 2 };
+enum { U_VA_REGS = 0, U_VA_MEM = 1, U_VA_ARRAY = 2, U_VA_MEM8 = 3 };
 
 typedef struct {
   uc_engine *uc;
@@ -65,6 +76,13 @@ void u_va_start_regs(u_va *va, uc_engine *uc, uint32_t n_named);
 
 /** 所有参数连续存放在客户机 addr；第 i 个参数在 addr + i*4 */
 void u_va_start_mem(u_va *va, uc_engine *uc, uint32_t addr, uint32_t n_named);
+
+/**
+ * SDK 的 sprintf 变参区（见文件头 U_VA_MEM8 说明）：
+ *   addr + 0    : 变参个数
+ *   addr + 4 + i*8 : 第 i 个变参（4 字节值；double 为 8 字节）
+ */
+void u_va_start_mem8(u_va *va, uc_engine *uc, uint32_t addr, uint32_t n_named);
 
 /** 所有参数在宿主数组里 */
 void u_va_start_array(u_va *va, const uint32_t *args, uint32_t nargs);

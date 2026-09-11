@@ -33,6 +33,15 @@ uint32_t zm_fileMgr_StorageSupport(uc_engine *uc, uint32_t r0, uint32_t type);
 /* 释放 FS 资源（空实现，保留接口兼容） */
 uint32_t zm_fs_release(uc_engine *uc);
 
+/* 宿主侧整文件读取（供 IImage 等模块直接加载资源）：见下方实现注释 */
+
+/* ---------- 宿主侧整文件读取（供 IImage 等模块直接加载资源） ----------
+ * name：固件风格文件名（如 "res\\index_bg.jpg"，反斜杠/盘符由
+ *       convert_file_name 归一化后映射到数据目录）。
+ * 成功：返回 0，*out_buf 为 malloc 的缓冲区（调用方负责 free），
+ *       *out_len 为字节数；失败：返回 -1，*out_buf=NULL、*out_len=0。 */
+int zm_fs_read_file(const char *name, uint8_t **out_buf, size_t *out_len);
+
 /* 默认初始化：设置数据目录（不扫描任何文件） */
 void zm_fs_register_default(const char *applet_dir);
 

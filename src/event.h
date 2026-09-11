@@ -32,6 +32,15 @@ void dispatch_applet_event(uint32_t evt, uint32_t x, uint32_t y);
 void on_touch_click(uint32_t x, uint32_t y);
 
 /**
+ * @brief 把 SDL 鼠标拖动转发为 applet 触摸移动事件（evt=11 PEN_MOVE）
+ *
+ * 事件码语义（实测 00000506 sub_80FC 的分发表）：
+ *   evt=9/10/11 都落到 loc_8478 → obj->vt[0x1C](obj, x, y)
+ * 即按下/抬起/移动走同一个处理函数，applet 自己按坐标变化判断拖动。
+ */
+void on_touch_move(uint32_t x, uint32_t y);
+
+/**
  * @brief 检查并派发待处理的触摸事件（case 10 penUp）
  * @return true  有待处理事件，已设置寄存器，调用者应让模拟器执行 handler
  * @return false 无待处理事件

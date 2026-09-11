@@ -314,6 +314,69 @@ uint32_t zm_fs_release(uc_engine *uc) {
   return 0;
 }
 
+/* 宿主侧整文件读取：与 open_file 同一套路径解析（数据目录 / app_list 回退），
+ * 但不占用 FILE1 单例句柄——IImage 这类"内部再读一个文件"的场景必须用它，
+ * 否则会把 applet 正在解析的文件句柄顶掉。 */
+int zm_fs_read_file(const char *name, uint8_t **out_buf, size_t *out_len) {
+  if (out_buf)
+    *out_buf = NULL;
+  if (out_len)
+    *out_len = 0;
+  if (!name || !name[0] || !out_buf || !out_len)
+    return -1;
+
+  char utf[256];
+  if (has_high_byte(name) && gbk_to_utf8(name, utf, sizeof(utf)) > 0)
+    name = utf;
+
+  char rel[512];
+  if (convert_file_name(name, rel, sizeof(rel)) < 0)
+    return -1;
+
+  FILE *fp = NULL;
+  char full[1280];
+  if (s_data_dir[0]) {
+    snprintf(full, sizeof(full), "%s%s", s_data_dir, rel);
+    fp = fopen(full, "rb");
+    if (!fp) {
+      snprintf(full, sizeof(full), "%s/app_list%s", s_data_dir, rel);
+      fp = fopen(full, "rb");
+    }
+  }
+  if (!fp) {
+    fp = fopen(rel + 1, "rb"); /* 相对 CWD（rel 以 '/' 开头） */
+    if (fp)
+      snprintf(full, sizeof(full), "%s", rel + 1);
+  }
+  if (!fp) {
+    log_warn("zm_fs_read_file: 找不到文件 \"%s\"", name);
+    return -1;
+  }
+
+  fseek(fp, 0, SEEK_END);
+  long sz = ftell(fp);
+  fseek(fp, 0, SEEK_SET);
+  if (sz < 0) {
+    fclose(fp);
+    return -1;
+  }
+  uint8_t *buf = malloc((size_t)sz ? (size_t)sz : 1);
+  if (!buf) {
+    fclose(fp);
+    return -1;
+  }
+  if (sz > 0 && fread(buf, 1, (size_t)sz, fp) != (size_t)sz) {
+    free(buf);
+    fclose(fp);
+    return -1;
+  }
+  fclose(fp);
+  *out_buf = buf;
+  *out_len = (size_t)sz;
+  log_debug("zm_fs_read_file(\"%s\") -> %zu 字节", name, (size_t)sz);
+  return 0;
+}
+
 /* ---------- 默认初始化（仅设置数据目录，不扫描任何文件） ---------- */
 void zm_fs_register_default(const char *applet_dir) {
   zm_fs_set_data_dir(applet_dir);

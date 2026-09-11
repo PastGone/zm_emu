@@ -50,12 +50,28 @@ uint32_t zm_file_seek(uc_engine *uc, uint32_t file_id, uint32_t whence,
   if (file_id != FILE1 || !g_file_data)
     return 0;
 
+  /*
+   * IFile vtable +0x20 = ZMAEE_IFile_Seek(ifile, nWhence, nOffset)。
+   * whence 语义（由 applet 反编译代码实测确认）：
+   *   0 = 从文件头开始（绝对偏移）
+   *   1 = 从文件尾开始（offset 为负表示向前），applet 用 Seek(f,1,0)+Tell(f) 取文件大小
+   *   2 = 从当前位置开始
+   * 例如 theme/00000002 中：Seek(f,1,0); size=Tell(f); Seek(f,0,12); Read(...)。
+   */
+  int32_t off = (int32_t)offset;
+  int64_t pos;
   if (whence == 0)
-    g_file_pos = offset;
+    pos = (int64_t)off;
   else if (whence == 1)
-    g_file_pos += offset;
-  else if (whence == 2)
-    g_file_pos = (uint32_t)g_file_size + offset;
+    pos = (int64_t)g_file_size + off;
+  else
+    pos = (int64_t)g_file_pos + off;
+
+  if (pos < 0)
+    pos = 0;
+  if (pos > (int64_t)g_file_size)
+    pos = (int64_t)g_file_size;
+  g_file_pos = (uint32_t)pos;
   return 0;
 }
 
@@ -63,8 +79,7 @@ uint32_t zm_file_tell(uc_engine *uc, uint32_t file_id) {
   (void)uc;
   /*
    * IFile vtable +0x24 是 ZMAEE_IFile_Tell（逆向实测），返回**当前读写位置**。
-   * 之前实现为"返回总大小"，只在 Seek(0,SEEK_END) 之后调用才碰巧正确。
-   * 取总大小请走 Seek(0, SEEK_END) + Tell() 这个惯用法。
+   * applet 取文件大小的惯用法是 Seek(f,1,0) 跳到文件尾后再 Tell()。
    */
   if (file_id == FILE1 && g_file_data)
     return g_file_pos;

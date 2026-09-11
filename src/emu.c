@@ -17,8 +17,9 @@ int g_ulibc_heap = 1;
 
 uint32_t g_instance = 0;
 uint32_t g_handler = 0;
+uint32_t g_registered_loop = 0;
 int g_trap_pause = 0;
-int g_disasm = 1;
+int g_disasm = 0; /* 默认关闭；ZM_DISASM=1 打开（会刷大量反汇编日志）*/
 
 csh g_cs_handle;
 cs_insn *g_sc_insn;
@@ -62,10 +63,26 @@ int zm_emu_build_vtables() {
   // 假设它全部是函数指针实际上是有对象的后面会进行修补
   // 一个函数指针是四字节所以这里是加四字节
   for (uint32_t i = 0; i < SHIM_SIZE; i += 4) {
-    err = uc_write32(g_uc, SHIM_BASE + i, TRAMP_BASE + i);
+    uint32_t addr = SHIM_BASE + i;
+    /* 层像素缓冲（LAYER_BUF）必须保持为可自由读写的普通内存，
+     * 不能被填成 trap 地址表 —— 否则 applet 通过 GetLayerInfo 拿到的
+     * "层缓冲"里全是跳转地址，画面、合成全乱。 */
+    if (addr >= LAYER_BUF && addr < LAYER_BUF + LAYER_BUF_SIZE)
+      continue;
+    err = uc_write32(g_uc, addr, TRAMP_BASE + i);
     if (err != UC_ERR_OK) {
       log_error("shim映射到tramp时出现了错误, err: %d\n", err);
       return -1;
+    }
+  }
+  /* 层缓冲清零（未绘制区域为黑） */
+  {
+    static uint8_t zero[4096];
+    for (uint32_t off = 0; off < LAYER_BUF_SIZE; off += sizeof(zero)) {
+      uint32_t n = LAYER_BUF_SIZE - off;
+      if (n > sizeof(zero))
+        n = sizeof(zero);
+      uc_mem_write(g_uc, LAYER_BUF + off, zero, n);
     }
   }
   log_info("布局: SHIM_BASE=0x%X TRAMP_BASE=0x%X ROOT=0x%X SHELL=0x%X",
@@ -147,10 +164,21 @@ int zm_emu_load_blob(FILE *fp, const long *applet_size) {
     fclose(fp);
     return -1;
   }
-  free(buf);
   fclose(fp);
   log_info("blob数据载入完成,文件流已被关闭");
 
+  /*
+   * 注意：payload 里那些高 16 位为 0xFFFE/0xFFFF 的 dword（例如
+   * IDA 显示的 `off_18D68 DCD loc_188 - 0x18B38`）**不要**做重定位。
+   *
+   * 它们是 ARM "PC 相对取地址"惯用法的池项：运行时执行
+   *     ldr  r0, [pc, #imm]     ; r0 = 该相对偏移
+   *     add  r0, pc, r0         ; r0 = 池项位置 + 偏移 = 目标绝对地址
+   * 偏移本身就是正确的编码值（向前引用为负 → 补码呈 0xFFFE....），
+   * 由 ADD PC 在运行时还原。若把它们改写成绝对地址，ADD PC 会再叠加一次，
+   * 导致取到完全错误的地址（实测会把 0x188 变成 0x18EF8 而崩溃）。
+   */
+  free(buf);
   return 0;
 }
 
@@ -186,6 +214,21 @@ int zm_emu_add_hooks() {
   return 0;
 }
 
+/* 指令级追踪（ZM_TRACE=1）：环形缓冲记录最近 TRACE_N 条指令地址。
+ * 只在崩溃时输出，用于定位"最后一步跳到了哪里"。 */
+#define TRACE_N 48
+uint32_t g_trace[TRACE_N];
+int g_trace_pos = 0;
+int g_trace_enabled = 0;
+
+static void trace_code_hook(uc_engine *uc, uint64_t address, uint32_t size,
+                            void *user) {
+  (void)uc;
+  (void)size;
+  (void)user;
+  g_trace[g_trace_pos++ % TRACE_N] = (uint32_t)address;
+}
+
 int zm_emu_start_applet() {
   uint32_t stack_ptr = STACK_TOP;
   uc_reg_write(g_uc, UC_ARM_REG_SP, &stack_ptr);
@@ -198,8 +241,111 @@ int zm_emu_start_applet() {
 
   uc_write32(g_uc, BLOB_BASE + ROOT_SLOT_OFF, (uint32_t)ROOT);
 
+  /* ZM_TRACE=1：开启指令级追踪，崩溃时打印最后 48 条指令地址 */
+  {
+    const char *t = getenv("ZM_TRACE");
+    if (t && t[0] == '1') {
+      g_trace_enabled = 1;
+      uc_hook hh;
+      uc_hook_add(g_uc, &hh, UC_HOOK_CODE, (void *)trace_code_hook, NULL, 1, 0);
+      log_info("指令追踪已开启（ZM_TRACE=1）");
+    }
+  }
+
   log_info("启动unicorn engine...");
-  uc_emu_start(g_uc, APPLET_ENTRY_POINT, STACK_TOP, 0, 0);
-  log_info("unicorn engine启动完成");
+  uc_err e = uc_emu_start(g_uc, APPLET_ENTRY_POINT, STACK_TOP, 0, 0);
+  if (e != UC_ERR_OK && g_trace_enabled) {
+    log_error("最近指令轨迹（由旧到新）：");
+    char tb[512];
+    int p = 0;
+    for (int i = 0; i < TRACE_N; i++) {
+      uint32_t a = g_trace[(g_trace_pos + i) % TRACE_N];
+      if (!a)
+        continue;
+      p += snprintf(tb + p, sizeof(tb) - (size_t)p, "%X ", a);
+      if (p > 440) {
+        log_error("  %s", tb);
+        p = 0;
+      }
+    }
+    if (p)
+      log_error("  %s", tb);
+  }
+  /* 打印停止原因：UC_ERR_OK 表示被 uc_emu_stop 正常停止（或 PC 到达 until），
+   * 非 0 则是执行期错误（非法内存访问、未定义指令等），后者需要修。 */
+  if (e == UC_ERR_OK) {
+    uint32_t pc = 0, sp = 0;
+    uc_reg_read(g_uc, UC_ARM_REG_PC, &pc);
+    uc_reg_read(g_uc, UC_ARM_REG_SP, &sp);
+    log_info("unicorn engine 正常停止（uc_emu_stop），PC=0x%X SP=0x%X", pc, sp);
+  } else {
+    /* 出错时 dump 全部通用寄存器 + 栈顶若干字，便于重建调用现场：
+     * PC 是出错位置，LR 是最近一次 BL 的返回地址（通常就是"谁跳过去的"），
+     * 栈顶若干字能反映 pop {pc} 弹错地址的情况。 */
+    static const int regs[] = {UC_ARM_REG_R0,  UC_ARM_REG_R1,  UC_ARM_REG_R2,
+                               UC_ARM_REG_R3,  UC_ARM_REG_R4,  UC_ARM_REG_R5,
+                               UC_ARM_REG_R6,  UC_ARM_REG_R7,  UC_ARM_REG_R8,
+                               UC_ARM_REG_R9,  UC_ARM_REG_R10, UC_ARM_REG_R11,
+                               UC_ARM_REG_R12, UC_ARM_REG_SP,  UC_ARM_REG_LR,
+                               UC_ARM_REG_PC};
+    char buf[512];
+    int p = 0;
+    for (unsigned i = 0; i < sizeof(regs) / sizeof(regs[0]); i++) {
+      uint32_t v = 0;
+      uc_reg_read(g_uc, regs[i], &v);
+      p += snprintf(buf + p, sizeof(buf) - (size_t)p, "R%d=0x%X ", i, v);
+      if (i == 12)
+        p += snprintf(buf + p, sizeof(buf) - (size_t)p, "| ");
+    }
+    log_error("unicorn engine 异常停止：err=%d (%s)", e, uc_strerror(e));
+    log_error("寄存器：%s", buf);
+
+    uint32_t sp = 0;
+    uc_reg_read(g_uc, UC_ARM_REG_SP, &sp);
+    uint32_t stack[12] = {0};
+    if (uc_mem_read(g_uc, sp, stack, sizeof(stack)) == UC_ERR_OK) {
+      p = 0;
+      for (unsigned i = 0; i < 12; i++)
+        p += snprintf(buf + p, sizeof(buf) - (size_t)p, "[SP+%02u]=0x%X ", i * 4,
+                      stack[i]);
+      log_error("栈顶：%s", buf);
+    }
+
+    /* 关键对象的"虚表链"解析：zmaee 对象首字是虚表指针，
+     * 而调用点有"绝对 blx vt[i]"和"相对 add vt[i]+vt"两种风格。
+     * 这里把几个可疑寄存器的解引用链打出来，便于判断是哪一种。 */
+    static const struct {
+      int reg;
+      const char *nm;
+    } objs[] = {{UC_ARM_REG_R4, "R4"}, {UC_ARM_REG_R3, "R3"},
+                {UC_ARM_REG_R2, "R2"}, {UC_ARM_REG_R5, "R5"},
+                {UC_ARM_REG_R6, "R6"}, {UC_ARM_REG_R7, "R7"}};
+    for (unsigned i = 0; i < sizeof(objs) / sizeof(objs[0]); i++) {
+      uint32_t base = 0;
+      uc_reg_read(g_uc, objs[i].reg, &base);
+      if (!base)
+        continue;
+      uint32_t w[4] = {0};
+      if (uc_mem_read(g_uc, base, w, sizeof(w)) != UC_ERR_OK)
+        continue;
+      uint32_t vt = w[0];
+      uint32_t vt0 = 0, vt4 = 0, vt18 = 0, vt1c = 0;
+      uc_mem_read(g_uc, vt, &vt0, 4);
+      uc_mem_read(g_uc, vt + 4, &vt4, 4);
+      uc_mem_read(g_uc, vt + 0x18, &vt18, 4);
+      uc_mem_read(g_uc, vt + 0x1C, &vt1c, 4);
+      log_error("obj@%s=0x%X: [0..12]=%X %X %X %X | vt=0x%X vt[0]=0x%X "
+                "vt[4]=0x%X vt[0x18]=0x%X vt[0x1C]=0x%X (vt+vt[4]=0x%X "
+                "vt+vt[0x1C]=0x%X)",
+                objs[i].nm, base, w[0], w[1], w[2], w[3], vt, vt0, vt4, vt18,
+                vt1c, vt + vt4, vt + vt1c);
+      /* this 类对象常把 display / 子对象挂在固定偏移，
+       * 打印 this+0x50..0x60 便于确认"display 指针有没有被填上" */
+      uint32_t f[6] = {0};
+      if (uc_mem_read(g_uc, base + 0x50, f, sizeof(f)) == UC_ERR_OK)
+        log_error("   %s+0x50: %X %X %X %X %X %X", objs[i].nm, f[0], f[1], f[2],
+                  f[3], f[4], f[5]);
+    }
+  }
   return 0;
 }

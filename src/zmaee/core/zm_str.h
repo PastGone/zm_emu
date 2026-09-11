@@ -10,10 +10,38 @@
 char *read_cstr(uc_engine *uc, uint32_t addr, char *buf, size_t maxlen);
 
 /* root.spec_lookup：按单字符查规格，命中则返回存放该字符的客户机地址，否则 0 */
-uint32_t zm_spec_lookup(uc_engine *uc, uint32_t ch_addr);
+/**
+ * @brief root[0xA4] = zmaee_strpbrk(str, charset)
+ *
+ * 扫描 str，返回第一个属于 charset 的字符在客户机内存中的地址；找不到返回 0。
+ * charset 为 0 时使用默认转换符集 "dufocsxXp"（applet 的 sprintf 包装用它
+ * 统计变参个数）。
+ */
+uint32_t zm_spec_lookup(uc_engine *uc, uint32_t str_addr,
+                        uint32_t charset_addr);
 
 /* root.str_find：在字符串对象/裸 C 串中查找字符，命中返回子指针，否则 0 */
 uint32_t zm_strchr(uc_engine *uc, uint32_t str_obj_ptr, uint32_t ch);
+
+/**
+ * @brief root[0xB0] = zmaee_strstr(haystack, needle)
+ *
+ * 在 haystack 中查找 needle 首次出现的位置。applet 用它判断资源文件名
+ * 后缀（例如 strstr(name, ".zbmp") 决定走原生位图还是 IImage 解码）。
+ *
+ * @return 命中返回子串在客户机内存中的地址；未命中返回 0
+ */
+uint32_t zm_strstr(uc_engine *uc, uint32_t haystack, uint32_t needle);
+
+/**
+ * @brief root[0x90] → zm_strlen：字符串长度
+ *
+ * 兼容 zmaee 字符串对象（+0=data_ptr,+4=len）与裸 C 字符串两种形态，
+ * 判定逻辑与 zm_strchr 一致。applet 侧用它取 sprintf 结果的长度。
+ *
+ * @return 字符串字节长度（不含 '\0'）
+ */
+uint32_t zm_strlen(uc_engine *uc, uint32_t str_obj_ptr);
 
 /**
  * @brief 鲁棒地读取一个"可能是 zmaee 字符串对象"的客户机地址到 buf

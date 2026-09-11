@@ -17,6 +17,7 @@
 #include "./zmaee/fs/zm_file_mgr.h"
 #include "./zmaee/fs/zm_file.h"
 #include "./zmaee/gfx/zm_display.h" /* ZMAEE IDisplay / IBitmap + SDL 渲染后端 */
+#include "./zmaee/gfx/zm_image.h"   /* ZMAEE IImage（资源加载链） */
 #include "./zmaee/runtime/shell/zm_shell.h"
 #include "./zmaee/runtime/timer/zm_timer.h" /* IShell 定时器子系统 */
 #include "event.h"
@@ -169,97 +170,157 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
               trap_address);
     return;
   }
-  // 随便打印十个参数试一下,不一定是参数啊但是说实话应该有参数超过四个的情况所以这里打印十个看一下
-  for (int i = 0; i < 10; i++) {
-    uint32_t v = getArg(uc, i);
-    printf("arg%d: 0x%08X\n", i, v);
+  /* 参数打印：仅在开启反汇编调试（ZM_DISASM/g_disasm）时输出。
+   * 曾经是无条件 printf，每次 trap 都刷 10 行，既拖慢模拟又污染 stdout。 */
+  if (g_disasm) {
+    for (int i = 0; i < 10; i++) {
+      uint32_t v = getArg(uc, i);
+      log_debug("trap[0x%X] arg%d = 0x%08X", trap_address - TRAMP_BASE, i, v);
+    }
   }
   // log_debug("trap addr: %d, r0: %d, r1: %d, r2: %d, r3: %d, sp: %d, lr:
   // %d\n",
   //           trap_address, r0, r1, r2, r3, sp, lr);
 
-  print_non_zero_registers(uc);
+  /* 寄存器 dump 只在反汇编调试下输出（原来每次都刷，既慢又淹没有效日志） */
+  if (g_disasm)
+    print_non_zero_registers(uc);
 
   uint32_t ret = 0;
   switch (trap_address) {
-  case TR_init_callback: { //  /* TR_init_callback：特殊处理（不写 R0/PC
-                           //  走通用路径，而是直接跳 handler） */
+  case TR_init_callback: {
+    /*
+     * applet 的"握手"入口。applet 启动代码在准备好之后会主动调用
+     * ROOT+0x118C，含义是"固件，请按下面这份规格初始化我"。
+     *
+     * 规格通过**参数**给出：applet 的握手函数（如 00000506 的 sub_F0
+     * 尾部 loc_8860）执行：
+     *     *r0 = 需要的实例字节数      （STR R2,[R0]，R2=0x50）
+     *     r1[0] = 0, r1[1] = 0, r1[2] = 事件处理回调地址
+     *     BX LR                          （返回固件）
+     * 因此固件必须传 r0 = &SIZE_SLOT、r1 = &API_SLOT，让它把这两个值
+     * 写进约定的槽位；随后固件再读取它们分配实例、并用该回调发起
+     * EV_CREATE。
+     *
+     * 旧实现把 r0 直接当成 instance 传进去（且跳 0x188），结果 applet
+     * 把 0x50/回调写进了实例内存，API_SLOT+8 里残留旧值 0x1108C，
+     * 后续事件派发全部走错分支 —— 表现为事件循环空转、零资源加载。
+     */
+    uint32_t a0 = SIZE_SLOT;
+    uint32_t a1 = API_SLOT;
+    uc_reg_write(uc, UC_ARM_REG_R0, &a0);
+    uc_reg_write(uc, UC_ARM_REG_R1, &a1);
 
-    uint32_t size; // 从这个槽里面读出它要申请的堆大小
-    if (uc_mem_read(uc, SIZE_SLOT, &size, 4) != UC_ERR_OK) {
-      log_error("Failed to read size");
-      return;
-    }
-    uint32_t handler;
-    if (uc_mem_read(uc, API_SLOT + 8, &handler, 4) != UC_ERR_OK) {
-      log_error("Failed to read handler");
-      return;
-    }
-
-    log_info("  size=%d handler=0x%X\n", size, handler);
-    /* 原实现是 host_malloc + 宿主 calloc + uc_mem_write + free。
-     * 改用 applet_calloc：分配与清零都在客户机侧完成，
-     * 省掉一次宿主堆分配和一次整块内存拷贝。 */
-    uint32_t INSTANCE = applet_calloc(uc, 1, size);
-
-    /* 把当前 applet 短名称写入 instance+4；applet 用它在运行时构造
-     * "<name>.zmr" 等资源文件名。使用短名而非完整路径，避免污染
-     * instance 边界外的堆内存。 */
-    const char *filename = get_filename_from_fullpath(g_app_pathname);
-    size_t fn_len = strlen(filename) + 1; /* 含结尾 '\0' */
-    /* 边界校验：仅当 (INSTANCE+4+fn_len) 落在 [INSTANCE, INSTANCE+size]
-     * 范围内才写入，防止越界覆盖 instance 之外的堆内存。 */
-    if (4 + fn_len <= (size_t)size) {
-      uc_mem_write(uc, INSTANCE + 4, filename, fn_len);
-    } else {
-      log_warn(
-          "filename (len=%zu) too long for instance(%u), skip writing name",
-          fn_len, size);
-    }
-    log_info("filename: %s\n", filename);
-    log_info("  instance=0x%X\n", INSTANCE);
-
-    uc_reg_write(uc, UC_ARM_REG_R0, &INSTANCE);
-    // 参数一是事件类型码
-    uint32_t event_code = ZMAEE_EV_CREATE;
-    uc_reg_write(uc, UC_ARM_REG_R1, &event_code);
-    // 零表示常规启动
-    uint32_t init_type = 0;
-    uc_reg_write(uc, UC_ARM_REG_R2, &init_type); //
-    /* 00000405.app：init wrapper sub_8433C 在 a2==0 时解引用
-     * a3[64]（r3+0x100）。 传入 INIT_CTX（256B 零填充）使其可读且
-     * *a3=0≠1、a3[64]=0≠4 → init 继续。 */
-    uint32_t init_ctx = INIT_CTX;
-    uc_reg_write(uc, UC_ARM_REG_R3, &init_ctx);
-
-    uint32_t callback_addr = TR_enter_event_loop;
+    /* 返回地址：握手函数 `BX LR` 回到这里，由宿主侧完成实例分配与
+     * 事件循环驱动（见 TR_enter_event_loop 的状态机）。 */
+    uint32_t callback_addr =
+        g_registered_loop ? g_registered_loop : TR_enter_event_loop;
     uc_reg_write(uc, UC_ARM_REG_LR, &callback_addr);
 
-    g_instance = INSTANCE;
-    g_handler = handler;
-
-    uc_reg_write(uc, UC_ARM_REG_PC, &handler);
+    /* 入口 = payload 偏移 0x188（`b loc_8860` 的握手 trampoline）。 */
+    uint32_t entry = APPLET_ENTRY_POINT;
+    uc_reg_write(uc, UC_ARM_REG_PC, &entry);
+    log_info("init 握手：r0=&SIZE_SLOT、r1=&API_SLOT，返回地址=0x%X",
+             callback_addr);
     return;
   } break;
+  case TR_register_event_loop:
+    /* ROOT+0x1184：applet 注册它的事件循环入口（r0=handler 地址）。
+     * 00000506 在 init 里先注册、再调 ROOT+0x118C()，随后返回；
+     * 模拟器据此单独驱动事件循环。 */
+    if (r0)
+      g_registered_loop = r0;
+    log_info("applet 注册事件循环入口: 0x%X", r0);
+    ret = 0;
+    break;
+
+  case TR_abort:
+    /* ROOT+0x14：applet 请求退出（实测 00000506 传 "aborted"）。 */
+    if (g_disasm) {
+      char msg[64];
+      read_cstr(uc, r0, msg, sizeof(msg));
+      log_info("applet 调用 abort(\"%s\")，停止模拟", msg);
+    } else {
+      log_info("applet 调用 abort，停止模拟");
+    }
+    uc_emu_stop(uc);
+    return;
+
   case TR_enter_event_loop: {
-    /* 事件循环：阻塞直到用户关窗（SDL_QUIT）或超时（ZM_GFX_HOLD_MS）。
-     * 返回 false → 模拟应结束；返回 true → 已派发点击，模拟器继续执行
-     * handler。必须 uc_emu_stop + return，否则会 fall-through 到 default
+    /* 宿主侧驱动主循环的状态机。每次 applet 的回调返回（`pop {pc}` 到
+     * LR=TR_enter_event_loop）都会重新进入这里，按 stage 逐步推进：
+     *
+     *   stage 0：applet 刚跑完 init 握手（写了 SIZE_SLOT / API_SLOT），
+     *            这里读出实例大小与事件回调 → 分配实例 → 发 EV_CREATE。
+     *   stage 1：EV_CREATE 处理完 → 发 EV_RESUME（多家 applet 的
+     *            界面创建/资源加载都挂在这个分支上）。
+     *   stage 2：进入 SDL 事件循环等待用户交互。
+     *
+     * 每次派发事件后必须立刻 return，把控制权交回 unicorn 执行 handler；
+     * 否则 handler 永远没机会跑（表现为事件循环空转、零绘制）。 */
+    static int stage = 0;
+    static int resume_enabled = 1;
+    static int resume_inited = 0;
+
+    if (!resume_inited) {
+      const char *ar = getenv("ZM_AUTO_RESUME");
+      resume_enabled = (!ar || ar[0] != '0');
+      resume_inited = 1;
+    }
+
+    if (stage == 0) {
+      uint32_t size = uc_read32(uc, SIZE_SLOT);
+      uint32_t handler = uc_read32(uc, API_SLOT + 8);
+      log_info("init 握手完成：size=%u handler=0x%X（API_SLOT=[%08X %08X %08X "
+               "%08X]）",
+               size, handler, uc_read32(uc, API_SLOT),
+               uc_read32(uc, API_SLOT + 4), uc_read32(uc, API_SLOT + 8),
+               uc_read32(uc, API_SLOT + 12));
+      if (size == 0 || size > 0x40000 || handler == 0) {
+        log_error("握手结果异常（size=%u handler=0x%X），无法继续", size,
+                  handler);
+        uc_emu_stop(uc);
+        return;
+      }
+
+      uint32_t INSTANCE = applet_calloc(uc, 1, size);
+      /* 把 applet 短名写入 instance+4：applet 用它在运行时构造
+       * "<name>.zmr" 等资源文件名。写入前做边界校验。 */
+      const char *filename = get_filename_from_fullpath(g_app_pathname);
+      size_t fn_len = strlen(filename) + 1;
+      if (4 + fn_len <= (size_t)size)
+        uc_mem_write(uc, INSTANCE + 4, filename, fn_len);
+      else
+        log_warn("filename (len=%zu) 超出实例大小 %u，跳过写入", fn_len, size);
+
+      g_instance = INSTANCE;
+      g_handler = handler;
+      log_info("实例已分配：instance=0x%X（%u 字节），handler=0x%X", INSTANCE,
+               size, handler);
+
+      stage = 1;
+      log_info("派发 EV_CREATE(evt=0) -> handler=0x%X", g_handler);
+      dispatch_applet_event(0 /* EV_CREATE */, 0, 0);
+      return;
+    }
+
+    if (stage == 1) {
+      stage = 2;
+      if (resume_enabled) {
+        log_info("派发 EV_RESUME(evt=3) -> handler=0x%X", g_handler);
+        dispatch_applet_event(3, 0, 0);
+        return;
+      }
+    }
+
+    /* stage >= 2：进入 SDL 事件循环等待用户交互。
+     * 返回 false → 模拟结束；返回 true → 已派发点击，继续执行 handler。
+     * 必须 uc_emu_stop + return，否则会 fall-through 到 default
      * 误报"非法的外部调用"，且 PC 继续执行 TRAMP 区下一条指令导致越界。 */
     uint32_t hold_ms = 0;
     const char *env = getenv("ZM_GFX_HOLD_MS");
     if (env && *env)
       hold_ms = (uint32_t)strtoul(env, NULL, 0);
-    /* 实验：00001b62 的 sub_37584 case 3（EV_RESUME=3）才创建 display
-     * （CreateInstance(0x1000005)）。init(事件0) 后补发 RESUME，让 applet
-     * 进入可绘制分支。默认关（ZM_AUTO_RESUME=1 开启），避免影响其他 applet。
-     * 注意：sub_37584 case 3 依赖 v7+72 是可用对象（host 注入），若该对象
-     * 未初始化仍会崩——这是验证"缺事件3"是否为主因的最小改动。 */
-    const char *ar = getenv("ZM_AUTO_RESUME");
-    if (ar && ar[0] == '1') {
-      log_info("补发 RESUME(evt=3) 事件 -> handler=0x%X", g_handler);
-      dispatch_applet_event(3, 0, 0);
-    }
     if (!zm_display_event_loop(on_touch_click, hold_ms)) {
       uc_emu_stop(uc);
     }
@@ -270,9 +331,17 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_root_getShell:
     ret = SHELL;
     break;
-  case TR_root_malloc:
+  case TR_root_malloc: {
+    /* 注意：真实签名是 malloc(size=r0, ctx=r1)，返回值直接是对象指针。
+     * 之前误当成 (ctx, size) 来打日志，才让"0x823200 不属于堆"看起来矛盾。 */
+    uint32_t a_size = r0;
+    uint32_t a_ctx = r1;
     ret = applet_malloc(uc, r0);
-    break; /* malloc(r0=size) */
+    if (g_disasm)
+      log_debug("malloc(size=%u r0, ctx=0x%X r1) lr=0x%X -> 0x%X", a_size, a_ctx,
+                lr, ret);
+    break;
+  }
   case TR_root_free:
     log_debug("这里的话是 free(r0=%d)", r0);
     applet_free(uc, r0);
@@ -290,20 +359,33 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break;
   case TR_root_sprintf:
     /*
-     * ROOT[0x6C] sprintf(dst=r0, fmt=r1, args=r2)
+     * ROOT[0x6C] sprintf(dst=r0, fmt=r1, va_area=r2)
      *
-     * zmaee 的约定：r2 指向调用者的栈帧，第一个变参位于 r2 + 4
-     * （r2+0 那个槽被跳过）。因此用 u_va_start_mem 时基址取 r2+4、
-     * 固定参数个数取 0，槽序号就与原来的实现一一对应。
+     * zmaee 约定：r2 指向一个由 applet 自带"溢出变参"助手构造的参数区，
+     * 布局为 [变参个数][第1个变参][第2个变参]...，每个变参占 **8 字节**
+     * （值在槽首）。实测 00000506 sub_18EDC / 00001b62 同型助手：
+     *   sub_98c90 扫描格式串，按 %d/%s/%x/%f... 逐个把 r2/r3/栈上的实参
+     *   存到 slot = r6 + n*8 + 4，最后 strb 计数到 r6+0；随后调用本槽。
+     * 因此这里必须用 U_VA_MEM8（addr = r2），而不是 4 字节连续布局——
+     * 旧实现按 4 字节槽取参，第 2 个变参就会读到 0，sprintf 结果被截断
+     * （实测 "%s\\%s" 只输出 "res\"，长度 4）。
      *
-     * 换用 ulibc 后，格式串支持从原来的 %d/%s/%x 等子集扩展到
-     * 完整的 flags/width/precision/length 语法，且输出上限由 512
-     * 字节提高到 64KB。
+     * 换用 ulibc 后，格式串支持完整的 flags/width/precision/length 语法，
+     * 且输出上限由 512 字节提高到 64KB。
      */
     {
       u_va va;
-      u_va_start_mem(&va, uc, r2 + 4u, 0);
+      u_va_start_mem8(&va, uc, r2, 0);
       ret = (uint32_t)u_sprintf(uc, r0, r1, &va);
+      if (g_disasm) {
+        char fmt[128], outp[256];
+        uint32_t lr = 0;
+        uc_reg_read(uc, UC_ARM_REG_LR, &lr);
+        read_cstr(uc, r1, fmt, sizeof(fmt));
+        read_cstr(uc, r0, outp, sizeof(outp));
+        log_debug("sprintf lr=0x%X [%u参数]: fmt=\"%s\" out=\"%s\" ret=%u", lr,
+                  uc_read32(uc, r2), fmt, outp, ret);
+      }
     }
     break;
   case TR_root_str_ctor:
@@ -311,10 +393,16 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     ret = u_strcpy(uc, r0, r1);
     break;
   case TR_root_strchr:
-    /* ROOT[0x90] strchr(s=r0, c=r1)：找字符 c 在串 s 中首次出现位置。
-     * 00001b62 调用现场 r1=0x72('r') 且随后 strb 写回，属 strchr 家族；
-     * 相邻 +0x88 str_ctor / +0xA8 亦为字符串族。命中返回客户机地址，否则 0。 */
-    ret = u_strchr(uc, r0, (int)r1);
+    /* ROOT[0x90] = zmaee_strlen(s=r0)，返回字符串长度（**不是** strchr）。
+     *
+     * 逆向证据（两个 applet 的实际用法一致，全是"长度"语义）：
+     *   00000506 sub_313C/88AB8：sprintf("%s\\%s",...) 后取长度，作为
+     *       IImage::SetData(0, name, len) 的 len → 再据此读文件；
+     *   00001b62 0xB7DAC：长度 +1 后与缓冲上限比较，再调 strcpy 家族；
+     *   00001b62 0xB91C0：长度 & 0xFF 当字节长度用。
+     * 旧实现按 strchr 处理，遇到 r1 为残留脏值时返回 0，导致 applet 拿到
+     * len=0 → malloc(0)/Read(0 字节) → 后续解引用野指针崩溃。 */
+    ret = zm_strlen(uc, r0);
     break;
   case TR_root_memcmp:
     /* ROOT[0x50] memcmp(a=r0, b=r1, n=r2)
@@ -338,9 +426,21 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
      * 此前因伪索引槽位冲突未接；00001b62 高频调用此槽。 */
     ret = zm_root_str_assign(uc, r0, r1);
     break;
+  case TR_root_strstr:
+    /* ROOT[0xB0] = zmaee_strstr(haystack=r0, needle=r1)。
+     * 命中返回子串地址，未命中返回 0。 */
+    ret = zm_strstr(uc, r0, r1);
+    break;
+  case TR_root_x68C:
+    ret = zm_root_x68C(uc, r0, r1, r2, r3);
+    break;
   case TR_root_spec_lookup:
-    ret = zm_spec_lookup(uc, r0);
-    break; /* spec_lookup：zmaee 规格表查询，非 libc */
+    /* ROOT[0xA4] = zmaee_strpbrk(str=r0, charset=r1)。
+     * applet 的 sprintf 包装（00000506 sub_98C90）用它统计格式串里的转换符
+     * 个数，返回值必须是**原串内地址**（旧实现返回宿主缓冲，导致扫描指针
+     * 跳飞、变参个数少算）。 */
+    ret = zm_spec_lookup(uc, r0, r1);
+    break;
   case TR_root_str_find:
     /*
      * ROOT[0xA8] str_find(str_obj_or_cstr=r0, ch=r1)
@@ -641,6 +741,21 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     ret = zm_display_DrawBitmap(uc, 0x94U, r0, r1, r2, r3);
     break;
   case TR_display_DrawBitmapEx:
+    if (g_disasm) {
+      static int watch_done = 0;
+      if (!watch_done && r3 >= 0x820000) {
+        uint32_t b0 = uc_read32(uc, r3), b1 = uc_read32(uc, r3 + 4);
+        uint32_t pc0 = 0;
+        uc_reg_read(uc, UC_ARM_REG_R4, &pc0);
+        log_debug("WATCH bmp=0x%X first=[%08X %08X] R4=0x%X", r3, b0, b1, pc0);
+        watch_done = 1;
+      }
+      uint32_t b0 = uc_read32(uc, r3), b1 = uc_read32(uc, r3 + 4);
+      uint32_t b2 = uc_read32(uc, r3 + 8);
+      log_debug("DrawBitmapEx lr=0x%X x=%u y=%u bmp=0x%X(=[%08X %08X %08X]) "
+                "rect=0x%X mode=%u",
+                lr, r1, r2, r3, b0, b1, b2, getArg(uc, 4), getArg(uc, 5));
+    }
     ret = zm_display_DrawBitmapEx(uc, 0x98U, r0, r1, r2, r3);
     break;
   case TR_display_DrawBitmapFrame:
@@ -656,6 +771,14 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     ret = zm_display_CreateImage(uc, 0xA8U, r0, r1, r2, r3);
     break;
   case TR_display_BitBlt:
+    if (g_disasm) {
+      uint32_t s0 = uc_read32(uc, r3), s1 = uc_read32(uc, r3 + 4);
+      uint32_t s2 = uc_read32(uc, r3 + 8), s3 = uc_read32(uc, r3 + 12);
+      log_debug("BitBlt lr=0x%X dx=%u dy=%u surf=0x%X(=[%08X %08X %08X %08X]) "
+                "rect=0x%X mode=%u flags=%u",
+                lr, r1, r2, r3, s0, s1, s2, s3, getArg(uc, 4), getArg(uc, 5),
+                getArg(uc, 6));
+    }
     ret = zm_display_BitBlt(uc, 0xACU, r0, r1, r2, r3);
     break;
   case TR_display_Flatten:
@@ -698,6 +821,69 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     ret = zm_display_RotateScreen(uc, 0xE0U, r0, r1, r2, r3);
     break;
   /* ---- ZMAEE IBitmap 原生虚表（g_aee_bitmap_vtbl）---- */
+  /* ---- ZMAEE IImage（IDisplay::CreateImage 造出的解码器对象）---- */
+  /* ---- ZMAEE surface 门面（IImage::Decode 的 out 对象）---- */
+  case TR_surf_release:
+    ret = zm_surf_release(uc, r0);
+    break;
+  case TR_surf_getrect:
+    ret = zm_surf_getrect(uc, r0, r1);
+    break;
+  case TR_surf_x04:
+  case TR_surf_x08:
+  case TR_surf_x0C:
+  case TR_surf_x14:
+  case TR_surf_x18:
+  case TR_surf_x1C:
+  case TR_surf_x20:
+  case TR_surf_x24:
+  case TR_surf_x28:
+  case TR_surf_x2C:
+  case TR_surf_x30:
+  case TR_surf_x34:
+  case TR_surf_x38:
+  case TR_surf_x3C:
+  case TR_surf_x40:
+  case TR_surf_x44:
+  case TR_surf_x48:
+  case TR_surf_x4C:
+  case TR_surf_x50:
+    ret = zm_surf_nop(uc, trap_address - TRAMP_BASE);
+    break;
+  case TR_image_AddRef:
+    ret = zm_image_AddRef(uc, r0);
+    break;
+  case TR_image_Release:
+    ret = zm_image_Release(uc, r0);
+    break;
+  case TR_image_SetData:
+    ret = zm_image_SetData(uc, r0, r1, r2, r3);
+    break;
+  case TR_image_x0C:
+    ret = zm_image_x0C(uc, r0);
+    break;
+  case TR_image_x10:
+    ret = zm_image_x10(uc, r0);
+    break;
+  case TR_image_x14:
+    ret = zm_image_x14(uc, r0);
+    break;
+  case TR_image_Width:
+    ret = zm_image_Width(uc, r0);
+    break;
+  case TR_image_Decode:
+    ret = zm_image_DecodeToBitmap(uc, r0, r1, r2, r3, sp);
+    break;
+  case TR_image_x20:
+  case TR_image_x24:
+  case TR_image_x28:
+  case TR_image_x2C:
+  case TR_image_x30:
+  case TR_image_x34:
+  case TR_image_x38:
+  case TR_image_x3C:
+    ret = zm_image_stub(uc, trap_address - TRAMP_BASE, r0, r1, r2, r3);
+    break;
   case TR_bitmap_AddRef:
     ret = zm_bitmap_AddRef(uc, r0);
     break;

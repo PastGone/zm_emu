@@ -158,4 +158,12 @@ uint32_t zm_bitmap_sub_25F84(uc_engine *uc, uint32_t off, uint32_t r0,
 uint32_t zm_bitmap_sub_25FF8(uc_engine *uc, uint32_t off, uint32_t r0,
                              uint32_t r1, uint32_t r2, uint32_t r3);
 
+/* -------------------- 软件帧缓冲（宿主侧访问） --------------------
+ *
+ * applet 的所有绘制（含 BitBlt 区域搬运、GDI_Surface 贴图）都落在一块
+ * ARGB8888 的软件帧缓冲上，commit 时整块上传给 SDL。
+ * 下面两个接口供其它模块（如 zm_image 贴 16bpp GDI_Surface）直接写入。 */
+uint32_t *zm_fb_buffer(int *w, int *h);       /* 取帧缓冲（未初始化返回 NULL） */
+void zm_fb_write(int x, int y, uint32_t argb); /* 写像素（自动裁剪越界） */
+
 #endif /* ZM_DISPLAY_H */

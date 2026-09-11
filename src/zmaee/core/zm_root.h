@@ -20,6 +20,13 @@ uint32_t zm_root_create_cbk(uc_engine *uc);
 /* ROOT[0xD8]：返回时间戳（SDL_GetTicks） */
 uint32_t zm_root_get_tick(uc_engine *uc);
 
+/* ROOT[0x68C]：zmaee 惰性资源数据访问。
+ * 00000506 @0x89F50 现场：r0=0x820600（其 +0x28 处是 "data" 字符串）、
+ * r1=调用方 0x40 字节缓冲、r2=0x28、r3=槽地址本身。
+ * 把对象携带的数据块拷到调用方缓冲并返回对象 +0。 */
+uint32_t zm_root_x68C(uc_engine *uc, uint32_t obj, uint32_t out_buf,
+                      uint32_t len, uint32_t self);
+
 /* CBK 对象 vt[+8] 初始默认实现（会被 applet 覆写，覆写前若被调用则走此 stub）
  */
 uint32_t zm_root_cbk_default(uc_engine *uc, uint32_t r0, uint32_t r1,

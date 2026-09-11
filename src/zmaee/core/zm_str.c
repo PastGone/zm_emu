@@ -5,6 +5,7 @@
 
 #include "../../emu.h"
 #include "../../log/log.h"
+#include "../../ulibc/include/u_mem.h" /* u_strlen（root[0x90] zm_strlen） */
 
 /* 读取客户机地址 addr 处的 C 字符串到宿主机 buf，最多 maxlen-1 字符 */
 char *read_cstr(uc_engine *uc, uint32_t addr, char *buf, size_t maxlen) {
@@ -35,23 +36,47 @@ char *read_cstr(uc_engine *uc, uint32_t addr, char *buf, size_t maxlen) {
  */
 
 /**
- * @brief root.spec_lookup：按单字符查规格
+ * @brief root[0xA4] = zmaee_strpbrk(str, charset)：找集合中任一字符的首次出现
  *
- * 读取 ch_addr 处的一个字符，若属于 "opusxXcdf" 之一，则把它写到
- * DUMMY_BUF 并返回 DUMMY_BUF；否则返回 0 表示未找到。
+ * 逆向证据（00000506 的 sprintf 包装 sub_98EDC 内部）：
+ *   0x98CC0  add r1, pc, #0xe0     ; r1 = "dufocsxXp"（合法转换符集合）
+ *   0x98CC4  bl  #0x98C7C          ; ROOT[0xA4](r0=格式串当前位置, r1=集合)
+ *   0x98CD0  mov r1, r0
+ *   0x98CD4  ldrb r0, [r0]         ; 读**返回指针处**的字符当转换符
+ * 调用方把返回值当作"格式串内的地址"继续 `r1+1` 扫描，因此必须返回
+ * 原串内部的地址（strpbrk 语义），不能返回宿主侧临时缓冲——旧实现返回
+ * DUMMY_BUF 会让 applet 的扫描指针跳到假缓冲区，导致变参个数被少算
+ * （"%s\\%s" 只数出 1 个参数，路径只拼出 "res\\"）。
  *
- * @param ch_addr 存放待查字符的客户机地址（对应 r0）
- * @return 命中返回 DUMMY_BUF，未命中返回 0
+ * 兼容性：旧的"单字符查询"用法（r0 指向 1 字符的串）在 strpbrk 语义下
+ * 行为等价——命中仍返回该字符地址，调用方读 *ret 得到同一个字符。
+ *
+ * @param str_addr     待扫描的字符串（对应 r0）
+ * @param charset_addr 字符集合，NUL 结尾（对应 r1）；为 0 时用默认转换符集
+ * @return 命中返回该字符在客户机中的地址；未命中返回 0
  */
-uint32_t zm_spec_lookup(uc_engine *uc, uint32_t ch_addr) {
-  char ch[2] = {0, 0};
-  read_cstr(uc, ch_addr, ch, sizeof(ch));
-  if (ch[0] && strchr("opusxXcdf", ch[0])) {
-    uint8_t val = (uint8_t)ch[0];
-    uc_mem_write(uc, DUMMY_BUF, &val, 1);
-    return DUMMY_BUF;
+uint32_t zm_spec_lookup(uc_engine *uc, uint32_t str_addr,
+                        uint32_t charset_addr) {
+  if (str_addr == 0)
+    return 0;
+
+  char set[64];
+  if (charset_addr)
+    read_cstr(uc, charset_addr, set, sizeof(set));
+  else
+    set[0] = '\0';
+  if (set[0] == '\0')
+    snprintf(set, sizeof(set), "dufocsxXp");
+
+  for (uint32_t i = 0;; i++) {
+    uint8_t c = 0;
+    if (uc_mem_read(uc, str_addr + i, &c, 1) != UC_ERR_OK)
+      return 0;
+    if (c == 0)
+      return 0;
+    if (strchr(set, (char)c))
+      return str_addr + i;
   }
-  return 0;
 }
 
 /**
@@ -99,6 +124,103 @@ uint32_t zm_strchr(uc_engine *uc, uint32_t str_obj_ptr, uint32_t ch) {
   if (p)
     return base + (uint32_t)(p - cstr);
   return 0;
+}
+
+/**
+ * @brief 把"可能是 zmaee 字符串对象"的客户机地址解析成真正的字符数据地址
+ * @return 解析后的地址（原样返回表示它就是裸 C 串）
+ */
+static uint32_t resolve_str_ptr(uc_engine *uc, uint32_t p) {
+  if (p == 0)
+    return 0;
+  uint32_t data_ptr = 0, len = 0;
+  if (uc_mem_read(uc, p, &data_ptr, 4) == UC_ERR_OK &&
+      uc_mem_read(uc, p + 4, &len, 4) == UC_ERR_OK) {
+    if (data_ptr == p + 12)
+      return data_ptr; /* str_assign/str_cpy_cstr 的内联对象布局 */
+    if (data_ptr != 0 && len < 4096) {
+      uint8_t first = 0;
+      if (uc_mem_read(uc, data_ptr, &first, 1) == UC_ERR_OK &&
+          (first == 0 || (first >= 0x20 && first < 0x80)))
+        return data_ptr;
+    }
+  }
+  return p;
+}
+
+/**
+ * @brief root[0xB0] → zmaee_strstr(haystack, needle)：子串查找
+ *
+ * 逆向依据（00000506 sub_8A20 资源加载分支）：
+ *   r1 = 字面量 ".zbmp"
+ *   bl  sub_190B0                 ; ROOT[0xB0](文件名, ".zbmp")
+ *   cmp r0, #0
+ *   bne <走 .zbmp 原生位图分支>   ; 非 0（找到）→ 按 zbmp 解
+ *   ...
+ *   <否则> 走 IImage/CreateImage 分支（png/jpg）
+ * 即返回值是"找到则非 0"的**指针**语义 —— 正是 strstr。
+ *
+ * 之前该槽未实现，恒返回 0，导致 .zbmp 资源被误判成 png 走 CreateImage
+ * 分支；而那条分支依赖 r7+0x58 的 display 对象（此时尚未创建），
+ * 于是 `ldr r0,[r7,#0x58]` 取到 0 → 解引用野指针 → PC 飞到垃圾地址崩溃。
+ *
+ * @return 命中返回子串在客户机中的起始地址；未命中返回 0
+ */
+uint32_t zm_strstr(uc_engine *uc, uint32_t haystack, uint32_t needle) {
+  uint32_t hp = resolve_str_ptr(uc, haystack);
+  uint32_t np = resolve_str_ptr(uc, needle);
+  if (hp == 0 || np == 0)
+    return 0;
+
+  char nbuf[64];
+  read_cstr(uc, np, nbuf, sizeof(nbuf));
+  size_t nl = strlen(nbuf);
+  if (nl == 0)
+    return hp;
+
+  char hbuf[512];
+  read_cstr(uc, hp, hbuf, sizeof(hbuf));
+
+  char *hit = strstr(hbuf, nbuf);
+  if (!hit)
+    return 0;
+  return hp + (uint32_t)(hit - hbuf);
+}
+
+/**
+ * @brief root[0x90] → zm_strlen：字符串长度（兼容字符串对象 / 裸 C 串）
+ *
+ * 逆向证据（applet 调用现场，均为"长度"用法）：
+ *   00000506: sub_313C 中 sprintf 出 "res\\xxx.png" 后取长度，作为
+ *             IImage::SetData(0, name, len) 的 len；img->vt[8] 用它读文件。
+ *   00001b62: 0xB7DAC 取长度后 +1 与缓冲容量比较，再调用 strcpy 家族；
+ *             0xB91C0 取长度后 and 0xFF 当字节长度用。
+ * 之前当作 strchr 是误判：那些调用点的 r1 其实是未定义的残留值。
+ */
+uint32_t zm_strlen(uc_engine *uc, uint32_t str_obj_ptr) {
+  if (str_obj_ptr == 0)
+    return 0;
+
+  /* 与 zm_strchr 同款形态判定：字符串对象（+0=data_ptr,+4=len）或裸 C 串 */
+  uint32_t data_ptr = 0, len = 0;
+  bool as_obj = false;
+  if (uc_mem_read(uc, str_obj_ptr, &data_ptr, 4) == UC_ERR_OK &&
+      uc_mem_read(uc, str_obj_ptr + 4, &len, 4) == UC_ERR_OK) {
+    if (data_ptr == str_obj_ptr + 12) {
+      as_obj = true; /* str_assign/str_cpy_cstr 的内联对象布局 */
+    } else if (data_ptr != 0 && len < 4096) {
+      uint8_t first = 0;
+      if (uc_mem_read(uc, data_ptr, &first, 1) == UC_ERR_OK &&
+          (first == 0 || (first >= 0x20 && first < 0x80))) {
+        as_obj = true;
+      }
+    }
+  }
+
+  if (as_obj)
+    return len;
+
+  return u_strlen(uc, str_obj_ptr);
 }
 
 /**
