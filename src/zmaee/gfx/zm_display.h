@@ -83,7 +83,8 @@ uint32_t zm_display_DrawRect(uc_engine *uc, uint32_t x, uint32_t y, uint32_t w,
 uint32_t zm_display_FillRect(uc_engine *uc, uint32_t x, uint32_t y, uint32_t w,
                              uint32_t sp); /* +0x70 */
 
-uint32_t zm_display_SetTransColor(uc_engine *uc, uint32_t r0, uint32_t r1);
+uint32_t zm_display_SetTransColor(uc_engine *uc, uint32_t r0,
+                                  uint32_t r1, uint32_t r2);
 uint32_t zm_display_SetOpacity(uc_engine *uc, uint32_t off, uint32_t r0,
                                uint32_t r1, uint32_t r2, uint32_t r3);
 uint32_t zm_display_SetClipRect(uc_engine *uc, uint32_t off, uint32_t r0,

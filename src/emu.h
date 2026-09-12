@@ -65,6 +65,25 @@
 #define LAYER_BUF (SHIM_BASE + 0x8000U)
 #define LAYER_BUF_SIZE (LAYER_W * LAYER_H * 2)
 
+/* IBitmap 的像素/调色板区（RE：ZMAEE_IBitmap_New 里 v5[9] = v5 + 11，
+ * 即像素指针 = 对象 + 44，对象与像素是连续分配的一整块）。
+ * 我们是单例对象，无法照搬"对象+44"的布局（BITMAP 后面 0x80 字节就是
+ * BITMAP_VT，放不下像素），故单独开一块，把 +36 像素指针指过去。
+ * 地址必须避开 LAYER_BUF(0x8000..0x2D800) 与 TRAMP(0x80000)。 */
+/* 解码像素池（客户机可见）：IImage 解码出的像素必须真落在 guest 内存，
+ * 因为 applet 自带的 GDI 是直接按 IBitmap 的 +36 像素指针去读的，
+ * 宿主侧那份 rgba 它根本看不到。
+ * RE 依据：ZMAEE_IBitmap_GetInfo 就是 `memcpy(out, bitmap + 8, 32)`，
+ * 即 out[7] = bitmap[36] = 像素指针。
+ * 布局：IBitmap 对象字段 8 个 dword（+8..+40）+ 像素数据。
+ * 0x30000..0x80000 共 320KB，避开 LAYER_BUF(0x8000..0x2D800)。循环复用。 */
+#define FRAMEBUF (SHIM_BASE + 0x30000U)
+#define FRAMEBUF_SIZE (LAYER_W * LAYER_H * 2)
+
+/* 解码像素池。位置后移，给 FRAMEBUF 腾出 0x30000..0x55800。 */
+#define PIX_POOL (SHIM_BASE + 0x56000U)
+#define PIX_POOL_SIZE 0x2A000U
+
 #define ROOT (SHIM_BASE + 0x000U)
 /* SHELL 必须避开 ROOT 的函数指针表区。
  * emu.c 把整个 SHIM 按 4 字节步长填成 TRAMP_BASE+i，因此 ROOT 的表从
@@ -149,8 +168,13 @@
  * 未使用字段保持 0，applet 才会走"创建"分支。 */
 #define CBK_CTX_SIZE 0x100U
 
-#define DISPLAY (SHIM_BASE + 0x1500U)   /* 全局 display 对象（0x1000005） */
-#define DISPLAY_VT (SHIM_BASE + 0x1580U) /* 58 槽 ×4B = 0xE8 */
+/* IDisplay 对象。需要装下：+0 vptr、+8 活动层索引、+20 每层一个字节的
+ * 标志数组、+36 起 16 个 52 字节的层项 —— 合计 ≈ 936 字节。
+ * 原先放在 0x1500（到 DISPLAY_VT@0x1600 只剩 0x100）根本不够，层项会被
+ * 虚表吃掉。现移到 0x1B00..0x1F00（CBK_CTX 之后、IMAGE_POOL 之前）。 */
+#define DISPLAY (SHIM_BASE + 0x1B00U)
+#define DISPLAY_OBJ_SIZE 0x400U   /* 全局 display 对象（0x1000005） */
+#define DISPLAY_VT (SHIM_BASE + 0x1600U) /* 58 槽 ×4B = 0xE8 */
 #define BITMAP (SHIM_BASE + 0x1700U)     /* bitmap 单例对象（CreateBitmap 旧桩） */
 #define BITMAP_VT (SHIM_BASE + 0x1780U)  /* 7 槽 ×4B = 0x1C */
 

@@ -93,6 +93,10 @@ int zm_image_blit_gdi_surface(uc_engine *uc, uint32_t surf, int dx, int dy,
  * 成功返回 1 并填 *w/*h/*rgba（RGBA8888，w*h*4 字节）；失败返回 0。 */
 int zm_image_get_pixels(uint32_t obj, int *w, int *h, const uint8_t **rgba);
 
+/* 解码/加载像素池（PIX_POOL）分配，循环复用。0 = 失败。
+ * 供 IImage::Decode 与 IDisplay::LoadBitmap 共用。 */
+uint32_t zm_pix_pool_alloc(uint32_t bytes);
+
 /* 清空所有图像对象（重新加载 applet 时调用） */
 void zm_image_reset(void);
 

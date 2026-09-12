@@ -56,6 +56,20 @@ static zm_img_rec *rec_of(uint32_t obj) {
 
 /* 把任意对象地址折算到"持有像素"的记录：
  * entry 本身不持像素，它 +8 的 SURF 才持像素（见 emu.h 说明）。 */
+/* 解码像素池：循环复用。IImage 解码出的像素必须落在客户机内存，
+ * applet 自带 GDI 是按 IBitmap 的 +36 像素指针直接读的。 */
+static uint32_t s_pix_next = 0;
+uint32_t zm_pix_pool_alloc(uint32_t bytes) {
+  bytes = (bytes + 3u) & ~3u;
+  if (!bytes || bytes > PIX_POOL_SIZE)
+    return 0;
+  if (s_pix_next + bytes > PIX_POOL_SIZE)
+    s_pix_next = 0; /* 回绕复用 */
+  uint32_t p = PIX_POOL + s_pix_next;
+  s_pix_next += bytes;
+  return p;
+}
+
 static zm_img_rec *pixel_rec(uint32_t obj) {
   zm_img_rec *r = rec_of(obj);
   if (r && r->kind == REC_ENTRY)
@@ -422,6 +436,55 @@ uint32_t zm_image_DecodeToBitmap(uc_engine *uc, uint32_t r0, uint32_t r1,
    * `*(0+4)`（即 payload 低地址的垃圾），实测会跳进 0x4/0x8/0xC...
    * 逐条执行到非法指令而崩溃。 */
   uc_write32(uc, surf_obj, SURF_VT);
+
+  /* ---- 在客户机内存里把 surf_obj 建成一个合法 IBitmap ----
+   * RE：ZMAEE_IBitmap_GetInfo(bitmap, out) 就是 `memcpy(out, bitmap + 8, 32)`，
+   * 于是 out 的 8 个 dword 恰好是 IBitmap 的字段：
+   *   +8 宽   +12 高   +16 颜色格式   +20 透明色
+   *   +24 调色板标志   +28 调色板指针   +32 调色板大小   +36 像素指针
+   * applet 自带的 GDI 直接按 +36 去读像素 —— 宿主侧那份 rgba 它看不到，
+   * 所以像素必须拷进客户机，并转成 ARGB8888 以保留逐像素 alpha
+   * （RE：ZMAEE_Copy32To16 用 `v6 >> 27` 取 alpha，0 则整像素跳过）。 */
+  {
+    uint32_t gpx = 0;
+    if (sz)
+      gpx = zm_pix_pool_alloc((uint32_t)sz);
+    if (gpx && src->rgba) {
+      static uint32_t line[512];
+      for (int yy = 0; yy < src->h; yy++) {
+        const uint8_t *sp = src->rgba + (size_t)yy * (size_t)src->w * 4u;
+        int done = 0;
+        while (done < src->w) {
+          int n = src->w - done;
+          if (n > 512)
+            n = 512;
+          for (int i = 0; i < n; i++) {
+            const uint8_t *q = sp + (size_t)(done + i) * 4u;
+            uint32_t v = (uint32_t)q[0] | ((uint32_t)q[1] << 8) |
+                         ((uint32_t)q[2] << 16) | ((uint32_t)q[3] << 24);
+            /* RGBA8888 → ARGB8888 */
+            line[i] = ((v & 0xFFu) << 16) | (((v >> 8) & 0xFFu) << 8) |
+                      ((v >> 16) & 0xFFu) | (v & 0xFF000000u);
+          }
+          uc_mem_write(uc, gpx + (uint32_t)yy * (uint32_t)src->w * 4u +
+                               (uint32_t)done * 4u, line, (size_t)n * 4u);
+          done += n;
+        }
+      }
+    }
+    uc_write32(uc, surf_obj + 4, 1);  /* 引用计数 */
+    uc_write32(uc, surf_obj + 8, (uint32_t)src->w);
+    uc_write32(uc, surf_obj + 12, (uint32_t)src->h);
+    uc_write32(uc, surf_obj + 16, 2); /* 颜色格式：2 = 32bit ARGB8888 */
+    uc_write32(uc, surf_obj + 20, 0xFFFFFFFFu); /* 透明色 -1 → 用 alpha 通道 */
+    uc_write32(uc, surf_obj + 24, 0);           /* 无调色板 */
+    uc_write32(uc, surf_obj + 28, 0);
+    uc_write32(uc, surf_obj + 32, 0);
+    uc_write32(uc, surf_obj + 36, gpx); /* 像素指针 */
+    uc_write32(uc, surf_obj + 40, 0);
+    log_debug("IImage::Decode -> IBitmap@0x%X %dx%d fmt=32bit pix@0x%X", surf_obj,
+              src->w, src->h, gpx);
+  }
 
   /* entry+8 也指向它，保证 BitBlt 拿 entry+8 时同样有效 */
   if (rec_of(r0) && rec_of(r0)->kind == REC_ENTRY)
