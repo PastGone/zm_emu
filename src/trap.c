@@ -793,8 +793,14 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_display_Flatten:
     ret = zm_display_Flatten(uc, 0xB0U, r0, r1, r2, r3);
     break;
-  case TR_display_StretchBlt:
+  case TR_display_StretchBlt: {
+    static uint32_t sn = 0;
+    if (sn++ < 6)
+      log_info("[StretchBlt] lr=0x%X r0=0x%X r1=0x%X r2=0x%X r3=0x%X", lr, r0, r1,
+               r2, r3);
     ret = zm_display_StretchBlt(uc, 0xB4U, r0, r1, r2, r3);
+    break;
+  }
     break;
   case TR_display_DrawAntialiasingLine:
     ret = zm_display_DrawAntialiasingLine(uc, 0xB8U, r0, r1, r2, r3);
@@ -1088,6 +1094,12 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break;
   case TR_root_sin:
     ret = zm_root_math(uc, ZM_MATH_SIN, r0, r1);
+    break;
+  case TR_root_atan:
+    ret = zm_root_math(uc, ZM_MATH_ATAN, r0, r1);
+    break;
+  case TR_root_tan:
+    ret = zm_root_math(uc, ZM_MATH_TAN, r0, r1);
     break;
   default:
     /* ROOT 槽位尚未接线。打印调用现场寄存器，便于按参数签名反推该槽

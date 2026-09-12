@@ -432,6 +432,12 @@
 #define TR_root_sqrt TRAP(ROOT + 0x104U) /* (double)->double */
 #define TR_root_cos TRAP(ROOT + 0x114U)  /* (double)->double */
 #define TR_root_sin TRAP(ROOT + 0x118U)  /* (double)->double */
+/* applet 00000506 只导入 5 个数学函数（由其导入跳板的
+ * `LDR R2,[R2,#(loc_XXX - 0x140)]` 模式枚举，槽位 = XXX - 0x140）：
+ *   0x104 sqrt   0x110 atan   0x114 cos   0x118 sin   0x11C tan
+ * 其中 0x110/0x11C 原先未接线，被调用时报"非法的外部调用"并导致崩溃。 */
+#define TR_root_atan TRAP(ROOT + 0x110U)  /* 实测：atan(dy/dx) 求角度 */
+#define TR_root_tan TRAP(ROOT + 0x11CU)  /* 已定案：tan（见 zm_root.c 注释） */
 #define TR_root_x12C TRAP(ROOT + 0x12CU)
 #define TR_root_x130 TRAP(ROOT + 0x130U)
 #define TR_root_x140 TRAP(ROOT + 0x140U)

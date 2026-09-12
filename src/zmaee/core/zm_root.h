@@ -60,6 +60,8 @@ uint32_t zm_root_rand(void);
  *                   y=y0+r·sin(a)。先算 x 故 0x114=cos、0x118=sin。
  */
 #define ZM_MATH_SQRT 0
+#define ZM_MATH_ATAN 3 /* atan(x) */
+#define ZM_MATH_TAN  4 /* tan(x) */
 #define ZM_MATH_COS 1
 #define ZM_MATH_SIN 2
 uint32_t zm_root_math(uc_engine *uc, int op, uint32_t lo, uint32_t hi);
