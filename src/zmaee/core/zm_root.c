@@ -1,6 +1,8 @@
 #include "zm_root.h"
 
 #include <SDL2/SDL.h>  /* SDL_GetTicks  (ROOT[0xD8] get_tick) */
+#include <math.h>      /* sqrt/sin/cos  (ROOT 导入表的双精度数学函数) */
+#include <stdlib.h>    /* srand/rand   (ROOT[0x40]/[0x44]) */
 #include <string.h>    /* strlen        (str_assign) */
 
 #include "../../emu.h" /* CBK_OBJ / SHIM_BASE 等地址常量 */
@@ -44,6 +46,44 @@ uint32_t zm_root_str_assign(uc_engine *uc, uint32_t str_obj,
 uint32_t zm_root_create_cbk(uc_engine *uc) {
   (void)uc;
   return CBK_OBJ;
+}
+
+/* ROOT[0x40]/[0x44]：srand / rand。种子只播一次，之后交给 libc。 */
+void zm_root_srand(uint32_t seed) {
+  static bool seeded = false;
+  if (!seeded) {
+    srand(seed);
+    seeded = true;
+  }
+}
+
+uint32_t zm_root_rand(void) { return (uint32_t)rand(); }
+
+/* 把 double 结果按 EABI 拆成 r0(低) / r1(高)。r1 需自己写寄存器：
+ * trap 框架只回写 R0。 */
+static uint32_t ret_double(uc_engine *uc, double v) {
+  uint64_t bits;
+  memcpy(&bits, &v, sizeof(bits));
+  uint32_t hi = (uint32_t)(bits >> 32);
+  uc_reg_write(uc, UC_ARM_REG_R1, &hi);
+  return (uint32_t)(bits & 0xFFFFFFFFu);
+}
+
+uint32_t zm_root_math(uc_engine *uc, int op, uint32_t lo, uint32_t hi) {
+  uint64_t bits = ((uint64_t)hi << 32) | (uint64_t)lo;
+  double x;
+  memcpy(&x, &bits, sizeof(x));
+
+  switch (op) {
+  case ZM_MATH_SQRT:
+    return ret_double(uc, sqrt(x));
+  case ZM_MATH_COS:
+    return ret_double(uc, cos(x));
+  case ZM_MATH_SIN:
+    return ret_double(uc, sin(x));
+  default:
+    return ret_double(uc, 0.0);
+  }
 }
 
 /* ROOT[0xD8]：返回 SDL_GetTicks() 时间戳 */

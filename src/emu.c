@@ -5,6 +5,7 @@
 #include "./ulibc/ulibc.h"
 #include "./zmaee/fs/zm_file_mgr.h"
 #include "./zmaee/fs/zm_file.h"
+#include "./zmaee/gfx/zm_display.h" /* zm_display_size（初始化 CBK_CTX 用） */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -69,6 +70,11 @@ int zm_emu_build_vtables() {
      * "层缓冲"里全是跳转地址，画面、合成全乱。 */
     if (addr >= LAYER_BUF && addr < LAYER_BUF + LAYER_BUF_SIZE)
       continue;
+    /* create_cbk 应用上下文（CBK_CTX）同样是数据区：applet 对 +0x8c /
+     * +0x90 等字段做"为 0 则创建"的懒初始化，填成 trap 地址会被当成
+     * 真实对象解引用（见 emu.h CBK_CTX_SIZE 说明）。 */
+    if (addr >= CBK_CTX && addr < CBK_CTX + CBK_CTX_SIZE)
+      continue;
     err = uc_write32(g_uc, addr, TRAMP_BASE + i);
     if (err != UC_ERR_OK) {
       log_error("shim映射到tramp时出现了错误, err: %d\n", err);
@@ -84,6 +90,31 @@ int zm_emu_build_vtables() {
         n = sizeof(zero);
       uc_mem_write(g_uc, LAYER_BUF + off, zero, n);
     }
+  }
+
+  /* CBK_CTX 清零：上面已把它排除出 trap 填充，这里确保未使用字段为 0，
+   * 让 applet 走"懒创建"分支（+0x8c / +0x90）。 */
+  {
+    static uint8_t zbuf[256];
+    uc_mem_write(g_uc, CBK_CTX, zbuf, CBK_CTX_SIZE);
+  }
+
+  /* create_cbk 上下文：CBK_OBJ+0x48 指向 CBK_CTX，
+   * 其中 +0x50=IDisplay、+0x54=屏宽、+0x58=屏高（见 emu.h CBK_CTX 说明）。
+   * 必须在上面的 SHIM 填充**之后**写，否则会被 trap 地址覆盖。 */
+  {
+    int sw = 0, sh = 0;
+    zm_display_size(&sw, &sh);
+    if (!sw || !sh) {
+      sw = (int)LAYER_W;
+      sh = (int)LAYER_H; /* 显示后端未就绪时退回逻辑分辨率 */
+    }
+    uc_write32(g_uc, CBK_OBJ + 0x48, CBK_CTX);
+    uc_write32(g_uc, CBK_CTX + 0x50, DISPLAY);
+    uc_write32(g_uc, CBK_CTX + 0x54, (uint32_t)sw);
+    uc_write32(g_uc, CBK_CTX + 0x58, (uint32_t)sh);
+    log_info("create_cbk 上下文：CBK_OBJ+0x48=0x%X → display=0x%X 屏幕 %dx%d",
+             CBK_CTX, DISPLAY, sw, sh);
   }
   log_info("布局: SHIM_BASE=0x%X TRAMP_BASE=0x%X ROOT=0x%X SHELL=0x%X",
            SHIM_BASE, TRAMP_BASE, ROOT, SHELL);

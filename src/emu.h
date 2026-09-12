@@ -126,6 +126,29 @@
  * 是早期对同一张表的误命名（实测偏移与本表吻合），已并入此处。
  * bitmap 由 IDisplay.CreateBitmap/LoadBitmap 创建，这里用单个 BITMAP 单例
  * 作为所有 bitmap 对象的 vtable 模板（真实多实例后续再扩展）。 */
+/* ---- create_cbk 的"应用上下文"结构体（00000506 实测）----
+ *
+ * ROOT[0x154] create_cbk 返回 CBK_OBJ；applet 随后把 **CBK_OBJ+0x48**
+ * 当成一个上下文指针来用（getter sub_8884，实测 31 个调用点）：
+ *     bl   sub_8884          ; r0 = *(CBK_OBJ + 0x48)
+ *     ldr  r0, [r0, #0x50]   ; → IDisplay*（存进资源管理器的 +0x58，
+ *                            ;   随后以 vt[0xA8]=CreateImage 调用）
+ *     ldr  r0, [r0, #0x54]   ; → 屏幕宽
+ *     ldr  r0, [r0, #0x58]   ; → 屏幕高
+ * 宽/高的用法是 `add r0,r0,r0,lsr#31; asr r0,r0,#1`（除以 2，配合
+ * ldrsh 取坐标做居中计算），证实是标量尺寸而非对象。
+ *
+ * 该字段若留空（值为 build_vtables 填的 trap 地址），applet 取到的
+ * display 就是野值 → 资源管理器 +0x58 为 0 → 解引用崩溃。
+ * 地址放在 MEDIA_VT(0x1980+25*4=0x19E4) 之后、IMAGE_POOL(0x2000) 之前。 */
+#define CBK_CTX (SHIM_BASE + 0x1A00U)
+/* CBK_CTX 是**数据区**，必须像 LAYER_BUF 一样排除在 SHIM 的 trap 地址填充
+ * 之外并清零。否则 applet 的懒创建逻辑
+ *     ldr r0,[ctx,#0x8c]; cmp r0,#0; bne <直接使用>; bl <创建>
+ * 会拿到 trap 地址（0x821A8C）当成真实对象解引用 → 崩溃。
+ * 未使用字段保持 0，applet 才会走"创建"分支。 */
+#define CBK_CTX_SIZE 0x100U
+
 #define DISPLAY (SHIM_BASE + 0x1500U)   /* 全局 display 对象（0x1000005） */
 #define DISPLAY_VT (SHIM_BASE + 0x1580U) /* 58 槽 ×4B = 0xE8 */
 #define BITMAP (SHIM_BASE + 0x1700U)     /* bitmap 单例对象（CreateBitmap 旧桩） */
@@ -361,6 +384,14 @@
 #define TR_root_strchr TRAP(ROOT + 0x90U)
 #define TR_root_str_assign TRAP(ROOT + 0x78U) /* str_assign(str_obj, cstr) */
 #define TR_root_get_tick TRAP(ROOT + 0xD8U)   /* ROOT[0xD8] */
+/* ROOT 导入表的双精度数学函数（00000506 实测，见 zm_root.h 注释）。
+ * 这几个槽若缺失会返回 0：sin/cos 为 0 会让极坐标算出的坐标全部塌到
+ * 基准点，鱼群/炮弹位置失真，实测表现为"资源加载了却没有任何绘制"。 */
+#define TR_root_srand TRAP(ROOT + 0x40U)  /* srand(seed) */
+#define TR_root_rand TRAP(ROOT + 0x44U)   /* rand() */
+#define TR_root_sqrt TRAP(ROOT + 0x104U) /* (double)->double */
+#define TR_root_cos TRAP(ROOT + 0x114U)  /* (double)->double */
+#define TR_root_sin TRAP(ROOT + 0x118U)  /* (double)->double */
 #define TR_root_x12C TRAP(ROOT + 0x12CU)
 #define TR_root_x130 TRAP(ROOT + 0x130U)
 #define TR_root_x140 TRAP(ROOT + 0x140U)
