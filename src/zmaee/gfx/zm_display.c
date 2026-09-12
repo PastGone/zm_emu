@@ -533,6 +533,13 @@ int zm_display_init(void) {
   return 0;
 }
 
+void zm_display_size(int *w, int *h) {
+  if (w)
+    *w = g_fb_w;
+  if (h)
+    *h = g_fb_h;
+}
+
 void zm_display_shutdown(void) {
   if (g_font) {
     TTF_CloseFont(g_font);
@@ -631,6 +638,15 @@ bool zm_display_event_loop(void (*on_click)(uint32_t x, uint32_t y),
       return false; /* 超时 → 模拟结束 */
     if (zm_timer_poll(SDL_GetTicks()))
       return true; /* 定时器回调已挂上跳板 → 让模拟器执行 cb */
+
+    /* 每轮呈现一次帧缓冲。
+     *
+     * 必须做：00000506 这类 applet 自带 GDI（ZMAEE_GDI_BitBlt_Ext 等），
+     * 定时器回调里**直接写层像素缓冲**，不走 IDisplay 的绘制 trap，也
+     * 几乎不调 Update/commit（实测 20 秒内 IDisplay 只有 LoadBitmap 有
+     * 调用量）。因此若不在这里主动 present，画面永远停在初始黑屏。
+     * 本轮开始时上一轮的回调已经跑完，缓冲里就是刚画好的一帧。 */
+    fb_present();
     SDL_Delay(16);
   }
 }

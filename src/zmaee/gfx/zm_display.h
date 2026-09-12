@@ -28,6 +28,10 @@
  * 成功返回 0，失败返回 -1。 */
 int zm_display_init(void);
 
+/* 取当前画布尺寸（供其它模块初始化客户机可见的上下文结构用）。
+ * 未初始化时返回 0 并把 *w/*h 置 0。 */
+void zm_display_size(int *w, int *h);
+
 /* 释放 SDL 资源（窗口、渲染器、画布、字体） */
 void zm_display_shutdown(void);
 

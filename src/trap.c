@@ -1064,6 +1064,22 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
      */
     ret = zm_root_create_cbk(uc);
     break;
+  case TR_root_srand:
+    zm_root_srand(r0);
+    ret = 0;
+    break;
+  case TR_root_rand:
+    ret = zm_root_rand();
+    break;
+  case TR_root_sqrt:
+    ret = zm_root_math(uc, ZM_MATH_SQRT, r0, r1);
+    break;
+  case TR_root_cos:
+    ret = zm_root_math(uc, ZM_MATH_COS, r0, r1);
+    break;
+  case TR_root_sin:
+    ret = zm_root_math(uc, ZM_MATH_SIN, r0, r1);
+    break;
   default:
     /* ROOT 槽位尚未接线。打印调用现场寄存器，便于按参数签名反推该槽
      * 对应的 libc 函数（ROOT 在安卓变体里是普通全局函数指针表，
