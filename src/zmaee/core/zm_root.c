@@ -81,6 +81,22 @@ uint32_t zm_root_math(uc_engine *uc, int op, uint32_t lo, uint32_t hi) {
     return ret_double(uc, cos(x));
   case ZM_MATH_SIN:
     return ret_double(uc, sin(x));
+  case ZM_MATH_ATAN:
+    /* ROOT[0x110]。依据 applet 调用点（lr=0x17558）：
+     *   BL sub_1DE28        （dy/dx 相除）
+     *   BL sub_19290        ← 本函数（一元 double）
+     *   LDM R11,{R2,R3} + BL sub_1E538   （乘 180/π）
+     *   SUB R0, R0, #0x5A   （减 90）
+     * 是标准的 atan 求角度写法。 */
+    return ret_double(uc, atan(x));
+  case ZM_MATH_TAN:
+    /* ROOT[0x11C]。定案依据：applet 只导入 5 个数学函数（由其导入跳板的
+     * `LDR R2,[R2,#(loc_XXX - 0x140)]` 模式枚举出槽位），其中
+     * 0x104=sqrt / 0x110=atan / 0x114=cos / 0x118=sin 四个槽的实测值把
+     * 位置钉死了，剩下的只能是 docs/可能有的函数.md 里
+     * 「cos、sin、tan」相邻顺序的第 5 个 = tan。
+     * 实测实参 0.7679 / 3.2638 / 2.6005（≈44°/187°/149°）也符合角度分布。 */
+    return ret_double(uc, tan(x));
   default:
     return ret_double(uc, 0.0);
   }
@@ -130,3 +146,4 @@ uint32_t zm_root_cbk_default(uc_engine *uc, uint32_t r0, uint32_t r1,
   log_info("stub cbk_default r0=%u r1=%u r2=%u r3=%u", r0, r1, r2, r3);
   return 0;
 }
+
