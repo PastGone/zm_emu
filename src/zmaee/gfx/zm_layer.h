@@ -63,7 +63,11 @@ uint32_t zm_layer_GetLayerInfo(uc_engine *uc, uint32_t display, uint32_t idx,
 /* +0x30 SetActiveLayer(display, idx)：层无缓冲返回 -4。 */
 uint32_t zm_layer_SetActiveLayer(uc_engine *uc, uint32_t display, uint32_t idx);
 
-/* 合成顺序：RE：ZMAEE_IDisplay_Update 传给 UpdateEx 的列表恒为 {0,1,2,3} */
-#define ZM_LAYER_COMPOSITE_MAX 4
+/* 合成顺序：按层号 0,1,2,... 依次叠加。
+ * RE 里 ZMAEE_IDisplay_Update 传给 UpdateEx 的列表曾见 {0,1,2,3}，
+ * 但 CreateLayerExt 允许 idx ∈ [0,15]，所以这里放宽到 16：
+ * 多出来的层只是在 zm_layer_get 里被跳过，代价可忽略，
+ * 但能避免"applet 建了层却永远不参与合成"。 */
+#define ZM_LAYER_COMPOSITE_MAX 16
 
 #endif /* ZM_LAYER_H */

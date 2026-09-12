@@ -41,6 +41,21 @@ uint32_t zm_file_read(uc_engine *uc, uint32_t file_id, uint32_t buf,
     uc_mem_write(uc, buf, g_file_data + pos, n);
     g_file_pos += n;
   }
+  /* 观测：applet 到底有没有通过 IFile.Read 取文件内容。
+   * 前 20 次逐条打印，之后每 500 次汇总一次（避免刷屏）。 */
+  {
+    static uint32_t nread = 0, nfail = 0, total = 0;
+    nread++;
+    total += n;
+    if (n == 0)
+      nfail++;
+    if (nread <= 20)
+      log_info("file.read(#%u) buf=0x%X len=%u -> %u (pos=%u size=%zu)", nread, buf,
+               length, n, pos, g_file_size);
+    else if ((nread % 500) == 0)
+      log_info("file.read 累计 %u 次, 累计取回 %u 字节, 空读 %u 次", nread, total,
+               nfail);
+  }
   return n;
 }
 

@@ -84,7 +84,17 @@ uint32_t zm_shell_CreateInstance(uc_engine *uc, uint32_t svc, uint32_t out_ptr) 
   case 0x100000E: /* IMemStream—— 尚未实现 */
   case 0x100000F: /* IZip      —— 尚未实现 */
   case 0x1000010: /* IStatusBar—— 尚未实现 */
-  case 0x1000013: /* IUtil     —— 尚未实现 */
+  case 0x1000013: /* IUtil —— 实测每帧都被请求（拿不到就优雅回退 -3）。
+                   * 给真实对象会改变 applet 的代码路径（实测出现一次
+                   * UC_ERR_INSN_INVALID），所以**默认仍返回 -3**，
+                   * 仅在 ZM_IUTIL=1 时给出真实对象用于观测。 */
+    if (getenv("ZM_IUTIL") && getenv("ZM_IUTIL")[0] == '1') {
+      outobj = IUTIL;
+    } else {
+      outobj = 0;
+      ret = -3; /* RE default 语义 */
+    }
+    break;
   default:
     outobj = 0;
     ret = -3; /* RE default 语义 */
@@ -258,5 +268,29 @@ uint32_t zm_dll_config(uc_engine *uc, uint32_t a1, uint32_t a2, uint32_t a3) {
 uint32_t zm_dll_entry(uc_engine *uc, uint32_t a1, uint32_t a2, uint32_t a3) {
   (void)uc;
   log_info("stub dll entry(+0x10) a1=%u a2=%u a3=%u", a1, a2, a3);
+  return 0;
+}
+
+/* IDisplay 之外的 IUtil：7 个槽全部接探针。
+ * 目的不是"实现",而是**实测出 applet 到底调哪几个槽、传什么参数** ——
+ * 这样 IUtil 的用途是观测出来的，不依赖任何异构建的反编译。 */
+uint32_t zm_util_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
+                      uint32_t r2, uint32_t r3) {
+  static uint32_t cnt[8];
+  uint32_t i = off / 4u;
+  if (i < 8u)
+    cnt[i]++;
+  static uint32_t total = 0;
+  if ((++total % 300u) == 0u) {
+    log_info("[IUtil] 累计 %u 次调用，各槽次数：", total);
+    for (uint32_t k = 0; k < 8u; k++)
+      if (cnt[k])
+        log_info("   +0x%02X : %u 次", k * 4u, cnt[k]);
+  }
+  static uint32_t shown = 0;
+  if (shown++ < 12)
+    log_info("[IUtil] 槽+0x%X r0=0x%X r1=0x%X r2=0x%X r3=0x%X", off, r0, r1,
+             r2, r3);
+  (void)uc;
   return 0;
 }

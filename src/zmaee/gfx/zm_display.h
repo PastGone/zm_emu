@@ -53,6 +53,16 @@ uint32_t zm_display_Release(uc_engine *uc, uint32_t r0);
 uint32_t zm_display_GetMaxLayerCount(uc_engine *uc, uint32_t r0);
 uint32_t zm_display_CreateLayer(uc_engine *uc, uint32_t off, uint32_t r0,
                                 uint32_t r1, uint32_t r2, uint32_t r3);
+/* +0x18：RE 为 ZMAEE_IDisplay_GetBaseLayerBuffer() —— 返回常驻的"基础层"
+ * 缓冲指针（真机是全局 unk_64B60），背景应当画在这里。 */
+uint32_t zm_display_GetBaseLayerBuffer(uc_engine *uc);
+
+/* RE 的 ZMAEE_IDisplay_GetBaseLayerDepth()（无参，默认 1=RGB565）。 */
+uint32_t zm_display_GetBaseLayerDepth(uc_engine *uc);
+
+/* 基础层缓冲地址（0 = 未分配），仅供诊断探针使用。 */
+uint32_t zm_display_base_layer_addr(void);
+
 uint32_t zm_display_CreateLayerExt(uc_engine *uc, uint32_t off, uint32_t r0,
                                    uint32_t r1, uint32_t r2, uint32_t r3);
 uint32_t zm_display_FreeLayer(uc_engine *uc, uint32_t r0, uint32_t r1);
@@ -68,9 +78,14 @@ uint32_t zm_display_RegisterCustomFont(uc_engine *uc, uint32_t off, uint32_t r0,
 uint32_t zm_display_GetFontWidth(uc_engine *uc, uint32_t r0, uint32_t r1);
 
 /* 实测槽（旧 GFX 路径验证过的行为） */
-uint32_t zm_display_clear(uc_engine *uc, uint32_t color); /* +0x20 */
-uint32_t zm_display_fillRectR(uc_engine *uc,
-                              uint32_t rect_ptr); /* +0x2C，空实现疑似 invalidate */
+/* +0x20：真机虚表里是 ZMAEE_IDisplay_SetActiveLayer(display, idx)。
+ * 以前误认成 clear(color) —— 详见 zm_display.c 里的说明。 */
+uint32_t zm_display_SetActiveLayer(uc_engine *uc, uint32_t display,
+                                   uint32_t idx);
+/* +0x2C：真机虚表里是 ZMAEE_IDisplay_UpdateEx(display, rect, count, layerList)。
+ * 以前误认成 fillRect(rect_ptr)，只接一个参数、把层列表丢了。 */
+uint32_t zm_display_UpdateEx(uc_engine *uc, uint32_t display, uint32_t rect_ptr,
+                             uint32_t count, uint32_t list_ptr);
 uint32_t zm_display_commit(uc_engine *uc);         /* +0x40，提交帧缓冲 */
 uint32_t zm_display_getWidth(uc_engine *uc);       /* +0x48，返回屏幕宽度 */
 uint32_t zm_display_measureChar(uc_engine *uc, uint32_t gfx, uint32_t char_ptr,

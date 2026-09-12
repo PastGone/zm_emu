@@ -123,3 +123,7 @@ uint32_t zm_dll_config(uc_engine *uc, uint32_t a1, uint32_t a2, uint32_t a3);
 uint32_t zm_dll_entry(uc_engine *uc, uint32_t a1, uint32_t a2, uint32_t a3);
 
 #endif /* ZM_SHELL_H */
+
+/* IUtil（0x1000013）的观测探针，见 zm_shell.c */
+uint32_t zm_util_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
+                      uint32_t r2, uint32_t r3);

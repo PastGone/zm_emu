@@ -199,6 +199,22 @@
  * applet 只经虚表使用、不摸字段，因此这里用固定地址池 + 宿主侧记录表实现多实例
  * （旧实现返回 0/单例，导致 applet 拿到空指针直接崩）。
  * 池区从 0x2000 起（SETTING/MEDIA 之后），每对象 0x40 字节。 */
+/* 0x1000013 IUtil 服务对象。
+ * 实测 applet **每帧**都请求它一次（拿不到就返回 -3 优雅回退）—— 是唯一
+ * "每帧都在失败"的服务，因此值得给它一个真实对象，看它到底想调哪个槽。
+ * 真机 util 虚表是 7 个槽（0x00~0x18）。位置选在 DISPLAY(0x1B00，约 0x360 字节)
+ * 之后、IMAGE_POOL(0x2000) 之前的空隙里。 */
+#define IUTIL (SHIM_BASE + 0x1F00U)
+#define IUTIL_VT (SHIM_BASE + 0x1F80U) /* 7 槽 ×4B = 0x1C */
+
+#define TR_util_x00 TRAP(IUTIL_VT + 0x00U)
+#define TR_util_x04 TRAP(IUTIL_VT + 0x04U)
+#define TR_util_x08 TRAP(IUTIL_VT + 0x08U)
+#define TR_util_x0C TRAP(IUTIL_VT + 0x0CU)
+#define TR_util_x10 TRAP(IUTIL_VT + 0x10U)
+#define TR_util_x14 TRAP(IUTIL_VT + 0x14U)
+#define TR_util_x18 TRAP(IUTIL_VT + 0x18U)
+
 #define IMAGE_POOL (SHIM_BASE + 0x2000U)  /* 64 × 0x40 = 0x1000 */
 #define IMAGE_VT (SHIM_BASE + 0x3000U)    /* 32 槽 ×4B = 0x80 */
 #define IMAGE_SLOT_SIZE 0x40U
