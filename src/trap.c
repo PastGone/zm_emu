@@ -626,6 +626,13 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     ret = zm_file_tell(uc, r0);
     break;
   /* ---- ZMAEE IDisplay 原生虚表（g_aee_display_vtbl）---- */
+  case TR_util_x00: ret = zm_util_stub(uc, 0x00, r0, r1, r2, r3); break;
+  case TR_util_x04: ret = zm_util_stub(uc, 0x04, r0, r1, r2, r3); break;
+  case TR_util_x08: ret = zm_util_stub(uc, 0x08, r0, r1, r2, r3); break;
+  case TR_util_x0C: ret = zm_util_stub(uc, 0x0C, r0, r1, r2, r3); break;
+  case TR_util_x10: ret = zm_util_stub(uc, 0x10, r0, r1, r2, r3); break;
+  case TR_util_x14: ret = zm_util_stub(uc, 0x14, r0, r1, r2, r3); break;
+  case TR_util_x18: ret = zm_util_stub(uc, 0x18, r0, r1, r2, r3); break;
   case TR_display_AddRef:
     ret = zm_display_AddRef(uc, r0);
     break;
@@ -644,14 +651,16 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_display_FreeLayer:
     ret = zm_display_FreeLayer(uc, r0, r1);
     break;
-  case TR_display_x18: /* 实测被调（旧 GFX 路径），功能未知 */
+  case TR_display_x18: /* 实测被调 1 次（启动时）。曾试接 GetBaseLayerBuffer，
+                        * 但实测 applet 从不往返回的缓冲里写任何数据，
+                        * 且它更像 FreeAllLayer（返回 0=成功），故保持 stub。 */
     ret = zm_display_stub(uc, 0x18, r0, r1, r2, r3);
     break;
   case TR_display_GetLayerInfo:
     ret = zm_display_GetLayerInfo(uc, 0x1CU, r0, r1, r2, r3);
     break;
-  case TR_display_clear: /* 实测：clear(color) */
-    ret = zm_display_clear(uc, r1);
+  case TR_display_clear: /* 真机虚表 +0x20 = SetActiveLayer(display, idx) */
+    ret = zm_display_SetActiveLayer(uc, r0, r1);
     break;
   case TR_display_SetLayerPosition:
     ret = zm_display_SetLayerPosition(uc, 0x24U, r0, r1, r2, r3);
@@ -659,8 +668,8 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_display_Update:
     ret = zm_display_Update(uc, r0);
     break;
-  case TR_display_fillRectR: /* 实测：fillRect(rect_ptr,...)，空实现疑似 invalidate */
-    ret = zm_display_fillRectR(uc, r1);
+  case TR_display_fillRectR: /* 真机虚表 +0x2C = UpdateEx(display, rect, count, layerList) */
+    ret = zm_display_UpdateEx(uc, r0, r1, r2, r3);
     break;
   case TR_display_GetActiveLayer:
     ret = zm_display_GetActiveLayer(uc, r0);

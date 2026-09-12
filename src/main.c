@@ -20,10 +20,42 @@
 char g_app_pathname[4096] = {0};
 
 int main() {
+  /* ---------------- 日志开关 ----------------
+   * ZM_LOG=off   关闭全部日志（屏幕 + log.txt）—— 肉眼验证画面时用这个
+   * ZM_LOG=error 只看错误   ZM_LOG=warn / info / debug 依次放宽
+   * 不设该变量 = 全开（LOG_TRACE），与历史行为一致。
+   *
+   * 全量日志会明显拖慢模拟（HOOK 单次运行就能刷出 7000+ 行），
+   * 而且每行都要同时格式化到屏幕和 log.txt 两次。 */
+  int log_level = LOG_TRACE;
+  bool log_quiet = false;
+  {
+    const char *lv = getenv("ZM_LOG");
+    if (lv && lv[0]) {
+      if (!strcmp(lv, "off") || !strcmp(lv, "none")) {
+        log_level = LOG_FATAL; /* 回调阈值顺便抬高，确保不动文件 */
+        log_quiet = true;
+      } else if (!strcmp(lv, "error")) {
+        log_level = LOG_ERROR;
+      } else if (!strcmp(lv, "warn")) {
+        log_level = LOG_WARN;
+      } else if (!strcmp(lv, "info")) {
+        log_level = LOG_INFO;
+      } else if (!strcmp(lv, "debug")) {
+        log_level = LOG_DEBUG;
+      }
+    }
+  }
+  log_set_level(log_level);
+  log_set_quiet(log_quiet);
   log_info("hello world!");
-  log_set_level(LOG_TRACE);
-  FILE *logfile = fopen("log.txt", "w");
-  log_add_fp(logfile, LOG_TRACE);
+
+  /* 关日志时连 log.txt 也不开、不注册回调（否则回调仍会写盘）。 */
+  FILE *logfile = NULL;
+  if (!log_quiet) {
+    logfile = fopen("log.txt", "w");
+    log_add_fp(logfile, log_level);
+  }
 
   // 调试开关：ZM_STEP=1 每个 trap 后等待回车；ZM_DISASM=1 反汇编每条指令
   {

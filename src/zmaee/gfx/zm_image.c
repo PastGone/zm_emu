@@ -126,7 +126,77 @@ static int pool_claim(zm_img_rec *pool, int count, rec_kind kind) {
 
 /* =========================================================================
  * PNG / JPEG 解码（统一产出 RGBA8888）
+ *
+ * 但发给客户机的 IBitmap 必须带**真实的颜色格式与透明色**：
+ * RE：ZMAEE_IImage_PNG_Decode 里
+ *   v72 = PNG color type
+ *     3(调色板) → format 0 ；2(truecolor) → format 2 ；6(RGBA) → format 3
+ *   v75 = -1（默认不透明），若存在 tRNS 块则取其中的透明色，
+ *   最后 ZMAEE_IBitmap_SetTransColor(bitmap, v75)。
+ * 以前我们统一写 format=2 / transcolor=-1，与固件不符。
  * ========================================================================= */
+static int g_last_fmt = 2;       /* 0=8bit索引 2=RGB 3=RGBA */
+static uint32_t g_last_tc = 0xFFFFFFFFu; /* 透明色，-1 = 不透明 */
+
+/* 大端 16 位读 */
+static uint32_t be16(const uint8_t *p) {
+  return ((uint32_t)p[0] << 8) | p[1];
+}
+static uint32_t be32(const uint8_t *p) {
+  return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) | ((uint32_t)p[2] << 8) |
+         p[3];
+}
+
+/* 从 PNG 原始字节里取 color type 与 tRNS 透明色（有 tRNS 时才覆盖 *tc） */
+static void png_meta(const uint8_t *d, size_t len, int *fmt, uint32_t *tc) {
+  *fmt = 2;
+  if (len < 26)
+    return;
+  int ctype = d[25]; /* 8(签名) + 4(长度) + 4("IHDR") + 9 = 25 */
+  switch (ctype) {
+  case 3:
+    *fmt = 0; /* 调色板：固件用 format 0（带调色板） */
+    break;
+  case 2:
+    *fmt = 2;
+    break;
+  case 6:
+    *fmt = 3; /* RGBA：固件用 format 3 */
+    break;
+  case 0:
+    *fmt = 2; /* 灰度按 RGB 处理 */
+    break;
+  case 4:
+    *fmt = 3; /* 灰度+alpha */
+    break;
+  default:
+    *fmt = 2;
+    break;
+  }
+  /* 扫块找 tRNS（到 IDAT 为止） */
+  size_t off = 8;
+  while (off + 12 <= len) {
+    uint32_t clen = be32(d + off);
+    const uint8_t *ctype4 = d + off + 4;
+    if (memcmp(ctype4, "IDAT", 4) == 0 || memcmp(ctype4, "IEND", 4) == 0)
+      break;
+    if (memcmp(ctype4, "tRNS", 4) == 0) {
+      const uint8_t *t = d + off + 8;
+      if (off + 8 + clen > len)
+        break;
+      if (ctype == 2 && clen >= 6) {
+        /* truecolor：6 字节 = R,G,B（各 16 位大端，值域同 8 位） */
+        uint32_t r = be16(t) & 0xFFu;
+        uint32_t g = be16(t + 2) & 0xFFu;
+        uint32_t b = be16(t + 4) & 0xFFu;
+        *tc = (r << 16) | (g << 8) | b; /* alpha=0 */
+      }
+      /* 调色板(3)/灰度(0) 的 tRNS 由 libpng 展开进 alpha，这里不额外处理 */
+      break;
+    }
+    off += 12u + clen;
+  }
+}
 
 static int decode_png(const uint8_t *data, size_t len, int *ow, int *oh,
                       uint8_t **orgba) {
@@ -143,6 +213,13 @@ static int decode_png(const uint8_t *data, size_t len, int *ow, int *oh,
   if (!buf) {
     png_image_free(&img);
     return -1;
+  }
+  {
+    int mf = 2;
+    uint32_t mtc = 0xFFFFFFFFu;
+    png_meta(data, len, &mf, &mtc);
+    g_last_fmt = mf;
+    g_last_tc = mtc;
   }
   if (!png_image_finish_read(&img, NULL, buf, 0, NULL)) {
     log_warn("PNG 解码失败: %s", img.message);
@@ -179,6 +256,8 @@ static int decode_jpg(const uint8_t *data, size_t len, int *ow, int *oh,
     log_warn("JPEG 解码失败");
     return -1;
   }
+  g_last_fmt = 2;          /* RE：JPG 走 format 2 */
+  g_last_tc = 0xFFFFFFFFu; /* 不透明 */
   jpeg_create_decompress(&cinfo);
   jpeg_mem_src(&cinfo, data, (unsigned long)len);
   jpeg_read_header(&cinfo, TRUE);
@@ -475,15 +554,17 @@ uint32_t zm_image_DecodeToBitmap(uc_engine *uc, uint32_t r0, uint32_t r1,
     uc_write32(uc, surf_obj + 4, 1);  /* 引用计数 */
     uc_write32(uc, surf_obj + 8, (uint32_t)src->w);
     uc_write32(uc, surf_obj + 12, (uint32_t)src->h);
-    uc_write32(uc, surf_obj + 16, 2); /* 颜色格式：2 = 32bit ARGB8888 */
-    uc_write32(uc, surf_obj + 20, 0xFFFFFFFFu); /* 透明色 -1 → 用 alpha 通道 */
+    /* RE：format/透明色由解码器决定（见 png_meta）：
+     *   调色板 → 0、truecolor → 2、RGBA → 3；tRNS 有则取之，否则 -1 */
+    uc_write32(uc, surf_obj + 16, (uint32_t)g_last_fmt);
+    uc_write32(uc, surf_obj + 20, g_last_tc);
     uc_write32(uc, surf_obj + 24, 0);           /* 无调色板 */
     uc_write32(uc, surf_obj + 28, 0);
     uc_write32(uc, surf_obj + 32, 0);
     uc_write32(uc, surf_obj + 36, gpx); /* 像素指针 */
     uc_write32(uc, surf_obj + 40, 0);
-    log_debug("IImage::Decode -> IBitmap@0x%X %dx%d fmt=32bit pix@0x%X", surf_obj,
-              src->w, src->h, gpx);
+    log_info("IImage::Decode -> IBitmap@0x%X %dx%d fmt=%d trans=0x%08X pix@0x%X",
+             surf_obj, src->w, src->h, g_last_fmt, g_last_tc, gpx);
   }
 
   /* entry+8 也指向它，保证 BitBlt 拿 entry+8 时同样有效 */
