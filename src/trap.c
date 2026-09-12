@@ -690,7 +690,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     ret = zm_display_DrawText(uc, r1, r2, r3, sp);
     break;
   case TR_display_SetTransColor:
-    ret = zm_display_SetTransColor(uc, r0, r1);
+    ret = zm_display_SetTransColor(uc, r0, r1, r2);
     break;
   case TR_display_SetOpacity:
     ret = zm_display_SetOpacity(uc, 0x58U, r0, r1, r2, r3);

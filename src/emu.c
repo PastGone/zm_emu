@@ -70,6 +70,15 @@ int zm_emu_build_vtables() {
      * "层缓冲"里全是跳转地址，画面、合成全乱。 */
     if (addr >= LAYER_BUF && addr < LAYER_BUF + LAYER_BUF_SIZE)
       continue;
+    /* 解码像素池 / 帧缓冲是数据区，不能填 trap 地址 */
+    if (addr >= PIX_POOL && addr < PIX_POOL + PIX_POOL_SIZE)
+      continue;
+    if (addr >= FRAMEBUF && addr < FRAMEBUF + FRAMEBUF_SIZE)
+      continue;
+    /* IDisplay 对象同样是数据区：层项的 +0x24 是"该层是否存在"的判断依据
+     * （CreateLayer 见非 0 就返回 -8）。填成 trap 值会让 applet 永远建不了层。 */
+    if (addr >= DISPLAY && addr < DISPLAY + DISPLAY_OBJ_SIZE)
+      continue;
     /* create_cbk 应用上下文（CBK_CTX）同样是数据区：applet 对 +0x8c /
      * +0x90 等字段做"为 0 则创建"的懒初始化，填成 trap 地址会被当成
      * 真实对象解引用（见 emu.h CBK_CTX_SIZE 说明）。 */
@@ -154,6 +163,99 @@ int zm_emu_build_vtables() {
   /* ---- ZMAEE IDisplay / IBitmap 原生虚表（全局单例 + bitmap 模板）---- */
   err = uc_write32(g_uc, DISPLAY, DISPLAY_VT);
   err = uc_write32(g_uc, BITMAP, BITMAP_VT);
+
+  /* IDisplay 对象清零：层项 +0x24 必须为 0，applet 的 CreateLayer 才会认为
+   * "该层尚不存在"并建层（见 zm_layer.c）。 */
+  {
+    static uint8_t zb[512];
+    for (uint32_t off = 4; off < DISPLAY_OBJ_SIZE; off += sizeof(zb)) {
+      uint32_t n = DISPLAY_OBJ_SIZE - off;
+      if (n > sizeof(zb))
+        n = sizeof(zb);
+      uc_mem_write(g_uc, DISPLAY + off, zb, n);
+    }
+  }
+
+  /* ---- 初始化 IBitmap 单例的字段（RE：ZMAEE_IBitmap_New / _Create）----
+   *   +0  vptr      +4  引用计数=1
+   *   +8  宽        +12 高
+   *   +16 颜色格式  +20 透明色（_Create 初值 -1）
+   *   +24 有无调色板 +28 调色板指针  +32 调色板大小
+   *   +36 像素指针  +40 调色板大小副本
+   * ZMCF 枚举（由 CreateLayerExt 的 a4 与 AlphaBlendRect 的 switch 推出）：
+   *   0 = 8bit 索引色(带调色板)、1 = RGB565、2/3/4 = 32bit。
+   * 我们提供 RGB565 像素区，故填 1。
+   * 以前除 vptr 外全是 build_vtables 填的 trap 值 —— applet 一读
+   * GetColorFormat(+16) 就是天文数字，GDI 随之选错分支。 */
+  {
+    uint32_t bm = 0;
+    const char *e = getenv("ZM_BITMAP");
+    if (e && e[0])
+      bm = (uint32_t)strtoul(e, NULL, 0);
+    if (bm) {
+      uint32_t one = 1, fmt = 1, neg = 0xFFFFFFFFu, zero = 0;
+      uint32_t pix = PIX_POOL;
+      err = uc_write32(g_uc, BITMAP + 4, one);   /* 引用计数 */
+      err = uc_write32(g_uc, BITMAP + 8, 0);     /* 宽：0 → blit 不产生内容 */
+      err = uc_write32(g_uc, BITMAP + 12, 0);    /* 高 */
+      err = uc_write32(g_uc, BITMAP + 16, fmt);  /* 颜色格式 = RGB565 */
+      err = uc_write32(g_uc, BITMAP + 20, neg);  /* 透明色 = -1（_Create 初值） */
+      err = uc_write32(g_uc, BITMAP + 24, (bm >= 2) ? one : zero); /* 调色板标志 */
+      err = uc_write32(g_uc, BITMAP + 28, zero); /* 调色板指针 */
+      err = uc_write32(g_uc, BITMAP + 32, zero);
+      err = uc_write32(g_uc, BITMAP + 36, pix);  /* 像素指针 */
+      err = uc_write32(g_uc, BITMAP + 40, zero);
+    }
+    log_info("IBitmap 单例字段：ZM_BITMAP=%u（0=不初始化）", bm);
+  }
+
+  /* 解码像素池 / 帧缓冲清零（未加载图片时为黑，而非 trap 垃圾） */
+  {
+    static uint8_t zbuf[4096];
+    for (uint32_t off = 0; off < PIX_POOL_SIZE; off += sizeof(zbuf))
+      uc_mem_write(g_uc, PIX_POOL + off, zbuf,
+                   (PIX_POOL_SIZE - off) < sizeof(zbuf) ? (PIX_POOL_SIZE - off)
+                                                        : sizeof(zbuf));
+    for (uint32_t off = 0; off < FRAMEBUF_SIZE; off += sizeof(zbuf))
+      uc_mem_write(g_uc, FRAMEBUF + off, zbuf,
+                   (FRAMEBUF_SIZE - off) < sizeof(zbuf) ? (FRAMEBUF_SIZE - off)
+                                                        : sizeof(zbuf));
+  }
+
+  /* 活动层索引。FillRect / DrawBitmap / DrawImage / GetLayerInfo 都用
+   *   &v7[13 * v7[2] + 9]        （v7[2] = *(IDisplay+8)）
+   * 定位层结构；以前 +8 是 build_vtables 填的 trap 值，applet 自带 GDI
+   * 算出的层地址是错的。实测 applet 只用层 1（GetLayerInfo 恒请求 r1=1，
+   * 且它自己会调 IDisplay.CreateLayer(display, 1, rect, fmt=1)）。
+   *
+   * 层本身**不再预建**：CreateLayer 才是决定层缓冲与尺寸的地方
+   * （固件版会自己 malloc，层已存在则返回 -8），实现见 zm_layer.c。 */
+  err = uc_write32(g_uc, DISPLAY + 8, 1);
+
+  /* ---- 预建层 1（实测必须）----
+   * applet 在 init 阶段就会 GetLayerInfo 并把返回的**缓冲指针缓存下来**，
+   * 之后所有绘制都用那个缓存值。实测：
+   *   - 不预建 → 首次 GetLayerInfo 返回 -4，applet 缓存到空指针，
+   *     此后永远不往层缓冲写 → 画面全黑（层缓冲统计 100% 为 0）
+   *   - 预建   → 首次即拿到 LAYER_BUF，绘制正常（0xFFFF 回到基线 52500）
+   * 而 applet 自己随后调用的 CreateLayer(display, 1, rect, fmt=1) 会因为我们
+   * 已建该层而返回 -8（固件语义：层已存在），**applet 对此完全能接受**。
+   * 层结构由 zm_layer.c 统一定义，这里按同一布局预建。 */
+  {
+    uint8_t pl[52];
+    memset(pl, 0, sizeof(pl));
+    uint32_t fmt = 1, x0 = 0, y0 = 0, w = LAYER_W, h = LAYER_H;
+    uint32_t buf = LAYER_BUF;
+    memcpy(pl + 0x00, &fmt, 4);
+    memcpy(pl + 0x04, &x0, 4);
+    memcpy(pl + 0x08, &y0, 4);
+    memcpy(pl + 0x0C, &w, 4);
+    memcpy(pl + 0x10, &h, 4);
+    memcpy(pl + 0x1C, &w, 4);
+    memcpy(pl + 0x20, &h, 4);
+    memcpy(pl + 0x24, &buf, 4);
+    uc_mem_write(g_uc, DISPLAY + 36 + 52, pl, sizeof(pl));
+  }
 
   /* INIT_CTX 显式零填充（Unicorn 默认零，此处双保险，确保 r3+0x100 可读） */
   {
