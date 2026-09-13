@@ -35,10 +35,10 @@ uint32_t zm_image_AddRef(uc_engine *uc, uint32_t r0);
 uint32_t zm_image_Release(uc_engine *uc, uint32_t r0);
 uint32_t zm_image_SetData(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
                           uint32_t r3);
-uint32_t zm_image_x0C(uc_engine *uc, uint32_t r0);
-uint32_t zm_image_x10(uc_engine *uc, uint32_t r0);
-uint32_t zm_image_x14(uc_engine *uc, uint32_t r0);
+uint32_t zm_image_GetFrameCount(uc_engine *uc, uint32_t r0);
 uint32_t zm_image_Width(uc_engine *uc, uint32_t r0);
+uint32_t zm_image_Height(uc_engine *uc, uint32_t r0);
+uint32_t zm_image_GetType(uc_engine *uc, uint32_t r0);
 uint32_t zm_image_DecodeToBitmap(uc_engine *uc, uint32_t r0, uint32_t r1,
                                  uint32_t r2, uint32_t r3, uint32_t sp);
 uint32_t zm_image_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,

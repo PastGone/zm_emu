@@ -440,29 +440,32 @@ uint32_t zm_image_SetData(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
   return rec_load_file(r, name) == 0 ? 0u : (uint32_t)-1;
 }
 
-uint32_t zm_image_x0C(uc_engine *uc, uint32_t r0) {
+/* +0x0C GetFrameCount(this) → 帧数（静态图返回 1；applet 未据此分支） */
+uint32_t zm_image_GetFrameCount(uc_engine *uc, uint32_t r0) {
   (void)uc;
   (void)r0;
-  return 0; /* GetType：JPEG/PNG 类型枚举，applet 未据此分支 */
+  return 1;
 }
 
-uint32_t zm_image_x10(uc_engine *uc, uint32_t r0) {
-  (void)uc;
-  (void)r0;
-  /* applet 的"解码前准备"（vt+0x10），无返回值依赖 */
-  return 0;
-}
-
-uint32_t zm_image_x14(uc_engine *uc, uint32_t r0) {
-  (void)uc;
-  (void)r0;
-  return 0; /* vt+0x14：帧数/清理，未依赖 */
-}
-
+/* +0x10 Width(this) → 宽（像素） */
 uint32_t zm_image_Width(uc_engine *uc, uint32_t r0) {
   (void)uc;
   zm_img_rec *r = pixel_rec(r0);
   return (uint32_t)(r ? r->w : 0);
+}
+
+/* +0x14 Height(this) → 高（像素） */
+uint32_t zm_image_Height(uc_engine *uc, uint32_t r0) {
+  (void)uc;
+  zm_img_rec *r = pixel_rec(r0);
+  return (uint32_t)(r ? r->h : 0);
+}
+
+/* +0x18 GetType(this) → 类型枚举（JPEG/PNG…；applet 未据此分支） */
+uint32_t zm_image_GetType(uc_engine *uc, uint32_t r0) {
+  (void)uc;
+  (void)r0;
+  return 0;
 }
 
 /* +0x1C Decode(this=entry, alloc=r1, free=r2, out=r3, flags=[sp+0]) → 0 成功
