@@ -8,7 +8,7 @@
 
 /* ========== 通用单文件系统：IFile 层 ==========
  *
- * 对当前由 FileMgr 打开的单个文件（g_file_data / g_file_size / g_file_pos）
+ * 对当前由 G_FileMgr_ADDR 打开的单个文件（g_file_data / g_file_size / g_file_pos）
  * 进行 close / read / seek / tell。同一时刻只有 FILE1 一个打开的文件。
  */
 

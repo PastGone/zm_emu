@@ -329,7 +329,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   break;
     /* ---- ROOT_TABLE_ADDR ---- */
   case TR_root_getShell:
-    ret = SHELL;
+    ret = G_SHELL_ADDR;
     break;
   case TR_root_malloc: {
     /* 注意：真实签名是 malloc(size=r0, ctx=r1)，返回值直接是对象指针。
@@ -565,7 +565,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break;
   case TR_fileMgr_open_file:
     log_debug("fs_open(r0=0x%X)", r0); // 此处的 r0 是 FileMgr的地址
-    log_debug("FileMgr=0x%X", FileMgr);
+    log_debug("G_FileMgr_ADDR=0x%X", G_FileMgr_ADDR);
 
     if (r0 == 0) {
       ret = 0;

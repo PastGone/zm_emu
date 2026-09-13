@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <unicorn/unicorn.h> /* uc_engine */
 
-/* ---------- FileMgr 层（文件搜索目录 + 打开工厂） ----------
+/* ---------- G_FileMgr_ADDR 层（文件搜索目录 + 打开工厂） ----------
  * 负责：数据目录管理、按文件名打开（加载到内存）、释放、默认初始化。
  * 实际的单文件读写游标状态在 zm_file.h。
  */
