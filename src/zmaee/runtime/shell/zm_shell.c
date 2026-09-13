@@ -78,12 +78,24 @@ uint32_t zm_shell_CreateInstance(uc_engine *uc, uint32_t svc, uint32_t out_ptr) 
   case 0x100000C: /* IMedia = 音频（RE：ZMAEE_IMedia_New，用户确认） */
     outobj = G_MEDIA_ADDR;
     break;
-  case 0x1000006: /* IGps      —— 尚未实现 */
-  case 0x1000007: /* IGSensor  —— 尚未实现 */
-  case 0x100000A: /* IAddrBook —— 尚未实现 */
-  case 0x100000E: /* IMemStream—— 尚未实现 */
-  case 0x100000F: /* IZip      —— 尚未实现 */
-  case 0x1000010: /* IStatusBar—— 尚未实现 */
+  case 0x1000006: /* IGps      —— 占位模拟对象（方法走 trap 观测） */
+    outobj = G_GPS_ADDR;
+    break;
+  case 0x1000007: /* IGSensor  —— 占位模拟对象 */
+    outobj = G_GSENSOR_ADDR;
+    break;
+  case 0x100000A: /* IAddrBook —— 占位模拟对象 */
+    outobj = G_ADDRBOOK_ADDR;
+    break;
+  case 0x100000E: /* IMemStream—— 占位模拟对象 */
+    outobj = G_MEMSTREAM_ADDR;
+    break;
+  case 0x1000010: /* IStatusBar—— 占位模拟对象 */
+    outobj = G_STATUSBAR_ADDR;
+    break;
+  case 0x100000F: /* IZip —— 返回模拟对象地址（vtable→ZIP_VT_ADDR，方法走 zm_zip_stub） */
+    outobj = ZIP_ADDR;
+    break;
   case 0x1000013: /* IUtil —— 实测每帧都被请求（拿不到就优雅回退 -3）。
                    * 给真实对象会改变 applet 的代码路径（实测出现一次
                    * UC_ERR_INSN_INVALID），所以**默认仍返回 -3**，
