@@ -1,6 +1,7 @@
 #include "./emu.h"
 #include "./hook.h"
 #include "./log/log.h"
+#include "./tool/odds.h" /* get_filename_from_fullpath */
 #include "./tool/uc_helper.h"
 #include "./ulibc/ulibc.h"
 #include "./zmaee/fs/zm_file_mgr.h"
@@ -18,6 +19,11 @@ int g_ulibc_heap = 1;
 
 uint32_t g_instance = 0;
 uint32_t g_handler = 0;
+
+/* 运行期层/窗口尺寸：真源是 .app 头部的主屏尺寸，main.c 解析头部后写入。
+ * 默认值仅作兜底；容量上限见 LAYER_MAX_W/H。 */
+int g_layer_w = 240;
+int g_layer_h = 320;
 uint32_t g_registered_loop = 0;
 int g_trap_pause = 0;
 int g_disasm = 0; /* 默认关闭；ZM_DISASM=1 打开（会刷大量反汇编日志）*/
@@ -160,6 +166,23 @@ int zm_emu_build_vtables() {
   err = uc_write32(g_uc, CBK_OBJ, CBK_OBJ_VT_ADDR);
   /* vt[+8] 预写默认实现：applet 随后会覆写；覆写前若被调则走 stub 不崩 */
   err = uc_write32(g_uc, CBK_OBJ_VT_ADDR + 0x08, TR_cbk_default);
+
+  /* ---- CBK_OBJ+4：applet 的“模块路径”内联 C 串 ----
+   * 000004fe 的 fopen 封装 sub_12294 会 str_ctor(dst, create_cbk()+4)，
+   * 再把结尾 3 字符覆写成 "zmr" 得到资源名；并要求形如 "X:\..."（否则退回
+   * 内嵌资源路径并失败 → sub_B504 返回 null → 崩溃）。
+   * 这里写 "<盘符>:\<applet 短名>"，经 fs 的 convert_file_name 归一化后
+   * 正好落到数据目录下的 <短名>.zmr。 */
+  {
+    const char *base = get_filename_from_fullpath(g_app_pathname);
+    if (base && base[0]) {
+      char modpath[256];
+      int n = snprintf(modpath, sizeof(modpath), "c:\\%s", base);
+      if (n > 0 && (size_t)n < sizeof(modpath))
+        uc_mem_write(g_uc, CBK_OBJ + 4, modpath, (size_t)n + 1);
+      log_info("CBK_OBJ+4 模块路径 = \"%s\"", modpath);
+    }
+  }
 
   /* ---- stub DLL 对象（loadDLL 返回） ---- */
   err = uc_write32(g_uc, DLL_OBJ, DLL_OBJ_VT_ADDR);

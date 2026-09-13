@@ -126,6 +126,28 @@ int main() {
     print_header(&g_header);
   }
 
+  /* 层/窗口/GetDeviceInfo 的统一尺寸：取自 .app 头部的主屏尺寸（真源）。
+   * 按编译期容量上限 LAYER_MAX_W/H 夹紧（静态数组/region 尺寸按上限预留）。 */
+  {
+    int w = (int)g_header.ScreenW;
+    int h = (int)g_header.ScreenH;
+    if (w <= 0)
+      w = 240;
+    if (h <= 0)
+      h = 320;
+    if (w > LAYER_MAX_W) {
+      log_warn("头部屏宽 %d 超上限 %d，夹紧", w, LAYER_MAX_W);
+      w = LAYER_MAX_W;
+    }
+    if (h > LAYER_MAX_H) {
+      log_warn("头部屏高 %d 超上限 %d，夹紧", h, LAYER_MAX_H);
+      h = LAYER_MAX_H;
+    }
+    g_layer_w = w;
+    g_layer_h = h;
+    log_info("层/窗口尺寸取自 .app 头部: %dx%d", g_layer_w, g_layer_h);
+  }
+
   // 初始化 SDL2 渲染与音频
 
   if (zm_display_init() != 0) {

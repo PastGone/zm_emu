@@ -548,8 +548,8 @@ static bool g_no_skip_inited = false;
 static void fb_composite_layers(int rw, int rh) {
   if (!g_uc || rw <= 0 || rh <= 0)
     return;
-  static uint16_t row[LAYER_W];
-  static uint16_t frow[LAYER_W];
+  static uint16_t row[LAYER_MAX_W];
+  static uint16_t frow[LAYER_MAX_W];
   /* 叠加顺序。
    *
    * 【实测决定】对比"建层 0 / 不建层 0"两种行为：
@@ -677,12 +677,12 @@ static int fb_merge_layer(void) {
    * 若这个数接近 0，说明背景完全靠我们合成的结果留存 —— 也就解释了
    * 为什么精灵移走后旧位置擦不掉。 */
   {
-    static uint16_t prev_fb[LAYER_W * LAYER_H];
+    static uint16_t prev_fb[LAYER_MAX_W * LAYER_MAX_H];
     static int have_prev = 0;
     static int applet_wrote = 0;
     if (probe_on) {
       if (have_prev) {
-        uint16_t cur[LAYER_W];
+        uint16_t cur[LAYER_MAX_W];
         applet_wrote = 0;
         for (int y = 0; y < h; y++) {
           if (uc_mem_read(g_uc, FRAMEBUF + (uint32_t)y * LAYER_W * 2u, cur,
@@ -721,7 +721,7 @@ static int fb_merge_layer(void) {
   if (g_no_skip)
     use_tc = 0;
 
-  uint16_t row[LAYER_W];
+  uint16_t row[LAYER_MAX_W];
   int painted = 0;
   for (int y = 0; y < h; y++) {
     if (uc_mem_read(g_uc, FRAMEBUF + (uint32_t)y * LAYER_W * 2u, row,
@@ -803,7 +803,7 @@ static int fb_merge_layer(void) {
     {
       uint32_t ba = zm_display_base_layer_addr();
       if (ba) {
-        static uint16_t brow[LAYER_W];
+        static uint16_t brow[LAYER_MAX_W];
         uint32_t nz = 0, total = 0;
         for (int y = 0; y < LAYER_H; y++) {
           if (uc_mem_read(g_uc, ba + (uint32_t)y * LAYER_W * 2u, brow,
@@ -949,12 +949,12 @@ int zm_display_init(void) {
   if (g_win)
     return 0; /* 已初始化 */
 
-  if (g_header.ScreenW == 0)
-    g_header.ScreenW = 240;
-  if (g_header.ScreenH == 0)
-    g_header.ScreenH = 240;
-  g_w = (int)g_header.ScreenW;
-  g_h = (int)g_header.ScreenH;
+  /* ---- 绘制尺寸的唯一真源 = .app 头部的主屏尺寸 ----
+   * g_layer_w/g_layer_h 由 main.c 解析头部后写入；LAYER_W/LAYER_H 就是它们。
+   * 这里让 窗口 / 逻辑分辨率 / 软件帧缓冲 都跟随它，applet 拿到的
+   * GetDeviceInfo 尺寸、层缓冲尺寸、窗口尺寸三者一致（呈现 1:1）。 */
+  g_w = (int)LAYER_W;
+  g_h = (int)LAYER_H;
 
   if (SDL_Init(SDL_INIT_VIDEO) != 0) {
     log_error("SDL_Init failed: %s", SDL_GetError());
