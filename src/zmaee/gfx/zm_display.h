@@ -86,11 +86,11 @@ uint32_t zm_display_SetActiveLayer(uc_engine *uc, uint32_t display,
  * 以前误认成 fillRect(rect_ptr)，只接一个参数、把层列表丢了。 */
 uint32_t zm_display_UpdateEx(uc_engine *uc, uint32_t display, uint32_t rect_ptr,
                              uint32_t count, uint32_t list_ptr);
-uint32_t zm_display_commit(uc_engine *uc);         /* +0x40，提交帧缓冲 */
-uint32_t zm_display_getWidth(uc_engine *uc);       /* +0x48，返回屏幕宽度 */
-uint32_t zm_display_measureChar(uc_engine *uc, uint32_t gfx, uint32_t char_ptr,
-                                uint32_t count,
-                                uint32_t width_out); /* +0x4C */
+uint32_t zm_display_SelectFont(uc_engine *uc, uint32_t display, uint32_t font_idx); /* +0x40，真机虚表 SelectFont(this, idx) */
+uint32_t zm_display_GetFontHeight(uc_engine *uc);  /* +0x48，真机虚表 GetFontHeight（实现待 RE 校准） */
+uint32_t zm_display_MeasureString(uc_engine *uc, uint32_t disp, uint32_t str_ptr,
+                                  uint32_t len, uint32_t width_out,
+                                  uint32_t sp); /* +0x4C，真机虚表 MeasureString(disp, str, len, width, sp[metrics]) */
 uint32_t zm_display_DrawText(uc_engine *uc, uint32_t rect_ptr, uint32_t text_ptr,
                              uint32_t text_len, uint32_t sp); /* +0x50 */
 uint32_t zm_display_DrawRect(uc_engine *uc, uint32_t x, uint32_t y, uint32_t w,
