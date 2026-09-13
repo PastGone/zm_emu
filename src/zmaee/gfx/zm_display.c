@@ -1885,7 +1885,7 @@ uint32_t zm_display_CreateBitmap(uc_engine *uc, uint32_t r0, uint32_t r1,
 
   static uint32_t slot = 0;
   uint32_t obj = BITMAP_POOL + (slot++ % BITMAP_SLOT_COUNT) * BITMAP_SLOT_SIZE;
-  uc_write32(uc, obj, BITMAP_VT);
+  uc_write32(uc, obj, BITMAP_VT_ADDR);
   uc_write32(uc, obj + 4, 1);
   uc_write32(uc, obj + 8, (uint32_t)w);
   uc_write32(uc, obj + 12, (uint32_t)h);
@@ -1984,7 +1984,7 @@ uint32_t zm_display_LoadBitmap(uc_engine *uc, uint32_t r0, uint32_t r1) {
   /* 建 IBitmap 对象（字段与 ZMAEE_IBitmap_LoadFile 逐条对应） */
   static uint32_t slot = 0;
   uint32_t obj = BITMAP_POOL + (slot++ % BITMAP_SLOT_COUNT) * BITMAP_SLOT_SIZE;
-  uc_write32(uc, obj, BITMAP_VT);
+  uc_write32(uc, obj, BITMAP_VT_ADDR);
   uc_write32(uc, obj + 4, 1);                                /* 引用计数 */
   uc_write32(uc, obj + 8, (uint32_t)w);                      /* 宽 */
   uc_write32(uc, obj + 12, (uint32_t)h);                     /* 高 */

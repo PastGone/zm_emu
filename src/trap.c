@@ -27,7 +27,7 @@
  * ==========================================================================
  * 客户机堆 / libc 的接线层
  * ==========================================================================
- * applet 通过 ROOT vtable 调用的这些槽位，语义上就是标准 C 库函数。
+ * applet 通过 ROOT_TABLE_ADDR vtable 调用的这些槽位，语义上就是标准 C 库函数。
  * 这里把它们统一转接到 src/ulibc（跨地址空间的 libc 实现），
  * 由 ulibc 负责"客户机指针搬运"的全部脏活。
  *
@@ -191,7 +191,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_init_callback: {
     /*
      * applet 的"握手"入口。applet 启动代码在准备好之后会主动调用
-     * ROOT+0x118C，含义是"固件，请按下面这份规格初始化我"。
+     * ROOT_TABLE_ADDR+0x118C，含义是"固件，请按下面这份规格初始化我"。
      *
      * 规格通过**参数**给出：applet 的握手函数（如 00000506 的 sub_F0
      * 尾部 loc_8860）执行：
@@ -225,8 +225,8 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     return;
   } break;
   case TR_register_event_loop:
-    /* ROOT+0x1184：applet 注册它的事件循环入口（r0=handler 地址）。
-     * 00000506 在 init 里先注册、再调 ROOT+0x118C()，随后返回；
+    /* ROOT_TABLE_ADDR+0x1184：applet 注册它的事件循环入口（r0=handler 地址）。
+     * 00000506 在 init 里先注册、再调 ROOT_TABLE_ADDR+0x118C()，随后返回；
      * 模拟器据此单独驱动事件循环。 */
     if (r0)
       g_registered_loop = r0;
@@ -235,7 +235,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break;
 
   case TR_abort:
-    /* ROOT+0x14：applet 请求退出（实测 00000506 传 "aborted"）。 */
+    /* ROOT_TABLE_ADDR+0x14：applet 请求退出（实测 00000506 传 "aborted"）。 */
     if (g_disasm) {
       char msg[64];
       read_cstr(uc, r0, msg, sizeof(msg));
@@ -327,7 +327,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     return;
   } //
   break;
-    /* ---- ROOT ---- */
+    /* ---- ROOT_TABLE_ADDR ---- */
   case TR_root_getShell:
     ret = SHELL;
     break;
@@ -349,7 +349,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break; /* free(r0=ptr) */
   case TR_root_str_copy:
     /*
-     * ROOT[0x20] str_copy(src, src_len, dst, dst_len)
+     * ROOT_TABLE_ADDR[0x20] str_copy(src, src_len, dst, dst_len)
      * 语义是 **memcpy 而非 strcpy**：按长度拷贝，取两者较小值，
      * 不关心 '\0'。返回值是实际拷贝的字节数。
      * 参数顺序 src 在前、dst 在后，与标准 memcpy(dst, src, n) 相反，
@@ -359,7 +359,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break;
   case TR_root_sprintf:
     /*
-     * ROOT[0x6C] sprintf(dst=r0, fmt=r1, va_area=r2)
+     * ROOT_TABLE_ADDR[0x6C] sprintf(dst=r0, fmt=r1, va_area=r2)
      *
      * zmaee 约定：r2 指向一个由 applet 自带"溢出变参"助手构造的参数区，
      * 布局为 [变参个数][第1个变参][第2个变参]...，每个变参占 **8 字节**
@@ -389,11 +389,11 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     }
     break;
   case TR_root_str_ctor:
-    /* ROOT[0x88] str_ctor(dst=r0, src=r1)：含 '\0' 一起拷，返回 dst */
+    /* ROOT_TABLE_ADDR[0x88] str_ctor(dst=r0, src=r1)：含 '\0' 一起拷，返回 dst */
     ret = u_strcpy(uc, r0, r1);
     break;
   case TR_root_strchr:
-    /* ROOT[0x90] = zmaee_strlen(s=r0)，返回字符串长度（**不是** strchr）。
+    /* ROOT_TABLE_ADDR[0x90] = zmaee_strlen(s=r0)，返回字符串长度（**不是** strchr）。
      *
      * 逆向证据（两个 applet 的实际用法一致，全是"长度"语义）：
      *   00000506 sub_313C/88AB8：sprintf("%s\\%s",...) 后取长度，作为
@@ -405,29 +405,29 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     ret = zm_strlen(uc, r0);
     break;
   case TR_root_memcmp:
-    /* ROOT[0x50] memcmp(a=r0, b=r1, n=r2)
+    /* ROOT_TABLE_ADDR[0x50] memcmp(a=r0, b=r1, n=r2)
      * RE zmaee_memcmp @0x363E8（tramp 桩 0xb9b50）；00001b62 调用后
      * cmp r0,#0 判断，返回值当布尔用。 */
     ret = (uint32_t)u_memcmp(uc, r0, r1, r2);
     break;
   case TR_root_memcpy:
-    /* ROOT[0x5C] memcpy(dst=r0, src=r1, n=r2)
+    /* ROOT_TABLE_ADDR[0x5C] memcpy(dst=r0, src=r1, n=r2)
      * RE zmaee_memcpy @0x36470（tramp 桩 0xb9b40）；00001b62 定长 4
      * 字节拷贝，返回值当 dst 用。 */
     ret = u_memcpy(uc, r0, r1, r2);
     break;
   case TR_root_memset:
-    /* ROOT[0x60] memset(dst=r0, val=r1, len=r2) */
+    /* ROOT_TABLE_ADDR[0x60] memset(dst=r0, val=r1, len=r2) */
     ret = u_memset(uc, r0, r1, r2);
     break;
   case TR_root_str_assign:
-    /* ROOT[0x78] str_assign(str_obj=r0, cstr=r1)：把 C 串赋给 zmaee
+    /* ROOT_TABLE_ADDR[0x78] str_assign(str_obj=r0, cstr=r1)：把 C 串赋给 zmaee
      * 字符串对象（写 data_ptr/len/内联缓冲三元组）。实现久备，
      * 此前因伪索引槽位冲突未接；00001b62 高频调用此槽。 */
     ret = zm_root_str_assign(uc, r0, r1);
     break;
   case TR_root_strstr:
-    /* ROOT[0xB0] = zmaee_strstr(haystack=r0, needle=r1)。
+    /* ROOT_TABLE_ADDR[0xB0] = zmaee_strstr(haystack=r0, needle=r1)。
      * 命中返回子串地址，未命中返回 0。 */
     ret = zm_strstr(uc, r0, r1);
     break;
@@ -435,7 +435,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     ret = zm_root_x68C(uc, r0, r1, r2, r3);
     break;
   case TR_root_spec_lookup:
-    /* ROOT[0xA4] = zmaee_strpbrk(str=r0, charset=r1)。
+    /* ROOT_TABLE_ADDR[0xA4] = zmaee_strpbrk(str=r0, charset=r1)。
      * applet 的 sprintf 包装（00000506 sub_98C90）用它统计格式串里的转换符
      * 个数，返回值必须是**原串内地址**（旧实现返回宿主缓冲，导致扫描指针
      * 跳飞、变参个数少算）。 */
@@ -443,7 +443,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break;
   case TR_root_str_find:
     /*
-     * ROOT[0xA8] str_find(str_obj_or_cstr=r0, ch=r1)
+     * ROOT_TABLE_ADDR[0xA8] str_find(str_obj_or_cstr=r0, ch=r1)
      * 仍是 zm_strchr：它带 zmaee 特有的"字符串对象 vs 裸 C 串"启发式
      * （判断 data_ptr 是否等于 ptr+12 的内联布局），属 zmaee 领域知识，
      * 不该塞进 ulibc。见 zm_str.c。
@@ -620,7 +620,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break;
   case TR_file_tell:
     /*
-     * FILE_VT[0x24] = ZMAEE_IFile_Tell（逆向实测），返回当前读写位置。
+     * FILE_VT_ADDR[0x24] = ZMAEE_IFile_Tell（逆向实测），返回当前读写位置。
      * 取文件总大小的惯用法是 Seek(0,SEEK_END) 后调用本槽位。
      */
     ret = zm_file_tell(uc, r0);
@@ -1065,7 +1065,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break;
   case TR_root_get_tick:
     /*
-     * ROOT[0xD8]：返回单调毫秒时间戳（zmaee 的 GetTickCount）。
+     * ROOT_TABLE_ADDR[0xD8]：返回单调毫秒时间戳（zmaee 的 GetTickCount）。
      * 宏与实现此前都已存在，只是漏了 case，走到 default 报"非法的外部调用"。
      * 语义等同 ulibc 的 u_tick_ms，但这里是 zmaee 槽位，直接走 zm_root。
      */
@@ -1073,7 +1073,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break;
   case TR_root_create_cbk:
     /*
-     * ROOT[0x154]：返回回调对象 CBK_OBJ（其 vt[+8] 随后会被 applet 覆写）。
+     * ROOT_TABLE_ADDR[0x154]：返回回调对象 CBK_OBJ（其 vt[+8] 随后会被 applet 覆写）。
      * 这是 zmaee 领域语义而非 libc，故走 zm_root；此前实现被注释掉，
      * 导致 applet 00000440 在真实堆下走到此处时报"非法的外部调用"。
      */
@@ -1102,8 +1102,8 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     ret = zm_root_math(uc, ZM_MATH_TAN, r0, r1);
     break;
   default:
-    /* ROOT 槽位尚未接线。打印调用现场寄存器，便于按参数签名反推该槽
-     * 对应的 libc 函数（ROOT 在安卓变体里是普通全局函数指针表，
+    /* ROOT_TABLE_ADDR 槽位尚未接线。打印调用现场寄存器，便于按参数签名反推该槽
+     * 对应的 libc 函数（ROOT_TABLE_ADDR 在安卓变体里是普通全局函数指针表，
      * 无 g_aee_root_vtbl 符号可查）。 */
     if (trap_address >= TRAMP_BASE &&
         trap_address < TRAMP_BASE + TRAMP_SIZE) {

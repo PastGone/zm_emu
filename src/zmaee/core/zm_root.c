@@ -1,8 +1,8 @@
 #include "zm_root.h"
 
-#include <SDL2/SDL.h>  /* SDL_GetTicks  (ROOT[0xD8] get_tick) */
-#include <math.h>      /* sqrt/sin/cos  (ROOT 导入表的双精度数学函数) */
-#include <stdlib.h>    /* srand/rand   (ROOT[0x40]/[0x44]) */
+#include <SDL2/SDL.h>  /* SDL_GetTicks  (ROOT_TABLE_ADDR[0xD8] get_tick) */
+#include <math.h>      /* sqrt/sin/cos  (ROOT_TABLE_ADDR 导入表的双精度数学函数) */
+#include <stdlib.h>    /* srand/rand   (ROOT_TABLE_ADDR[0x40]/[0x44]) */
 #include <string.h>    /* strlen        (str_assign) */
 
 #include "../../emu.h" /* CBK_OBJ / SHIM_BASE 等地址常量 */
@@ -42,13 +42,13 @@ uint32_t zm_root_str_assign(uc_engine *uc, uint32_t str_obj,
   return str_obj;
 }
 
-/* ROOT[0x154]：返回 CBK_OBJ。applet 随后会覆写 CBK_OBJ_VT[+8] 为 sub_82FF8。 */
+/* ROOT_TABLE_ADDR[0x154]：返回 CBK_OBJ。applet 随后会覆写 CBK_OBJ_VT_ADDR[+8] 为 sub_82FF8。 */
 uint32_t zm_root_create_cbk(uc_engine *uc) {
   (void)uc;
   return CBK_OBJ;
 }
 
-/* ROOT[0x40]/[0x44]：srand / rand。种子只播一次，之后交给 libc。 */
+/* ROOT_TABLE_ADDR[0x40]/[0x44]：srand / rand。种子只播一次，之后交给 libc。 */
 void zm_root_srand(uint32_t seed) {
   static bool seeded = false;
   if (!seeded) {
@@ -82,7 +82,7 @@ uint32_t zm_root_math(uc_engine *uc, int op, uint32_t lo, uint32_t hi) {
   case ZM_MATH_SIN:
     return ret_double(uc, sin(x));
   case ZM_MATH_ATAN:
-    /* ROOT[0x110]。依据 applet 调用点（lr=0x17558）：
+    /* ROOT_TABLE_ADDR[0x110]。依据 applet 调用点（lr=0x17558）：
      *   BL sub_1DE28        （dy/dx 相除）
      *   BL sub_19290        ← 本函数（一元 double）
      *   LDM R11,{R2,R3} + BL sub_1E538   （乘 180/π）
@@ -90,7 +90,7 @@ uint32_t zm_root_math(uc_engine *uc, int op, uint32_t lo, uint32_t hi) {
      * 是标准的 atan 求角度写法。 */
     return ret_double(uc, atan(x));
   case ZM_MATH_TAN:
-    /* ROOT[0x11C]。定案依据：applet 只导入 5 个数学函数（由其导入跳板的
+    /* ROOT_TABLE_ADDR[0x11C]。定案依据：applet 只导入 5 个数学函数（由其导入跳板的
      * `LDR R2,[R2,#(loc_XXX - 0x140)]` 模式枚举出槽位），其中
      * 0x104=sqrt / 0x110=atan / 0x114=cos / 0x118=sin 四个槽的实测值把
      * 位置钉死了，剩下的只能是 docs/可能有的函数.md 里
@@ -102,7 +102,7 @@ uint32_t zm_root_math(uc_engine *uc, int op, uint32_t lo, uint32_t hi) {
   }
 }
 
-/* ROOT[0xD8]：返回 SDL_GetTicks() 时间戳 */
+/* ROOT_TABLE_ADDR[0xD8]：返回 SDL_GetTicks() 时间戳 */
 uint32_t zm_root_x68C(uc_engine *uc, uint32_t obj, uint32_t out_buf,
                       uint32_t len, uint32_t self) {
   (void)self;

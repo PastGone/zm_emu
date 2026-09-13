@@ -125,44 +125,44 @@ int zm_emu_build_vtables() {
     log_info("create_cbk 上下文：CBK_OBJ+0x48=0x%X → display=0x%X 屏幕 %dx%d",
              CBK_CTX, DISPLAY, sw, sh);
   }
-  log_info("布局: SHIM_BASE=0x%X TRAMP_BASE=0x%X ROOT=0x%X SHELL=0x%X",
-           SHIM_BASE, TRAMP_BASE, ROOT, SHELL);
+  log_info("布局: SHIM_BASE=0x%X TRAMP_BASE=0x%X ROOT_TABLE_ADDR=0x%X SHELL=0x%X",
+           SHIM_BASE, TRAMP_BASE, ROOT_TABLE_ADDR, SHELL);
   // root
-  err = uc_write32(g_uc, ROOT, TR_root_getShell);
+  err = uc_write32(g_uc, ROOT_TABLE_ADDR, TR_root_getShell);
 
-  // shell（root.getShell 返回；SHELL 对象 → SHELL_VT = g_aee_shell_vtbl）
-  err = uc_write32(g_uc, SHELL, SHELL_VT);
+  // shell（root.getShell 返回；SHELL 对象 → SHELL_VT_ADDR = g_aee_shell_vtbl）
+  err = uc_write32(g_uc, SHELL, SHELL_VT_ADDR);
 
-  /* FileMgr_VT[0x30]：enumFile — sub_82584 枚举 app_list 下文件 */
-  // err = uc_write32(g_uc, FileMgr_VT + 0x30, TR_fileMgr_enum);
+  /* FileMgr_VT_ADDR[0x30]：enumFile — sub_82584 枚举 app_list 下文件 */
+  // err = uc_write32(g_uc, FileMgr_VT_ADDR + 0x30, TR_fileMgr_enum);
 
   // fs
-  err = uc_write32(g_uc, FileMgr, FileMgr_VT);
-  err = uc_write32(g_uc, FILE1, FILE_VT);
+  err = uc_write32(g_uc, FileMgr, FileMgr_VT_ADDR);
+  err = uc_write32(g_uc, FILE1, FILE_VT_ADDR);
 
   // ISetting（0x100000B）/ IMedia 音频（0x100000C）
-  err = uc_write32(g_uc, SETTING, SETTING_VT);
-  err = uc_write32(g_uc, MEDIA, MEDIA_VT);
+  err = uc_write32(g_uc, SETTING, SETTING_VT_ADDR);
+  err = uc_write32(g_uc, MEDIA, MEDIA_VT_ADDR);
 
   /* ---- IShell.CreateInstance 返回的服务对象 ----
    * NETMGR=0x1000004(INetMgr)、TAPI=0x1000009(ITAPI)。
    * 注意：SVC09/TAPI 此前漏写对象→虚表指针，applet 拿到后调方法会
    * 读到垃圾函数指针，现已补上。 */
-  err = uc_write32(g_uc, NETMGR, NETMGR_VT);
-  err = uc_write32(g_uc, TAPI, TAPI_VT);
+  err = uc_write32(g_uc, NETMGR, NETMGR_VT_ADDR);
+  err = uc_write32(g_uc, TAPI, TAPI_VT_ADDR);
 
   /* ---- CBK 回调对象（sub_84E04 返回，vt[+8] 会被 applet 覆写为 sub_82FF8）
    * ---- */
-  err = uc_write32(g_uc, CBK_OBJ, CBK_OBJ_VT);
+  err = uc_write32(g_uc, CBK_OBJ, CBK_OBJ_VT_ADDR);
   /* vt[+8] 预写默认实现：applet 随后会覆写；覆写前若被调则走 stub 不崩 */
-  err = uc_write32(g_uc, CBK_OBJ_VT + 0x08, TR_cbk_default);
+  err = uc_write32(g_uc, CBK_OBJ_VT_ADDR + 0x08, TR_cbk_default);
 
   /* ---- stub DLL 对象（loadDLL 返回） ---- */
-  err = uc_write32(g_uc, DLL_OBJ, DLL_OBJ_VT);
+  err = uc_write32(g_uc, DLL_OBJ, DLL_OBJ_VT_ADDR);
 
   /* ---- ZMAEE IDisplay / IBitmap 原生虚表（全局单例 + bitmap 模板）---- */
-  err = uc_write32(g_uc, DISPLAY, DISPLAY_VT);
-  err = uc_write32(g_uc, BITMAP, BITMAP_VT);
+  err = uc_write32(g_uc, DISPLAY, DISPLAY_VT_ADDR);
+  err = uc_write32(g_uc, BITMAP, BITMAP_VT_ADDR);
 
   /* IDisplay 对象清零：层项 +0x24 必须为 0，applet 的 CreateLayer 才会认为
    * "该层尚不存在"并建层（见 zm_layer.c）。 */
@@ -372,7 +372,7 @@ int zm_emu_start_applet() {
   uc_reg_write(g_uc, UC_ARM_REG_R0, &(uint32_t){SIZE_SLOT});
   uc_reg_write(g_uc, UC_ARM_REG_R1, &(uint32_t){API_SLOT});
 
-  uc_write32(g_uc, BLOB_BASE + ROOT_SLOT_OFF, (uint32_t)ROOT);
+  uc_write32(g_uc, BLOB_BASE + ROOT_SLOT_OFF, (uint32_t)ROOT_TABLE_ADDR);
 
   /* ZM_TRACE=1：开启指令级追踪，崩溃时打印最后 48 条指令地址 */
   {
