@@ -43,8 +43,8 @@ bool hook_mem_unmapped(uc_engine *uc, uc_mem_type type, uint64_t address,
   uc_reg_read(uc, UC_ARM_REG_R1, &r1);
   uc_reg_read(uc, UC_ARM_REG_R2, &r2);
   uc_reg_read(uc, UC_ARM_REG_R3, &r3);
-  /* 调试：dump applet 固定区 0x180 的 ROOT 指针与 ROOT 表前 16 字节，
-   * 定位 sub_84410 读 [ROOT+8] 得到 0 的原因。 */
+  /* 调试：dump applet 固定区 0x180 的 ROOT_TABLE_ADDR 指针与 ROOT_TABLE_ADDR 表前 16 字节，
+   * 定位 sub_84410 读 [ROOT_TABLE_ADDR+8] 得到 0 的原因。 */
   uint32_t root_slot = 0, root0 = 0, root8 = 0, rootc = 0;
   uc_mem_read(uc, BLOB_BASE + ROOT_SLOT_OFF, &root_slot, 4);
   uc_mem_read(uc, root_slot + 0, &root0, 4);
@@ -52,7 +52,7 @@ bool hook_mem_unmapped(uc_engine *uc, uc_mem_type type, uint64_t address,
   uc_mem_read(uc, root_slot + 0xC, &rootc, 4);
   log_warn("  !! MEM unmapped @0x%" PRIx64 " size=%d"
            "  PC=0x%X LR=0x%X R0=0x%X R1=0x%X R2=0x%X R3=0x%X"
-           "  [0x180]=0x%X [ROOT]=0x%X [ROOT+8]=0x%X [ROOT+C]=0x%X\n",
+           "  [0x180]=0x%X [ROOT_TABLE_ADDR]=0x%X [ROOT_TABLE_ADDR+8]=0x%X [ROOT_TABLE_ADDR+C]=0x%X\n",
            address, size, pc, lr, r0, r1, r2, r3, root_slot, root0, root8,
            rootc);
   return false;

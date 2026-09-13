@@ -40,7 +40,7 @@ char *read_cstr(uc_engine *uc, uint32_t addr, char *buf, size_t maxlen) {
  *
  * 逆向证据（00000506 的 sprintf 包装 sub_98EDC 内部）：
  *   0x98CC0  add r1, pc, #0xe0     ; r1 = "dufocsxXp"（合法转换符集合）
- *   0x98CC4  bl  #0x98C7C          ; ROOT[0xA4](r0=格式串当前位置, r1=集合)
+ *   0x98CC4  bl  #0x98C7C          ; ROOT_TABLE_ADDR[0xA4](r0=格式串当前位置, r1=集合)
  *   0x98CD0  mov r1, r0
  *   0x98CD4  ldrb r0, [r0]         ; 读**返回指针处**的字符当转换符
  * 调用方把返回值当作"格式串内的地址"继续 `r1+1` 扫描，因此必须返回
@@ -153,7 +153,7 @@ static uint32_t resolve_str_ptr(uc_engine *uc, uint32_t p) {
  *
  * 逆向依据（00000506 sub_8A20 资源加载分支）：
  *   r1 = 字面量 ".zbmp"
- *   bl  sub_190B0                 ; ROOT[0xB0](文件名, ".zbmp")
+ *   bl  sub_190B0                 ; ROOT_TABLE_ADDR[0xB0](文件名, ".zbmp")
  *   cmp r0, #0
  *   bne <走 .zbmp 原生位图分支>   ; 非 0（找到）→ 按 zbmp 解
  *   ...

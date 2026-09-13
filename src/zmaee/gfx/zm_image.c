@@ -379,12 +379,12 @@ uint32_t zm_image_CreateImage(uc_engine *uc, uint32_t r0, uint32_t r1,
   /* entry：首字=entry 虚表；+4=逐帧偏移表（applet 会读，先给 0）；
    * +8=surface 对象地址（**BitBlt 传的就是这个**，逆向 sub_37B4）。
    * 写入 entry+8 后，BitBlt 的 surface 参数即 surf。 */
-  uc_write32(uc, obj, IMAGE_VT);
+  uc_write32(uc, obj, IMAGE_VT_ADDR);
   uc_write32(uc, obj + 4, 0);
   uc_write32(uc, obj + 8, surf);
 
   /* surface：首字=自己的虚表（对象池里仍按 surf 识别）；其余为解码元数据 */
-  uc_write32(uc, surf, IMAGE_VT);
+  uc_write32(uc, surf, IMAGE_VT_ADDR);
 
   if (out_ptr)
     uc_write32(uc, out_ptr, obj);

@@ -12,7 +12,7 @@
  * ZMAEE IShell 原生虚表处理函数（g_aee_shell_vtbl @ .data:0x64440，34 槽）
  *
  * shell 为全局单例：root.getShell() 返回 SHELL 对象（SHIM+0x100），
- * 其 vptr 指向 SHELL_VT（SHIM+0x180）。旧 RT_VT / zm_rt_* 是早期误命名，
+ * 其 vptr 指向 SHELL_VT_ADDR（SHIM+0x180）。旧 RT_VT / zm_rt_* 是早期误命名，
  * 已更名对齐（CreateInstance/GetDeviceInfo/LoadLibraryExt 均为 IShell 方法）。
  *
  * 原则：任何槽被调用都不应落到 "非法的外部调用" 而卡死 pause_console。
@@ -195,13 +195,13 @@ uint32_t zm_shell_LoadLibraryExt(uc_engine *uc, uint32_t r0, uint32_t buf,
 
 /* ---- 服务对象（CreateInstance 返回的 NETMGR / TAPI） ---- */
 
-/* NETMGR_VT[+4] / TAPI_VT[+4] release */
+/* NETMGR_VT_ADDR[+4] / TAPI_VT_ADDR[+4] release */
 uint32_t zm_svc_release(uc_engine *uc) {
   (void)uc;
   return 0;
 }
 
-/* NETMGR_VT[+0x1C] stub */
+/* NETMGR_VT_ADDR[+0x1C] stub */
 uint32_t zm_netmgr_x1C(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
                        uint32_t r3) {
   (void)uc;
@@ -209,7 +209,7 @@ uint32_t zm_netmgr_x1C(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
   return 0;
 }
 
-/* TAPI_VT[+0x2C] stub */
+/* TAPI_VT_ADDR[+0x2C] stub */
 uint32_t zm_tapi_x2C(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
                      uint32_t r3) {
   (void)uc;
@@ -217,7 +217,7 @@ uint32_t zm_tapi_x2C(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
   return 0;
 }
 
-/* TAPI_VT[+0x40] stub */
+/* TAPI_VT_ADDR[+0x40] stub */
 uint32_t zm_tapi_x40(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
                      uint32_t r3) {
   (void)uc;

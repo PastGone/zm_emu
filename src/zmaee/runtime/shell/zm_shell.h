@@ -5,7 +5,7 @@
 #include <unicorn/unicorn.h>
 
 /* ZMAEE IShell 原生虚表（g_aee_shell_vtbl @ .data:0x64440，34 槽）处理函数。
- * shell 为全局单例：root.getShell() 返回 SHELL 对象，其 vptr 指向 SHELL_VT。
+ * shell 为全局单例：root.getShell() 返回 SHELL 对象，其 vptr 指向 SHELL_VT_ADDR。
  * 旧 RT_VT / zm_rt_* 是同一张表的早期误命名（CreateInstance/GetDeviceInfo/
  * LoadLibraryExt 均为 IShell 方法），已更名对齐。
  *
@@ -93,14 +93,14 @@ uint32_t zm_shell_UnloadDLL(uc_engine *uc, uint32_t handle);
 uint32_t zm_shell_LoadLibraryExt(uc_engine *uc, uint32_t r0, uint32_t buf,
                                  uint32_t size, uint32_t out_obj_ptr);
 
-/* 服务对象 release（NETMGR_VT[+4] / TAPI_VT[+4]）：无操作返 0 */
+/* 服务对象 release（NETMGR_VT_ADDR[+4] / TAPI_VT_ADDR[+4]）：无操作返 0 */
 uint32_t zm_svc_release(uc_engine *uc);
 
-/* NETMGR_VT[+0x1C]：stub */
+/* NETMGR_VT_ADDR[+0x1C]：stub */
 uint32_t zm_netmgr_x1C(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
                        uint32_t r3);
 
-/* TAPI_VT[+0x2C] / [+0x40]：stub */
+/* TAPI_VT_ADDR[+0x2C] / [+0x40]：stub */
 uint32_t zm_tapi_x2C(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
                      uint32_t r3);
 uint32_t zm_tapi_x40(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,

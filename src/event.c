@@ -40,7 +40,7 @@ void dispatch_applet_event(uint32_t evt, uint32_t x, uint32_t y) {
 
     /* payload+0x180 是固件注入的"根对象指针"槽（见 emu.h ROOT_SLOT_OFF），
      * 而 sub_18B2C 会执行 `*(*(0x180))` 直接 BX 过去 —— 即它期望
-     * *(ROOT) 是一个**可调用地址**（trap 或代码），不是对象/虚表。 */
+     * *(ROOT_TABLE_ADDR) 是一个**可调用地址**（trap 或代码），不是对象/虚表。 */
     uint32_t slot = uc_read32(g_uc, BLOB_BASE + ROOT_SLOT_OFF);
     uint32_t fn = slot ? uc_read32(g_uc, slot) : 0;
     log_debug("payload[0x180]=0x%X  *(0x180)=0x%X  *(*0x180)=0x%X", BLOB_BASE,
