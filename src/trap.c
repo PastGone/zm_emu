@@ -651,15 +651,13 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_display_FreeLayer:
     ret = zm_display_FreeLayer(uc, r0, r1);
     break;
-  case TR_display_x18: /* 实测被调 1 次（启动时）。曾试接 GetBaseLayerBuffer，
-                        * 但实测 applet 从不往返回的缓冲里写任何数据，
-                        * 且它更像 FreeAllLayer（返回 0=成功），故保持 stub。 */
+  case TR_display_FreeAllLayer: /* 真机虚表 +0x18 = FreeAllLayer（实测被调 1 次启动期，保持 stub） */
     ret = zm_display_stub(uc, 0x18, r0, r1, r2, r3);
     break;
   case TR_display_GetLayerInfo:
     ret = zm_display_GetLayerInfo(uc, 0x1CU, r0, r1, r2, r3);
     break;
-  case TR_display_clear: /* 真机虚表 +0x20 = SetActiveLayer(display, idx) */
+  case TR_display_SetActiveLayer: /* 真机虚表 +0x20 = SetActiveLayer(display, idx) */
     ret = zm_display_SetActiveLayer(uc, r0, r1);
     break;
   case TR_display_SetLayerPosition:
@@ -668,13 +666,13 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_display_Update:
     ret = zm_display_Update(uc, r0);
     break;
-  case TR_display_fillRectR: /* 真机虚表 +0x2C = UpdateEx(display, rect, count, layerList) */
+  case TR_display_UpdateEx: /* 真机虚表 +0x2C = UpdateEx(display, rect, count, layerList) */
     ret = zm_display_UpdateEx(uc, r0, r1, r2, r3);
     break;
   case TR_display_GetActiveLayer:
     ret = zm_display_GetActiveLayer(uc, r0);
     break;
-  case TR_display_x34: /* 实测被调（旧 GFX 路径），功能未知 */
+  case TR_display_LockScreen: /* 真机虚表 +0x34 = LockScreen（实测被调，功能未知） */
     ret = zm_display_stub(uc, 0x34, r0, r1, r2, r3);
     break;
   case TR_display_UnlockScreen:
@@ -683,17 +681,17 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_display_RegisterCustomFont:
     ret = zm_display_RegisterCustomFont(uc, 0x3CU, r0, r1, r2, r3);
     break;
-  case TR_display_commit: /* 实测：commit 提交帧缓冲 */
-    ret = zm_display_commit(uc);
+  case TR_display_SelectFont: /* 真机虚表 +0x40 = SelectFont(this, idx) */
+    ret = zm_display_SelectFont(uc, r0, r1);
     break;
   case TR_display_GetFontWidth:
     ret = zm_display_GetFontWidth(uc, r0, r1);
     break;
-  case TR_display_getWidth: /* 实测：返回屏幕宽度 */
-    ret = zm_display_getWidth(uc);
+  case TR_display_GetFontHeight: /* 真机虚表 +0x48 = GetFontHeight（实现待 RE 校准） */
+    ret = zm_display_GetFontHeight(uc);
     break;
-  case TR_display_measureChar: /* 实测：measureChar(disp, char_ptr, count, width_out, sp[metrics]) */
-    ret = zm_display_measureChar(uc, r0, r1, r2, r3);
+  case TR_display_MeasureString: /* 真机虚表 +0x4C = MeasureString(disp, str_ptr, len, width_out, sp[metrics]) */
+    ret = zm_display_MeasureString(uc, r0, r1, r2, r3, sp);
     break;
   case TR_display_DrawText:
     ret = zm_display_DrawText(uc, r1, r2, r3, sp);

@@ -39,8 +39,8 @@
  *  - commit 时顺便 PollEvent，让窗口可正常刷新 / 关闭。
  *
  * 原则：任何槽被调用都不应落到 "非法的外部调用" 而卡死 pause_console。
- *   - 实测过行为的槽（clear/fillRectR/commit/getWidth/measureChar/
- *     DrawText/DrawRect/FillRect/Update/Refresh）按真实行为实现；
+ *   - 实测过行为的槽（SetActiveLayer/UpdateEx/SelectFont/GetFontHeight/
+ *     MeasureString/DrawText/DrawRect/FillRect/Update/Refresh）按真实行为实现；
  *   - 返回对象的（CreateBitmap/LoadBitmap）返回 BITMAP 单例；
  *   - 其余接 zm_display_stub：仅记录日志、返回 0。
  *
@@ -62,6 +62,7 @@ static int g_h = 0;
 /* 字体按 font_size 缓存，size 变化时重新打开 */
 static TTF_Font *g_font = NULL;
 static int g_font_size = 0;
+static uint32_t g_sel_font = 0; /* 当前选中字体索引（SelectFont 写入） */
 
 /* 把 0xAARRGGBB 转成 SDL_Color（保留 alpha） */
 static SDL_Color to_sdl_color(uint32_t argb) {
@@ -1304,8 +1305,17 @@ uint32_t zm_display_RegisterCustomFont(uc_engine *uc, uint32_t off, uint32_t r0,
                                        uint32_t r1, uint32_t r2, uint32_t r3) {
   return zm_display_stub(uc, off, r0, r1, r2, r3);
 }
+/* +0x44：GetFontWidth(this)
+ * 真机：sub_26378(this, &v2, nullptr)；sub_26378 写 *a2 = 选定字体尺寸/2 后因 a3==NULL
+ * 直接返回 0，故 GetFontWidth 返回 v2/2 = (尺寸/2)/2 = 尺寸/4。context 空返回 -4。
+ * 模拟器：选中字体尺寸即当前 g_font_size（≤0 默认 16），返回 尺寸/4。 */
 uint32_t zm_display_GetFontWidth(uc_engine *uc, uint32_t r0, uint32_t r1) {
-  return zm_display_stub(uc, 0x44, r0, r1, 0, 0);
+  zm_display_slot_tick(0x44U);
+  (void)uc;
+  (void)r0;
+  (void)r1;
+  int size = g_font_size > 0 ? g_font_size : 16;
+  return (uint32_t)(size / 4);
 }
 
 /* ---- 实测槽 ---- */
@@ -1445,38 +1455,91 @@ uint32_t zm_display_UpdateEx(uc_engine *uc, uint32_t display, uint32_t rect_ptr,
   return 0;
 }
 
-/* +0x40：commit，提交帧缓冲 */
-uint32_t zm_display_commit(uc_engine *uc) {
+/* +0x40：SelectFont(this, fontIndex)
+ * 真机（00026770）：ctx = *(&dword_64BA8);
+ *   if (ctx) { ctx[8] = fontIndex; return 0; } else return -4;
+ * 模拟器无按索引字体表（文本绘制走 sp 传 font_size），仅记录选中索引；
+ * 上下文恒非空 → 返回 0。 */
+uint32_t zm_display_SelectFont(uc_engine *uc, uint32_t display, uint32_t font_idx) {
   zm_display_slot_tick(0x40U);
   (void)uc;
-  fb_commit();
+  (void)display;
+  g_sel_font = font_idx;
   return 0;
 }
 
-/* +0x48：getWidth，返回屏幕宽度。
- * sub_8062C 用返回值+8 作为文本布局宽度；
- * sub_80790 用返回值+a2 作为文本区域宽度。 */
-uint32_t zm_display_getWidth(uc_engine *uc) {
+/* +0x48：GetFontHeight(this)
+ * 真机（000267A8）：sub_26378(this, 0, &h)；成功返回 h（选中字体高度指标），
+ * context 空返回 -4。sub_26378 按 dword_64BA8+8 选中字体类型取尺寸(+60/+64/+68)，
+ * 再把对应高度指标(+72/+76/+80)写入 *a3。模拟器用当前字体 g_font 的像素行高近似。 */
+uint32_t zm_display_GetFontHeight(uc_engine *uc) {
   zm_display_slot_tick(0x48U);
   (void)uc;
-  log_info("display[0x48] getWidth -> %u", g_w);
-  return g_w;
+  TTF_Font *font = get_font(g_font_size);
+  int h = font ? TTF_FontHeight(font) : g_font_size;
+  return (uint32_t)h;
 }
 
-/* +0x4C：measureChar(disp, char_ptr, count, width_out, sp[metrics])
- * sub_802EC 文本布局循环中调用，用于逐字符测量宽度并推进排版游标。
- *   r0=disp, r1=char_ptr(指向 uint16 字符码), r2=count, r3=width_out(int*),
- *   sp[0]=metrics_buf(4B)
- * stub：向 *width_out 写一个固定宽度（约 font_size 的 60%），
- * 避免文本叠在一起。返回 0。 */
-uint32_t zm_display_measureChar(uc_engine *uc, uint32_t disp, uint32_t char_ptr,
-                                uint32_t count, uint32_t width_out) {
+/* +0x4C：MeasureString(this, str_ptr, len, width_out, sp[metrics_out])
+ * 真机（000267E0 附近）：先按 len 扫描 UCS2 串里的 '\0' 截断有效长度；
+ * 若选中字体类型==3 走自定义字体 vtable（未注册返回 -1），否则 ZMAEE_Ucs2_2_Utf8
+ * 转 UTF8 后用当前字体量宽，写 *width_out；再调 sub_26378 写 *metrics_out（字体高度）。
+ * context 空返回 -4。模拟器：context 恒非空 → 返回 0；用 g_font 量像素宽写 *width_out、
+ * 量像素行高写 *metrics_out。metrics_out 指针在栈第 5 参（guest sp[0]）。 */
+uint32_t zm_display_MeasureString(uc_engine *uc, uint32_t disp, uint32_t str_ptr,
+                                  uint32_t len, uint32_t width_out, uint32_t sp) {
   zm_display_slot_tick(0x4CU);
   (void)disp;
-  (void)char_ptr;
-  (void)count;
+
+  int w = 0;
+  size_t cap = (size_t)len * 2;
+  if (cap > 4096)
+    cap = 4096;
+  uint8_t raw[4096];
+  if (str_ptr && len && uc_mem_read(uc, str_ptr, raw, cap) == UC_ERR_OK) {
+    /* 有效长度：遇 UCS2 '\0'（两字节均为 0）截断，与真机一致 */
+    size_t n = 0;
+    for (; n * 2 + 1 < cap; n++) {
+      if (raw[2 * n] == 0 && raw[2 * n + 1] == 0)
+        break;
+    }
+    /* UCS2 → UTF8 */
+    char utf8[4096];
+    size_t ul = 0;
+    for (size_t i = 0; i < n && i * 2 + 1 < cap; i++) {
+      uint16_t c = (uint16_t)(raw[2 * i] | (raw[2 * i + 1] << 8));
+      if (c < 0x80) {
+        utf8[ul++] = (char)c;
+      } else if (c < 0x800) {
+        utf8[ul++] = (char)(0xC0 | (c >> 6));
+        utf8[ul++] = (char)(0x80 | (c & 0x3F));
+      } else {
+        utf8[ul++] = (char)(0xE0 | (c >> 12));
+        utf8[ul++] = (char)(0x80 | ((c >> 6) & 0x3F));
+        utf8[ul++] = (char)(0x80 | (c & 0x3F));
+      }
+    }
+    utf8[ul] = '\0';
+    TTF_Font *font = get_font(g_font_size);
+    int h = 0;
+    if (font)
+      TTF_SizeUTF8(font, utf8, &w, &h);
+    else
+      w = (int)ul * (g_font_size > 0 ? g_font_size : 16);
+  }
+
   if (width_out)
-    uc_write32(uc, width_out, 8);
+    uc_write32(uc, width_out, (uint32_t)w);
+
+  /* metrics_out = 字体高度（sub_26378 写入 *a3） */
+  if (sp) {
+    uint32_t metrics_out = uc_read32(uc, sp);
+    if (metrics_out) {
+      TTF_Font *font = get_font(g_font_size);
+      int fh = font ? TTF_FontHeight(font) : (g_font_size > 0 ? g_font_size : 16);
+      uc_write32(uc, metrics_out, (uint32_t)fh);
+    }
+  }
   return 0;
 }
 
