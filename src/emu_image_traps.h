@@ -5,14 +5,16 @@
 
 /* -------------------- IMAGE_VT_ADDR 枚举 -------------------- */
 /* ZMAEE IImage 原生虚表槽位（基址 IMAGE_VT_ADDR） */
+/* ZMAEE IImage 原生虚表（与 g_aee_image_vtbl 逐槽对齐：
+ *   AddRef/Release/SetData/GetFrameCount/Width/Height/GetType/Decode…） */
 enum ZM_IMAGE_VT {
   ZM_Image_AddRef = 0x00U,
   ZM_Image_Release = 0x04U,
   ZM_Image_SetData = 0x08U,
-  ZM_Image_x0C = 0x0CU,
-  ZM_Image_x10 = 0x10U,
-  ZM_Image_x14 = 0x14U,
-  ZM_Image_Width = 0x18U,
+  ZM_Image_GetFrameCount = 0x0CU,
+  ZM_Image_Width = 0x10U,
+  ZM_Image_Height = 0x14U,
+  ZM_Image_GetType = 0x18U,
   ZM_Image_Decode = 0x1CU,
   ZM_Image_x20 = 0x20U,
   ZM_Image_x24 = 0x24U,
@@ -51,18 +53,19 @@ enum ZM_SURF_VT {
 };
 
 /* ---- ZMAEE IImage 原生虚表（IDisplay::CreateImage 造出的解码器对象）----
- * 槽位按 00000506 sub_313C / 88AB8 等资源加载现场定：
+ * 槽位按 g_aee_image_vtbl 实测定：
  *   +0x08 SetData(this, 0, name_ptr, len) —— 按文件名装入（0=成功）
- *   +0x10 / +0x14                        —— 无参准备调用（applet 不看返回值）
+ *   +0x10 Width / +0x14 Height           —— 取宽高（像素）
+ *   +0x18 GetType                        —— 类型枚举（applet 未据此分支）
  *   +0x1C Decode(this, alloc, free, &bmp, 0) —— 解码出 IBitmap（0=成功）
  * 其余槽接 zm_image_stub，保证不落"非法的外部调用"。 */
 #define TR_image_AddRef TRAP(IMAGE_VT_ADDR + ZM_Image_AddRef)
 #define TR_image_Release TRAP(IMAGE_VT_ADDR + ZM_Image_Release)
 #define TR_image_SetData TRAP(IMAGE_VT_ADDR + ZM_Image_SetData)
-#define TR_image_x0C TRAP(IMAGE_VT_ADDR + ZM_Image_x0C)
-#define TR_image_x10 TRAP(IMAGE_VT_ADDR + ZM_Image_x10)
-#define TR_image_x14 TRAP(IMAGE_VT_ADDR + ZM_Image_x14)
+#define TR_image_GetFrameCount TRAP(IMAGE_VT_ADDR + ZM_Image_GetFrameCount)
 #define TR_image_Width TRAP(IMAGE_VT_ADDR + ZM_Image_Width)
+#define TR_image_Height TRAP(IMAGE_VT_ADDR + ZM_Image_Height)
+#define TR_image_GetType TRAP(IMAGE_VT_ADDR + ZM_Image_GetType)
 #define TR_image_Decode TRAP(IMAGE_VT_ADDR + ZM_Image_Decode)
 #define TR_image_x20 TRAP(IMAGE_VT_ADDR + ZM_Image_x20)
 #define TR_image_x24 TRAP(IMAGE_VT_ADDR + ZM_Image_x24)

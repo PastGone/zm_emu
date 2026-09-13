@@ -874,17 +874,17 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_image_SetData:
     ret = zm_image_SetData(uc, r0, r1, r2, r3);
     break;
-  case TR_image_x0C:
-    ret = zm_image_x0C(uc, r0);
-    break;
-  case TR_image_x10:
-    ret = zm_image_x10(uc, r0);
-    break;
-  case TR_image_x14:
-    ret = zm_image_x14(uc, r0);
+  case TR_image_GetFrameCount:
+    ret = zm_image_GetFrameCount(uc, r0);
     break;
   case TR_image_Width:
     ret = zm_image_Width(uc, r0);
+    break;
+  case TR_image_Height:
+    ret = zm_image_Height(uc, r0);
+    break;
+  case TR_image_GetType:
+    ret = zm_image_GetType(uc, r0);
     break;
   case TR_image_Decode:
     ret = zm_image_DecodeToBitmap(uc, r0, r1, r2, r3, sp);
