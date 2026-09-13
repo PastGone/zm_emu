@@ -70,13 +70,13 @@ uint32_t zm_shell_CreateInstance(uc_engine *uc, uint32_t svc, uint32_t out_ptr) 
     outobj = DISPLAY;
     break;
   case 0x1000009: /* ITAPI */
-    outobj = TAPI;
+    outobj = G_TAPI_ADDR;
     break;
   case 0x100000B: /* ISetting（RE：ZMAEE_ISetting_New） */
     outobj = SETTING;
     break;
   case 0x100000C: /* IMedia = 音频（RE：ZMAEE_IMedia_New，用户确认） */
-    outobj = MEDIA;
+    outobj = G_MEDIA_ADDR;
     break;
   case 0x1000006: /* IGps      —— 尚未实现 */
   case 0x1000007: /* IGSensor  —— 尚未实现 */
@@ -89,7 +89,7 @@ uint32_t zm_shell_CreateInstance(uc_engine *uc, uint32_t svc, uint32_t out_ptr) 
                    * UC_ERR_INSN_INVALID），所以**默认仍返回 -3**，
                    * 仅在 ZM_IUTIL=1 时给出真实对象用于观测。 */
     if (getenv("ZM_IUTIL") && getenv("ZM_IUTIL")[0] == '1') {
-      outobj = IUTIL;
+      outobj = G_IUTIL_ADDR;
     } else {
       outobj = 0;
       ret = -3; /* RE default 语义 */
@@ -193,7 +193,7 @@ uint32_t zm_shell_LoadLibraryExt(uc_engine *uc, uint32_t r0, uint32_t buf,
   return 0; /* 0 表失败 → applet 走自带绘制路径 */
 }
 
-/* ---- 服务对象（CreateInstance 返回的 G_NETMGR_ADDR / TAPI） ---- */
+/* ---- 服务对象（CreateInstance 返回的 G_NETMGR_ADDR / G_TAPI_ADDR） ---- */
 
 /* NETMGR_VT_ADDR[+4] / TAPI_VT_ADDR[+4] release */
 uint32_t zm_svc_release(uc_engine *uc) {

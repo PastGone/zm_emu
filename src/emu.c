@@ -142,14 +142,14 @@ int zm_emu_build_vtables() {
 
   // ISetting（0x100000B）/ IMedia 音频（0x100000C）
   err = uc_write32(g_uc, SETTING, SETTING_VT_ADDR);
-  err = uc_write32(g_uc, MEDIA, MEDIA_VT_ADDR);
+  err = uc_write32(g_uc, G_MEDIA_ADDR, MEDIA_VT_ADDR);
 
   /* ---- IShell.CreateInstance 返回的服务对象 ----
-   * G_NETMGR_ADDR=0x1000004(INetMgr)、TAPI=0x1000009(ITAPI)。
-   * 注意：SVC09/TAPI 此前漏写对象→虚表指针，applet 拿到后调方法会
+   * G_NETMGR_ADDR=0x1000004(INetMgr)、G_TAPI_ADDR=0x1000009(ITAPI)。
+   * 注意：SVC09/G_TAPI_ADDR 此前漏写对象→虚表指针，applet 拿到后调方法会
    * 读到垃圾函数指针，现已补上。 */
   err = uc_write32(g_uc, G_NETMGR_ADDR, NETMGR_VT_ADDR);
-  err = uc_write32(g_uc, TAPI, TAPI_VT_ADDR);
+  err = uc_write32(g_uc, G_TAPI_ADDR, TAPI_VT_ADDR);
 
   /* ---- CBK 回调对象（sub_84E04 返回，vt[+8] 会被 applet 覆写为 sub_82FF8）
    * ---- */
