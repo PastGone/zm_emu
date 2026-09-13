@@ -51,7 +51,7 @@ uint32_t zm_surf_release(uc_engine *uc, uint32_t r0);
 uint32_t zm_surf_wh(uc_engine *uc, uint32_t r0, uint32_t which);
 uint32_t zm_surf_encode(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
                         uint32_t r3);
-/* SURF_VT+0x10 GetRect(this, out)：写 int16 矩形 {left,top,right,bottom} */
+/* SURF_VT_ADDR+0x10 GetRect(this, out)：写 int16 矩形 {left,top,right,bottom} */
 uint32_t zm_surf_getrect(uc_engine *uc, uint32_t r0, uint32_t r1);
 /* 无副作用的空实现（未细究语义的槽位统一走它） */
 uint32_t zm_surf_nop(uc_engine *uc, uint32_t off);

@@ -517,7 +517,7 @@ uint32_t zm_image_DecodeToBitmap(uc_engine *uc, uint32_t r0, uint32_t r1,
    * 漏写会导致调用点 `ldr r1,[obj]; ldr r1,[r1,#4]; blx r1` 读到
    * `*(0+4)`（即 payload 低地址的垃圾），实测会跳进 0x4/0x8/0xC...
    * 逐条执行到非法指令而崩溃。 */
-  uc_write32(uc, surf_obj, SURF_VT);
+  uc_write32(uc, surf_obj, SURF_VT_ADDR);
 
   /* ---- 在客户机内存里把 surf_obj 建成一个合法 IBitmap ----
    * RE：ZMAEE_IBitmap_GetInfo(bitmap, out) 就是 `memcpy(out, bitmap + 8, 32)`，
@@ -580,9 +580,9 @@ uint32_t zm_image_DecodeToBitmap(uc_engine *uc, uint32_t r0, uint32_t r1,
      *     负载 = { vt=unk_1A9F0, 1, out[0], R11 }
      * 之后绘制分派把负载的 +0xC 当图像对象交给 DrawBitmapEx/BitBlt。
      * 也就是说 **out[0] 必须是"带像素的图像对象指针"**（真机是解码出的
-     * 堆对象）。旧实现把 out[0] 写成虚表地址 SURF_VT，
+     * 堆对象）。旧实现把 out[0] 写成虚表地址 SURF_VT_ADDR，
      * 于是每次绘制都拿到 0x7A3200（虚表本身）→ 找不到像素 → 733 次失败。
-     * 这里写入 surf_obj（对象首字即 SURF_VT，可正常响应 vt 调用）。 */
+     * 这里写入 surf_obj（对象首字即 SURF_VT_ADDR，可正常响应 vt 调用）。 */
     uc_write32(uc, out_ptr, surf_obj);
     uc_write32(uc, out_ptr + 4, 0);
     uc_write32(uc, out_ptr + 8, (uint32_t)src->w);
@@ -618,7 +618,7 @@ uint32_t zm_surf_wh(uc_engine *uc, uint32_t r0, uint32_t which) {
   return (uint32_t)(which == 0 ? r->w : r->h);
 }
 
-/* SURF_VT+0x10：GetRect(this, out) —— 写矩形 {left, top, right, bottom}。
+/* SURF_VT_ADDR+0x10：GetRect(this, out) —— 写矩形 {left, top, right, bottom}。
  * 逆向（00000506 sub_388 type1 → loc_448）：
  *   obj = res+0xC; obj->vt[0x10](obj, &var_30);
  *   var_8 = var_30; var_4 = var_2C;      ← 只取前两个字段

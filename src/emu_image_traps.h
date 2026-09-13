@@ -26,8 +26,8 @@ enum ZM_IMAGE_VT {
   ZM_Image_x3C = 0x3CU
 };
 
-/* -------------------- SURF_VT 枚举 -------------------- */
-/* ZMAEE surface 门面虚表槽位（基址 SURF_VT，共 21 槽 / 0x54 字节） */
+/* -------------------- SURF_VT_ADDR 枚举 -------------------- */
+/* ZMAEE surface 门面虚表槽位（基址 SURF_VT_ADDR，共 21 槽 / 0x54 字节） */
 enum ZM_SURF_VT {
   ZM_Surf_release = 0x00U,
   ZM_Surf_x04 = 0x04U,
@@ -83,29 +83,29 @@ enum ZM_SURF_VT {
  *   +0x10 GetRect(this, out) → 写 int16 矩形 {l,t,r,b}（分派器据此绘制）
  * 其它槽按对象族的常规顺序给安全的空实现/固定值，避免落到"非法外部调用"。
  * 共 21 槽（0x54 字节）。 */
-#define TR_surf_release TRAP(SURF_VT + ZM_Surf_release) /* 析构 */
-#define TR_surf_x04 TRAP(SURF_VT + ZM_Surf_x04)
-#define TR_surf_x08 TRAP(SURF_VT + ZM_Surf_x08)
-#define TR_surf_x0C TRAP(SURF_VT + ZM_Surf_x0C)
+#define TR_surf_release TRAP(SURF_VT_ADDR + ZM_Surf_release) /* 析构 */
+#define TR_surf_x04 TRAP(SURF_VT_ADDR + ZM_Surf_x04)
+#define TR_surf_x08 TRAP(SURF_VT_ADDR + ZM_Surf_x08)
+#define TR_surf_x0C TRAP(SURF_VT_ADDR + ZM_Surf_x0C)
 
 #define TR_surf_getrect                                                        \
-  TRAP(SURF_VT + ZM_Surf_getrect) /* GetRect(this,out)：实测使用 */
+  TRAP(SURF_VT_ADDR + ZM_Surf_getrect) /* GetRect(this,out)：实测使用 */
 
-#define TR_surf_x14 TRAP(SURF_VT + ZM_Surf_x14)
-#define TR_surf_x18 TRAP(SURF_VT + ZM_Surf_x18)
-#define TR_surf_x1C TRAP(SURF_VT + ZM_Surf_x1C)
-#define TR_surf_x20 TRAP(SURF_VT + ZM_Surf_x20)
-#define TR_surf_x24 TRAP(SURF_VT + ZM_Surf_x24)
-#define TR_surf_x28 TRAP(SURF_VT + ZM_Surf_x28)
-#define TR_surf_x2C TRAP(SURF_VT + ZM_Surf_x2C)
-#define TR_surf_x30 TRAP(SURF_VT + ZM_Surf_x30)
-#define TR_surf_x34 TRAP(SURF_VT + ZM_Surf_x34)
-#define TR_surf_x38 TRAP(SURF_VT + ZM_Surf_x38)
-#define TR_surf_x3C TRAP(SURF_VT + ZM_Surf_x3C)
-#define TR_surf_x40 TRAP(SURF_VT + ZM_Surf_x40)
-#define TR_surf_x44 TRAP(SURF_VT + ZM_Surf_x44)
-#define TR_surf_x48 TRAP(SURF_VT + ZM_Surf_x48)
-#define TR_surf_x4C TRAP(SURF_VT + ZM_Surf_x4C)
-#define TR_surf_x50 TRAP(SURF_VT + ZM_Surf_x50)
+#define TR_surf_x14 TRAP(SURF_VT_ADDR + ZM_Surf_x14)
+#define TR_surf_x18 TRAP(SURF_VT_ADDR + ZM_Surf_x18)
+#define TR_surf_x1C TRAP(SURF_VT_ADDR + ZM_Surf_x1C)
+#define TR_surf_x20 TRAP(SURF_VT_ADDR + ZM_Surf_x20)
+#define TR_surf_x24 TRAP(SURF_VT_ADDR + ZM_Surf_x24)
+#define TR_surf_x28 TRAP(SURF_VT_ADDR + ZM_Surf_x28)
+#define TR_surf_x2C TRAP(SURF_VT_ADDR + ZM_Surf_x2C)
+#define TR_surf_x30 TRAP(SURF_VT_ADDR + ZM_Surf_x30)
+#define TR_surf_x34 TRAP(SURF_VT_ADDR + ZM_Surf_x34)
+#define TR_surf_x38 TRAP(SURF_VT_ADDR + ZM_Surf_x38)
+#define TR_surf_x3C TRAP(SURF_VT_ADDR + ZM_Surf_x3C)
+#define TR_surf_x40 TRAP(SURF_VT_ADDR + ZM_Surf_x40)
+#define TR_surf_x44 TRAP(SURF_VT_ADDR + ZM_Surf_x44)
+#define TR_surf_x48 TRAP(SURF_VT_ADDR + ZM_Surf_x48)
+#define TR_surf_x4C TRAP(SURF_VT_ADDR + ZM_Surf_x4C)
+#define TR_surf_x50 TRAP(SURF_VT_ADDR + ZM_Surf_x50)
 
 #endif /* EMU_IMAGE_TRAPS_H */

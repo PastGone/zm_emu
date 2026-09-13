@@ -11,7 +11,7 @@
 /* =========================================================================
  * ZMAEE IShell 原生虚表处理函数（g_aee_shell_vtbl @ .data:0x64440，34 槽）
  *
- * shell 为全局单例：root.getShell() 返回 SHELL 对象（SHIM+0x100），
+ * shell 为全局单例：root.getShell() 返回 G_SHELL_ADDR 对象（SHIM+0x100），
  * 其 vptr 指向 SHELL_VT_ADDR（SHIM+0x180）。旧 RT_VT / zm_rt_* 是早期误命名，
  * 已更名对齐（CreateInstance/GetDeviceInfo/LoadLibraryExt 均为 IShell 方法）。
  *
@@ -60,10 +60,10 @@ uint32_t zm_shell_CreateInstance(uc_engine *uc, uint32_t svc, uint32_t out_ptr) 
   int32_t ret = 0;
   switch (svc) {
   case 0x1000003: /* IFileMgr */
-    outobj = FileMgr;
+    outobj = G_FileMgr_ADDR;
     break;
   case 0x1000004: /* INetMgr */
-    outobj = NETMGR;
+    outobj = G_NETMGR_ADDR;
     break;
   case 0x1000005: /* IDisplay 全局单例（原生 g_aee_display_vtbl；旧 GFX/GFX_VT
                      是同一张表的早期误命名，已并入 display） */
@@ -193,7 +193,7 @@ uint32_t zm_shell_LoadLibraryExt(uc_engine *uc, uint32_t r0, uint32_t buf,
   return 0; /* 0 表失败 → applet 走自带绘制路径 */
 }
 
-/* ---- 服务对象（CreateInstance 返回的 NETMGR / TAPI） ---- */
+/* ---- 服务对象（CreateInstance 返回的 G_NETMGR_ADDR / TAPI） ---- */
 
 /* NETMGR_VT_ADDR[+4] / TAPI_VT_ADDR[+4] release */
 uint32_t zm_svc_release(uc_engine *uc) {

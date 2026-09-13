@@ -5,7 +5,7 @@
 #include <unicorn/unicorn.h>
 
 /* ZMAEE IShell 原生虚表（g_aee_shell_vtbl @ .data:0x64440，34 槽）处理函数。
- * shell 为全局单例：root.getShell() 返回 SHELL 对象，其 vptr 指向 SHELL_VT_ADDR。
+ * shell 为全局单例：root.getShell() 返回 G_SHELL_ADDR 对象，其 vptr 指向 SHELL_VT_ADDR。
  * 旧 RT_VT / zm_rt_* 是同一张表的早期误命名（CreateInstance/GetDeviceInfo/
  * LoadLibraryExt 均为 IShell 方法），已更名对齐。
  *
@@ -30,7 +30,7 @@ uint32_t zm_shell_Release(uc_engine *uc, uint32_t r0);
 /**
  * +0x08 CreateInstance(this, classID, out_ptr)：按 CLSID 返回子系统对象。
  * CLSID 表严格按 RE 反编译（16777219=0x1000003 起，详见 zm_shell.c）：
- *   0x1000003 IFileMgr → FileMgr     0x1000004 INetMgr  → NETMGR
+ *   0x1000003 IFileMgr → G_FileMgr_ADDR     0x1000004 INetMgr  → G_NETMGR_ADDR
  *   0x1000005 IDisplay → DISPLAY     0x1000009 ITAPI    → TAPI
  *   0x100000B ISetting → SETTING     0x100000C IMedia(音频) → MEDIA
  *   其余（IGps/IGSensor/IAddrBook/IMemStream/IZip/IStatusBar/IUtil）
@@ -68,7 +68,7 @@ uint32_t zm_shell_GetApplet(uc_engine *uc, uint32_t index);
 /**
  * +0x58 LoadDLL(this, name_ptr, name_len, out_ptr)（RE sub_35230）
  *
- * sub_85248 调 (*SHELL+0x58)(SHELL, "zmsys001.dll", 28, &out)。
+ * sub_85248 调 (*G_SHELL_ADDR+0x58)(G_SHELL_ADDR, "zmsys001.dll", 28, &out)。
  * 本实现为 stub：读取 dll 名仅作日志，把 DLL_OBJ 写入 *out_ptr 并返回，
  * 让 applet 后续对 DLL 对象 vt[+8/+0xC/+0x10] 的调用不崩溃。
  */
@@ -81,7 +81,7 @@ uint32_t zm_shell_UnloadDLL(uc_engine *uc, uint32_t handle);
 /**
  * +0x78 LoadLibraryExt(this, buf, size, out_obj_ptr, ...)（旧称 loadDLL2）
  *
- * sub_83E24 调 (*SHELL+0x78)(SHELL, buf, 20, &v2[1], a1[116], a1[117])。
+ * sub_83E24 调 (*G_SHELL_ADDR+0x78)(G_SHELL_ADDR, buf, 20, &v2[1], a1[116], a1[117])。
  * 语义：按名载入模块（zmsys006.dll），把模块对象指针写入 *out_obj_ptr，
  * 返回非 0 表成功。applet 随后检查返回值与 *out_obj_ptr 均非 0 才继续，
  * 再调 (*out_obj_ptr)->vt[0x0C](...)。

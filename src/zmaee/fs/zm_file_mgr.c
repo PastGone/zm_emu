@@ -11,7 +11,7 @@
 #include "../core/zm_str.h" /* zm_read_str_obj */
 #include "zm_file.h"        /* g_file_data / g_file_size / g_file_pos 状态 */
 
-/* ========== 通用单文件系统：FileMgr 层 ==========
+/* ========== 通用单文件系统：G_FileMgr_ADDR 层 ==========
  *
  *  - 只同时支持一个打开的文件
  *  - fs.open 会在宿主机磁盘上找到同名文件并读入内存，返回固定句柄 FILE1

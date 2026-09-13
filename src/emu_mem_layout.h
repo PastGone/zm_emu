@@ -78,7 +78,7 @@
 #define ROOT_TABLE_ADDR (SHIM_VT_BASE + 0x000U)
 
 /* IShell 虚表（RE：g_aee_shell_vtbl @ .data:0x64440，34 槽）
- * 必须避开 SHELL 对象字段区（至少到 +0x118）。
+ * 必须避开 G_SHELL_ADDR 对象字段区（至少到 +0x118）。
  * 放在 0x400，34 槽 → 0x488。 */
 #define SHELL_VT_ADDR (SHIM_VT_BASE + 0x400U)
 
@@ -122,7 +122,7 @@
  *   +0x10 GetRect(this, out) → 写 int16 矩形 {l,t,r,b}（分派器据此绘制）
  * 其它槽按对象族的常规顺序给安全的空实现/固定值，避免落到"非法外部调用"。
  * 共 21 槽（0x54 字节）。 */
-#define SURF_VT (SHIM_VT_BASE + 0x2200U)
+#define SURF_VT_ADDR (SHIM_VT_BASE + 0x2200U)
 
 /* ============================================================
  *                        数 据 区  (0x08000)
@@ -172,20 +172,26 @@
 
 /* IShell 对象。字段至少到 +0x118（RE：a1+276/a1+280）。
  * 必须避开 ROOT_TABLE_ADDR 的函数指针表区（applet stub 可能硬编码
- * SHIM_BASE+0x180 附近的 root slot，SHELL 不能压住那段）。 */
-#define SHELL (SHIM_OBJ_BASE + 0x000U)
+ * SHIM_BASE+0x180 附近的 root slot，G_SHELL_ADDR 不能压住那段）。 */
+struct obj_shell_st {
+
+};
+
+// enum obj_shell_inner_off {  };
+
+#define G_SHELL_ADDR (SHIM_OBJ_BASE + 0x000U)
 
 /* IFileMgr 对象 */
-#define FileMgr (SHIM_OBJ_BASE + 0x200U)
+#define G_FileMgr_ADDR (SHIM_OBJ_BASE + 0x200U)
 #define FILE1 (SHIM_OBJ_BASE + 0x300U)
 
 /* INetMgr / ITAPI 服务对象 */
-#define NETMGR (SHIM_OBJ_BASE + 0x400U)
+#define G_NETMGR_ADDR (SHIM_OBJ_BASE + 0x400U)
 #define TAPI (SHIM_OBJ_BASE + 0x500U)
 
 /* ---- 服务对象区布局教训（00001b62 实测）----
  * applet 会把 root.create_cbk 返回的 CBK_OBJ 当 ≥0x170 字节的大上下文
- * 结构体用（+0x48 存 SHELL、+0x4C 起存 CreateInstance 服务对象表、
+ * 结构体用（+0x48 存 G_SHELL_ADDR、+0x4C 起存 CreateInstance 服务对象表、
  * +0x128 起填句柄数组）。真实固件里各对象在 RAM 中相距甚远，互不干扰；
  * 此前的紧凑布局被 applet 上下文写入踩碎 DISPLAY vptr / DISPLAY_VT_ADDR /
  * DLL_OBJ_VT_ADDR，导致读回空指针崩溃。现按每对象 0x100+ 间隔拉开。 */

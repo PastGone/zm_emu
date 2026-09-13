@@ -125,19 +125,19 @@ int zm_emu_build_vtables() {
     log_info("create_cbk 上下文：CBK_OBJ+0x48=0x%X → display=0x%X 屏幕 %dx%d",
              CBK_CTX, DISPLAY, sw, sh);
   }
-  log_info("布局: SHIM_BASE=0x%X TRAMP_BASE=0x%X ROOT_TABLE_ADDR=0x%X SHELL=0x%X",
-           SHIM_BASE, TRAMP_BASE, ROOT_TABLE_ADDR, SHELL);
+  log_info("布局: SHIM_BASE=0x%X TRAMP_BASE=0x%X ROOT_TABLE_ADDR=0x%X G_SHELL_ADDR=0x%X",
+           SHIM_BASE, TRAMP_BASE, ROOT_TABLE_ADDR, G_SHELL_ADDR);
   // root
   err = uc_write32(g_uc, ROOT_TABLE_ADDR, TR_root_getShell);
 
-  // shell（root.getShell 返回；SHELL 对象 → SHELL_VT_ADDR = g_aee_shell_vtbl）
-  err = uc_write32(g_uc, SHELL, SHELL_VT_ADDR);
+  // shell（root.getShell 返回；G_SHELL_ADDR 对象 → SHELL_VT_ADDR = g_aee_shell_vtbl）
+  err = uc_write32(g_uc, G_SHELL_ADDR, SHELL_VT_ADDR);
 
   /* FileMgr_VT_ADDR[0x30]：enumFile — sub_82584 枚举 app_list 下文件 */
   // err = uc_write32(g_uc, FileMgr_VT_ADDR + 0x30, TR_fileMgr_enum);
 
   // fs
-  err = uc_write32(g_uc, FileMgr, FileMgr_VT_ADDR);
+  err = uc_write32(g_uc, G_FileMgr_ADDR, FileMgr_VT_ADDR);
   err = uc_write32(g_uc, FILE1, FILE_VT_ADDR);
 
   // ISetting（0x100000B）/ IMedia 音频（0x100000C）
@@ -145,10 +145,10 @@ int zm_emu_build_vtables() {
   err = uc_write32(g_uc, MEDIA, MEDIA_VT_ADDR);
 
   /* ---- IShell.CreateInstance 返回的服务对象 ----
-   * NETMGR=0x1000004(INetMgr)、TAPI=0x1000009(ITAPI)。
+   * G_NETMGR_ADDR=0x1000004(INetMgr)、TAPI=0x1000009(ITAPI)。
    * 注意：SVC09/TAPI 此前漏写对象→虚表指针，applet 拿到后调方法会
    * 读到垃圾函数指针，现已补上。 */
-  err = uc_write32(g_uc, NETMGR, NETMGR_VT_ADDR);
+  err = uc_write32(g_uc, G_NETMGR_ADDR, NETMGR_VT_ADDR);
   err = uc_write32(g_uc, TAPI, TAPI_VT_ADDR);
 
   /* ---- CBK 回调对象（sub_84E04 返回，vt[+8] 会被 applet 覆写为 sub_82FF8）

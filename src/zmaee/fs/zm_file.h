@@ -6,8 +6,8 @@
 #include <unicorn/unicorn.h> /* uc_engine */
 
 /* ---------- IFile 层（单个已打开文件的读写游标） ----------
- * 负责：对当前由 FileMgr 打开的单个文件进行 close / read / seek / tell。
- * 全局单文件状态在此声明为 extern，供 FileMgr 的 open 在切换文件时清零。
+ * 负责：对当前由 G_FileMgr_ADDR 打开的单个文件进行 close / read / seek / tell。
+ * 全局单文件状态在此声明为 extern，供 G_FileMgr_ADDR 的 open 在切换文件时清零。
  */
 
 /* 单文件全局状态（定义在 zm_file.c）。FILE1 同时只持有一个打开的文件。 */
