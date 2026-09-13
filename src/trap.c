@@ -1040,6 +1040,26 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_netmgr_x1C:
     ret = zm_netmgr_x1C(uc, r0, r1, r2, r3);
     break;
+  case TR_tapi_x00:
+  case TR_tapi_x08:
+  case TR_tapi_x0C:
+  case TR_tapi_x10:
+  case TR_tapi_x14:
+  case TR_tapi_x18:
+  case TR_tapi_x1C:
+  case TR_tapi_x20:
+  case TR_tapi_x24:
+  case TR_tapi_x28:
+  case TR_tapi_x30:
+  case TR_tapi_x34:
+  case TR_tapi_x38:
+  case TR_tapi_x3C:
+  case TR_tapi_x44:
+  case TR_tapi_x48:
+  case TR_tapi_x4C:
+  case TR_tapi_x50:
+    ret = zm_tapi_stub(uc, trap_address - TAPI_VT_ADDR, r0, r1, r2, r3);
+    break;
   case TR_tapi_release:
     ret = zm_svc_release(uc);
     break;
@@ -1048,6 +1068,15 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break;
   case TR_tapi_x40:
     ret = zm_tapi_x40(uc, r0, r1, r2, r3);
+    break;
+
+  /* ZMAEE IZip 虚表（ZIP_VT_ADDR，5 槽） */
+  case TR_zip_x00:
+  case TR_zip_x04:
+  case TR_zip_x08:
+  case TR_zip_x0C:
+  case TR_zip_x10:
+    ret = zm_zip_stub(uc, trap_address - ZIP_VT_ADDR, r0, r1, r2, r3);
     break;
   case TR_dll_init:
     ret = zm_dll_init(uc);

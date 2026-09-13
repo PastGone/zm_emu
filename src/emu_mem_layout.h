@@ -47,6 +47,9 @@
 /* 0x1000013 IUtil 服务对象。真机 util 虚表是 7 个槽（0x00~0x18）。 */
 #define IUTIL_VT_ADDR (SHIM_VT_BASE + 0x1A00U)
 
+/* ZMAEE IZip 服务对象虚表（IDA 实测 g_aee_zip_vtbl @ .data:0x64574，5 槽 → 0x14）。 */
+#define ZIP_VT_ADDR (SHIM_VT_BASE + 0x1B00U)
+
 /* IImage 池虚表（32 槽 → 0x80） */
 #define IMAGE_VT_ADDR (SHIM_VT_BASE + 0x2000U)
 
