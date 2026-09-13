@@ -137,9 +137,14 @@ uint32_t zm_shell_GetDeviceInfo(uc_engine *uc, uint32_t out_ptr) {
   memset(zeros, 0, sizeof(zeros));
   uc_mem_write(uc, out_ptr, zeros, sizeof(zeros)); /* 与固件 memset 同款清零 */
 
-  /* 确定项：屏幕宽高（RE 中 resolution = %dx%d 取 [2]、[3]） */
-  uc_write32(uc, out_ptr + 4 * 2, g_header.ScreenW);
-  uc_write32(uc, out_ptr + 4 * 3, g_header.ScreenH);
+  /* 确定项：屏幕宽高（RE 中 resolution = %dx%d 取 [2]、[3]）。
+   * 关键：这里必须返回**模拟器实际可绘制尺寸**（= 层缓冲 LAYER_W×LAYER_H），
+   * 而不是 .app 表头的 ScreenW/ScreenH。applet（如 000004fe sub_F824）会把
+   * 它写进 CBK_OBJ+0x110/+0x114 当作绘制 surface 的宽高；若报成表头的
+   * 800×800，而我们的层只有 240×320，applet 按 800 宽算坐标就会冲出层缓冲
+   * （实测崩在 sub_8F20 往 0x9201E0 写像素）。 */
+  uc_write32(uc, out_ptr + 4 * 2, LAYER_W);
+  uc_write32(uc, out_ptr + 4 * 3, LAYER_H);
   /* 确定项：本设备是触摸屏（语义明确；置 0 会让 applet 关闭触摸交互） */
   uc_write32(uc, out_ptr + 4 * 8, 1); /* [8] bTouchScreen */
 
@@ -147,8 +152,7 @@ uint32_t zm_shell_GetDeviceInfo(uc_engine *uc, uint32_t out_ptr) {
    *   [4] color_depth —— 需 nativeColorDepthToString 确定枚举
    *   [5] dwLang      —— 需 nativeLanguageToString 确定枚举
    *   [6] cap / [7] bKbd / [9] nMaxRam / 各字符串字段 */
-  log_debug("GetDeviceInfo -> %ux%u (bTouchScreen=1)", g_header.ScreenW,
-            g_header.ScreenH);
+  log_debug("GetDeviceInfo -> %ux%u (bTouchScreen=1)", LAYER_W, LAYER_H);
   return 0;
 }
 

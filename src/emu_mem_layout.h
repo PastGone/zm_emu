@@ -111,11 +111,11 @@
  * IImage::Decode 解出的 IBitmap 在真实固件里是**堆对象**（尺寸/格式随图变），
  * applet 只经虚表使用、不摸字段，因此这里用固定地址池 + 宿主侧记录表实现
  * 多实例（旧实现返回 0/单例，导致 applet 拿到空指针直接崩）。 */
-#define IMAGE_POOL (SHIM_POOL_BASE + 0x0000U) /* 64 × 0x40 = 0x1000 */
+#define IMAGE_POOL (SHIM_POOL_BASE + 0x0000U) /* 512 × 0x40 = 0x8000 */
 #define IMAGE_SLOT_SIZE 0x40U
-#define IMAGE_SLOT_COUNT 64
+#define IMAGE_SLOT_COUNT 512
 
-#define BITMAP_POOL (SHIM_POOL_BASE + 0x2000U) /* 64 × 0x40 = 0x1000 */
+#define BITMAP_POOL (SHIM_POOL_BASE + 0x8000U) /* 64 × 0x40 = 0x1000 */
 #define BITMAP_SLOT_SIZE 0x40U
 #define BITMAP_SLOT_COUNT 64
 
@@ -140,8 +140,25 @@
  * 大块像素缓冲，applet 直接读写。
  * 必须清零、绝不填 trap。
  * ============================================================ */
-#define LAYER_W 240
-#define LAYER_H 320
+/* ---- 绘制尺寸：真源 = .app 头部解析出的 ScreenW/ScreenH ----
+ *
+ * 运行期尺寸放在 g_layer_w / g_layer_h（main.c 解析 .app 头部后写入，见
+ * parse_app_header 的 ScreenW/ScreenH @0x17C/0x180），它同时决定：
+ *   - 层缓冲尺寸（LAYER_BUF / FRAMEBUF / 基础层）
+ *   - SDL 窗口尺寸 g_w/g_h（zm_display_init）
+ *   - 软件帧缓冲 g_fb_w/g_fb_h
+ *   - IShell::GetDeviceInfo 上报的屏幕宽高
+ * 三者必须一致，改分辨率只改头部一处。
+ *
+ * 编译期只保留**容量上限** LAYER_MAX_W/H：静态数组与内存 region 尺寸要用它
+ * （如 zm_display.c 的 `static uint16_t prev_fb[...]`）。当前见过的 applet
+ * 头部最大 900×900（00000405），故上限取 1024。 */
+#define LAYER_MAX_W 1024
+#define LAYER_MAX_H 1024
+
+extern int g_layer_w, g_layer_h;
+#define LAYER_W g_layer_w
+#define LAYER_H g_layer_h
 
 /* ---- 客户机可见的"显示层"像素缓冲 ----
  *
@@ -153,8 +170,8 @@
  *
  * 布局为 RGB565、宽高 LAYER_W×LAYER_H；applet 直接读写它，present 时再
  * 转成 ARGB 上传到 SDL 纹理显示。 */
-#define LAYER_BUF (SHIM_PIXEL_BASE + 0x00000U)
-#define LAYER_BUF_SIZE (LAYER_W * LAYER_H * 2) /* 0x25800 = 150KB */
+#define LAYER_BUF (SHIM_PIXEL_BASE + 0x000000U)
+#define LAYER_BUF_SIZE (LAYER_MAX_W * LAYER_MAX_H * 2) /* 上限容量 2MB */
 
 /* ---- IBitmap 的像素/调色板区 ----
  *
@@ -169,12 +186,12 @@
  * RE 依据：ZMAEE_IBitmap_GetInfo 就是 `memcpy(out, bitmap + 8, 32)`，
  * 即 out[7] = bitmap[36] = 像素指针。
  * 布局：IBitmap 对象字段 8 个 dword（+8..+40）+ 像素数据。循环复用。 */
-#define FRAMEBUF (SHIM_PIXEL_BASE + 0x30000U)
-#define FRAMEBUF_SIZE (LAYER_W * LAYER_H * 2) /* 150KB */
+#define FRAMEBUF (SHIM_PIXEL_BASE + 0x200000U)
+#define FRAMEBUF_SIZE (LAYER_MAX_W * LAYER_MAX_H * 2) /* 上限容量 2MB */
 
-/* 解码像素池。 */
-#define PIX_POOL (SHIM_PIXEL_BASE + 0x60000U)
-#define PIX_POOL_SIZE 0x2A000U /* 168KB */
+/* 解码像素池（也用于分配"基础层"缓冲，须容纳最大 1024×1024×2 ≈ 2MB）。 */
+#define PIX_POOL (SHIM_PIXEL_BASE + 0x400000U)
+#define PIX_POOL_SIZE 0x280000U /* 2.5MB */
 
 /* -------------------- trap 地址宏 -------------------- */
 #define TRAP(idx) (TRAMP_BASE + (idx) - SHIM_BASE)

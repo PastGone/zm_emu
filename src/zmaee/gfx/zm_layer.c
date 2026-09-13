@@ -6,6 +6,7 @@
 #include "../../tool/uc_helper.h" /* uc_read32 / uc_write32 */
 #include "../../log/log.h"
 #include "zm_image.h" /* zm_pix_pool_alloc：层缓冲也从像素池分配 */
+#include "zm_display.h" /* zm_display_GetBaseLayerBuffer：层 0 = 基础层 */
 
 /* IDisplay 层数组距对象起点的偏移（RE：层项基址 = IDisplay + 52*idx，
  * 载荷 = 基址 + 36） */
@@ -115,6 +116,31 @@ uint32_t zm_layer_GetLayerInfo(uc_engine *uc, uint32_t display, uint32_t idx,
   if (display == 0 || idx > 0xF || out_ptr == 0)
     return (uint32_t)-4;
   uint32_t P = zm_layer_payload(display, idx);
+
+  /* 层 0 = 基础层（RE：FreeAllLayer 从 i=1 起、从不释放层 0）。
+   * 它应常驻指向基础层缓冲；若首次查询时尚未建立，在此惰性填好，
+   * 否则 applet 会把 GetLayerInfo(0) 失败当作致命错误而 abort。
+   * 仅当 idx==0 时才触发，层 1..15 仍由 CreateLayer 显式建立，互不影响。 */
+  if (idx == 0 && uc_read32(uc, P + 0x24) == 0) {
+    uint32_t base = zm_display_GetBaseLayerBuffer(uc);
+    if (base) {
+      uint32_t fmt = 1, x0 = 0, y0 = 0, w = LAYER_W, h = LAYER_H;
+      uint8_t pl[LAYER_STRIDE];
+      memset(pl, 0, sizeof(pl));
+      memcpy(pl + 0x00, &fmt, 4);
+      memcpy(pl + 0x04, &x0, 4);
+      memcpy(pl + 0x08, &y0, 4);
+      memcpy(pl + 0x0C, &w, 4);
+      memcpy(pl + 0x10, &h, 4);
+      memcpy(pl + 0x1C, &w, 4);
+      memcpy(pl + 0x20, &h, 4);
+      memcpy(pl + 0x24, &base, 4);
+      uc_mem_write(uc, P, pl, sizeof(pl));
+      log_info("GetLayerInfo(层=0) 惰性建立基础层 buf=0x%X (%dx%d RGB565)", base,
+               w, h);
+    }
+  }
+
   if (uc_read32(uc, P + 0x24) == 0) {
     static uint32_t nf = 0;
     if (nf++ < 4)
