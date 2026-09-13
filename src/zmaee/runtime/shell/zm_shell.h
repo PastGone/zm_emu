@@ -106,6 +106,14 @@ uint32_t zm_tapi_x2C(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
 uint32_t zm_tapi_x40(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
                      uint32_t r3);
 
+/* TAPI 未接具体 handler 的槽位统一走这里（观测探针，见 zm_shell.c）。 */
+uint32_t zm_tapi_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
+                      uint32_t r2, uint32_t r3);
+
+/* ZMAEE IZip 通用观测探针。 */
+uint32_t zm_zip_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
+                     uint32_t r2, uint32_t r3);
+
 /* ISetting（0x100000B，g_aee_setting_vtbl @ .data:0x64408，14 槽）通用
  * stub —— 各槽语义待 RE。 */
 uint32_t zm_setting_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,

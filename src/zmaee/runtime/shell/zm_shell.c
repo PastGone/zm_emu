@@ -225,6 +225,24 @@ uint32_t zm_tapi_x40(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
   return 0;
 }
 
+/* TAPI 其余 18 个槽位的观测探针：仅打日志、返回 0，便于按参数签名反推用途。 */
+uint32_t zm_tapi_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
+                      uint32_t r2, uint32_t r3) {
+  (void)uc;
+  log_debug("tapi stub[0x%X] r0=0x%X r1=0x%X r2=0x%X r3=0x%X", off, r0, r1, r2,
+            r3);
+  return 0;
+}
+
+/* ZMAEE IZip 5 个槽位的观测探针。 */
+uint32_t zm_zip_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
+                     uint32_t r2, uint32_t r3) {
+  (void)uc;
+  log_debug("zip stub[0x%X] r0=0x%X r1=0x%X r2=0x%X r3=0x%X", off, r0, r1, r2,
+            r3);
+  return 0;
+}
+
 /* ---- ISetting（0x100000B，g_aee_setting_vtbl @ .data:0x64408，14 槽）----
  * 各槽语义待 RE（+0x00 sub_33D60、+0x04 sub_34118、+0x08 sub_34050、
  * +0x0C sub_33D74、+0x10 sub_33D78、+0x14 sub_33D7C、+0x18 sub_33FB4、
