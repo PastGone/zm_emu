@@ -40,7 +40,7 @@ void zm_diag_dump_buttons(uc_engine *uc) {
 //     if (rdata && rsize && rsize <= ZMR_SIZE) {
 //       uc_mem_write(g_uc, ZMR_BASE, rdata, rsize);
 //       log_info("音频自测：播放资源 %u/%u  size=%u", idx, count, rsize);
-//       zm_media_play(g_uc, ZMR_BASE, rsize);
+//       zm_media_command(g_uc, 0, 0x10, ZMR_BASE, rsize);
 //     } else {
 //       log_warn("音频自测：资源 %u 不可用 (count=%u)", idx, count);
 //     }
