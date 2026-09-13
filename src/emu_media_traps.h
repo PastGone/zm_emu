@@ -34,13 +34,20 @@ enum ZM_MEDIA_VT {
 /* ---- ZMAEE IMedia 原生虚表（RE：g_aee_media_vtbl @ .data:0x640E4，25 槽）
  * ---- IMedia 即音频（用户确认）。偏移逐槽按 RE：
  *   +0x00 sub_32BC8(AddRef)  +0x04 sub_32BCC(Release)  +0x08 sub_32BD0
- *   +0x0C sub_32BD8          +0x10 sub_32E80(play)     +0x14 sub_32D0C(stop)
+ *   +0x0C sub_32BD8
+ *   +0x10 sub_32E80 = 命令分发器 loc_32E80（cmd 取 r1 低 16 位）：
+ *         0x10/0x40 playMusic(String,int)  0x41 playSound(String)
+ *         0x01 playMidSound(裸MIDI)       0x02/0x44 playRealSound(裸音频)
+ *         0x42 loadSound / 0x43 unloadSound；其余 default 返回 -1
+ *   +0x14 sub_32D0C(stop)
  *   +0x18 sub_32CE8  +0x1C sub_32CC4  +0x20 sub_32DF8  +0x24 sub_32DD8
  *   +0x28 sub_32DB4  +0x2C sub_32D4C  +0x30 sub_32C60  +0x34 sub_32C00
  *   +0x38 sub_32BDC  +0x3C sub_32BE4  +0x40 sub_32BE8  +0x44 sub_32BF0
- *   +0x48 sub_32BF4  +0x4C sub_32BF8  +0x50 sub_32BFC  +0x54 sub_33128
+ *   +0x48 sub_32BF4  +0x4C sub_32BF8  +0x50 sub_32BFC
+ *   +0x54 sub_33128 = 同一分发器 loc_32E80 的 thunk（亦走 zm_media_command）
  *   +0x58 sub_32D44
- * play/stop 已有真实 SDL_mixer 实现；其余接 zm_media_stub。 */
+ * +0x10 / +0x54 走 zm_media_command（命令分发器，文件名/裸流双模式）；
+ * +0x14 stop 走 zm_media_stop；其余接 zm_media_stub。 */
 #define TR_media_AddRef TRAP(MEDIA_VT_ADDR + ZM_Media_AddRef)
 #define TR_media_Release TRAP(MEDIA_VT_ADDR + ZM_Media_Release)
 #define TR_media_x08 TRAP(MEDIA_VT_ADDR + ZM_Media_x08)

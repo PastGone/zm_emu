@@ -19,15 +19,21 @@ int zm_audio_init(void);
 void zm_audio_shutdown(void);
 
 /**
- * @brief IMedia.play（+0x10）：播放音频
- * @param buf_ptr 音频数据客户机地址（对应 r2）
- * @param buf_len 音频数据长度（对应 r3）
- * @return 固定返回 0
+ * @brief IMedia 命令分发器（vtable +0x10，原生 loc_32E80 / sub_32E80）
  *
- * @note 从客户机内存读取音频数据，用 Mix_LoadMUST_RW 解码后播放。
- *       上一次播放的资源会被释放。
+ * 掌萌 zmapp AEE 媒体层接口实为命令分发器：
+ *   int loc_32E80(void *self, int cmd, void *arg1, void *arg2, ...);
+ * cmd 取 r1 低 16 位；r2/r3 为前两个参数：
+ *   cmd=0x10/0x40 playMusic(String,int)  r2=文件名 r3=整型(常=文件名长度)
+ *   cmd=0x41      playSound(String)      r2=文件名
+ *   cmd=0x01      playMidSound(裸 MIDI)  cmd=0x02/0x44 playRealSound(裸音频)
+ *   cmd=0x42/0x43 loadSound/unloadSound（noop）
+ * 文件名模式下从 applet 数据目录读文件播放；否则按裸音频流播放；
+ * 未知命令返回 -1（与原生 default 一致）。
+ * +0x54（sub_33128）为同一分发器的 thunk，亦调用本函数。
  */
-uint32_t zm_media_play(uc_engine *uc, uint32_t buf_ptr, uint32_t buf_len);
+uint32_t zm_media_command(uc_engine *uc, uint32_t r0, uint32_t r1,
+                          uint32_t r2, uint32_t r3);
 
 /* IMedia.stop（+0x14）：停止播放，固定返回 0 */
 uint32_t zm_media_stop(uc_engine *uc);

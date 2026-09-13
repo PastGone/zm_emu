@@ -920,9 +920,11 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break;
   /* ---- ZMAEE IMedia（音频，0x100000C，g_aee_media_vtbl，25 槽）---- */
   case TR_media_AddRef:
+    log_info("IMedia.AddRef called");
     ret = 1; /* 单例 */
     break;
   case TR_media_Release:
+    log_info("IMedia.Release called");
     ret = zm_svc_release(uc);
     break;
   case TR_media_x08:
@@ -931,8 +933,8 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_media_x0C:
     ret = zm_media_stub(uc, 0x0C, r0, r1, r2, r3);
     break;
-  case TR_media_play: /* +0x10：真实 SDL_mixer 播放 */
-    ret = zm_media_play(uc, r2, r3);
+  case TR_media_play: /* +0x10：命令分发器 loc_32E80（cmd=r1 低16位） */
+    ret = zm_media_command(uc, r0, r1, r2, r3);
     break;
   case TR_media_stop: /* +0x14：停止播放 */
     ret = zm_media_stop(uc);
@@ -982,8 +984,8 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_media_x50:
     ret = zm_media_stub(uc, 0x50, r0, r1, r2, r3);
     break;
-  case TR_media_x54:
-    ret = zm_media_stub(uc, 0x54, r0, r1, r2, r3);
+  case TR_media_x54: /* +0x54：sub_33128 = 同一分发器的 thunk */
+    ret = zm_media_command(uc, r0, r1, r2, r3);
     break;
   case TR_media_x58:
     ret = zm_media_stub(uc, 0x58, r0, r1, r2, r3);
