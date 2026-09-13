@@ -37,7 +37,7 @@
 
 /* 0x100000B ISetting（RE：g_aee_setting_vtbl @ .data:0x64408，14 槽）。
  * 旧名 AUDIO 是误命名：该对象被用于 +0x14 / +0x24，曾按"音频状态"实现；
- * 真实接口是 ISetting（配置读写），音频是下面的 MEDIA。 */
+ * 真实接口是 ISetting（配置读写），音频是下面的 G_MEDIA_ADDR。 */
 #define SETTING_VT_ADDR (SHIM_VT_BASE + 0x1800U)
 
 /* 0x100000C IMedia = 音频（RE：g_aee_media_vtbl @ .data:0x640E4，25 槽）。

@@ -31,8 +31,8 @@ uint32_t zm_shell_Release(uc_engine *uc, uint32_t r0);
  * +0x08 CreateInstance(this, classID, out_ptr)：按 CLSID 返回子系统对象。
  * CLSID 表严格按 RE 反编译（16777219=0x1000003 起，详见 zm_shell.c）：
  *   0x1000003 IFileMgr → G_FileMgr_ADDR     0x1000004 INetMgr  → G_NETMGR_ADDR
- *   0x1000005 IDisplay → DISPLAY     0x1000009 ITAPI    → TAPI
- *   0x100000B ISetting → SETTING     0x100000C IMedia(音频) → MEDIA
+ *   0x1000005 IDisplay → DISPLAY     0x1000009 ITAPI    → G_TAPI_ADDR
+ *   0x100000B ISetting → SETTING     0x100000C IMedia(音频) → G_MEDIA_ADDR
  *   其余（IGps/IGSensor/IAddrBook/IMemStream/IZip/IStatusBar/IUtil）
  *   尚未实现：*out=0，返回 -3（RE default 语义）。
  */
