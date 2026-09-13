@@ -289,3 +289,208 @@ enum obj_iutil_inner_off {
 };
 
 #define G_IUTIL_ADDR (SHIM_OBJ_BASE + 0x1800U)
+
+/* ZMAEE IZip 服务对象（0x100000F）。
+ * 仅返回模拟对象地址，其 +0 vtable 指向 ZIP_VT_ADDR，方法走 zm_zip_stub
+ * 观测探针。 */
+
+typedef struct obj_zip_st {
+  void *vtable;      // +0x00, 指向 g_aee_zip_vtbl
+  int32_t ref_count; // +0x04, 初始化为 1，很可能是引用计数
+  int32_t field_08;  // +0x08, 0
+  int32_t field_0C;  // +0x0C, 0
+  int32_t field_10;  // +0x10, 0
+  int32_t field_14;  // +0x14, 初始化为 -1
+  int32_t field_18;  // +0x18, 0
+  int32_t field_1C;  // +0x1C, 0
+  int32_t field_20;  // +0x20, 0
+  int32_t field_24;  // +0x24, 0
+  int32_t field_28;  // +0x28, 0
+  int32_t field_2C;  // +0x2C, 0
+  int32_t field_30;  // +0x30, 0
+  int32_t field_34;  // +0x34, 0
+  int32_t field_38;  // +0x38, 0
+} obj_zip_st;        // 总大小 0x3C (60 字节)
+
+enum obj_zip_inner_off {
+  OBJ_ZIP_OFF_VTABLE = 0x00,    // +0x00
+  OBJ_ZIP_OFF_REF_COUNT = 0x04, // +0x04
+  OBJ_ZIP_OFF_FIELD_08 = 0x08,  // +0x08
+  OBJ_ZIP_OFF_FIELD_0C = 0x0C,  // +0x0C
+  OBJ_ZIP_OFF_FIELD_10 = 0x10,  // +0x10
+  OBJ_ZIP_OFF_FIELD_14 = 0x14,  // +0x14
+  OBJ_ZIP_OFF_FIELD_18 = 0x18,  // +0x18
+  OBJ_ZIP_OFF_FIELD_1C = 0x1C,  // +0x1C
+  OBJ_ZIP_OFF_FIELD_20 = 0x20,  // +0x20
+  OBJ_ZIP_OFF_FIELD_24 = 0x24,  // +0x24
+  OBJ_ZIP_OFF_FIELD_28 = 0x28,  // +0x28
+  OBJ_ZIP_OFF_FIELD_2C = 0x2C,  // +0x2C
+  OBJ_ZIP_OFF_FIELD_30 = 0x30,  // +0x30
+  OBJ_ZIP_OFF_FIELD_34 = 0x34,  // +0x34
+  OBJ_ZIP_OFF_FIELD_38 = 0x38,  // +0x38
+  OBJ_ZIP_SIZE = 0x3C           // 60 字节
+};
+
+#define ZIP_ADDR (SHIM_OBJ_BASE + 0x1900U)
+
+/* 以下为"尚未实现"的服务对象占位地址（CreateInstance 0x1000006 IGps /
+ * 0x1000007 IGSensor / 0x100000A IAddrBook / 0x100000E IMemStream /
+ * 0x1000010 IStatusBar）。其 +0 不单独覆盖，由 build_vtables 默认填成 trap
+ * 地址，applet 经对象调方法会落到 trap default（观测、不崩），待 RE 后补实现。
+ */
+typedef struct obj_gps_st {
+  void *vtable;      // +0x00, 指向 g_aee_gps_vtbl
+  int32_t ref_count; // +0x04, 初始化为 1，很可能是引用计数
+} obj_gps_st;        // 总大小 0x08 (8 字节)
+
+enum obj_gps_inner_off {
+  OBJ_GPS_OFF_VTABLE = 0x00,    // +0x00
+  OBJ_GPS_OFF_REF_COUNT = 0x04, // +0x04
+  OBJ_GPS_SIZE = 0x08           // 8 字节
+};
+
+#define G_GPS_ADDR (SHIM_OBJ_BASE + 0x1A00U)
+typedef struct obj_gsensor_st {
+  void *vtable;      // +0x00, 指向 g_aee_gsensor_vtbl
+  int32_t ref_count; // +0x04, 初始化为 1，很可能是引用计数
+} obj_gsensor_st;    // 总大小 0x08 (8 字节)
+
+enum obj_gsensor_inner_off {
+  OBJ_GSENSOR_OFF_VTABLE = 0x00,    // +0x00
+  OBJ_GSENSOR_OFF_REF_COUNT = 0x04, // +0x04
+  OBJ_GSENSOR_SIZE = 0x08           // 8 字节
+};
+
+#define G_GSENSOR_ADDR (SHIM_OBJ_BASE + 0x1B00U)
+typedef struct obj_addrbook_st {
+  void *vtable;            // +0x00, 指向 g_aee_addrbook_vtbl
+  int32_t ref_count;       // +0x04, 初始化为 1，很可能是引用计数
+  uint8_t reserved[0x108]; // +0x08 ~ +0x10F, 全部清零，未知
+} obj_addrbook_st;         // 总大小 0x110 (272 字节)
+
+enum obj_addrbook_inner_off {
+  OBJ_ADDRBOOK_OFF_VTABLE = 0x00,    // +0x00
+  OBJ_ADDRBOOK_OFF_REF_COUNT = 0x04, // +0x04
+  OBJ_ADDRBOOK_OFF_RESERVED = 0x08,  // +0x08
+  OBJ_ADDRBOOK_SIZE = 0x110          // 272 字节
+};
+
+#define G_ADDRBOOK_ADDR (SHIM_OBJ_BASE + 0x1C00U)
+typedef struct obj_memstream_st {
+  void *vtable;     // +0x00, 指向 g_aee_memstream_vtbl
+  int32_t field_04; // +0x04, 未初始化（malloc 后未赋值）
+  int32_t field_08; // +0x08, 初始化为 1
+  int32_t field_0C; // +0x0C, 初始化为 0
+  int32_t field_10; // +0x10, 初始化为 0
+  int32_t field_14; // +0x14, 初始化为 0
+} obj_memstream_st; // 总大小 0x18 (24 字节)
+
+enum obj_memstream_inner_off {
+  OBJ_MEMSTREAM_OFF_VTABLE = 0x00,   // +0x00
+  OBJ_MEMSTREAM_OFF_FIELD_04 = 0x04, // +0x04
+  OBJ_MEMSTREAM_OFF_FIELD_08 = 0x08, // +0x08
+  OBJ_MEMSTREAM_OFF_FIELD_0C = 0x0C, // +0x0C
+  OBJ_MEMSTREAM_OFF_FIELD_10 = 0x10, // +0x10
+  OBJ_MEMSTREAM_OFF_FIELD_14 = 0x14, // +0x14
+  OBJ_MEMSTREAM_SIZE = 0x18          // 24 字节
+};
+#define G_MEMSTREAM_ADDR (SHIM_OBJ_BASE + 0x1D00U)
+typedef struct obj_statusbar_st {
+  void *vtable;      // +0x00, 指向 g_aee_statusbar_vtbl
+  int32_t ref_count; // +0x04, 初始化为 1，很可能是引用计数
+} obj_statusbar_st;  // 总大小 0x08 (8 字节)
+
+enum obj_statusbar_inner_off {
+  OBJ_STATUSBAR_OFF_VTABLE = 0x00,    // +0x00
+  OBJ_STATUSBAR_OFF_REF_COUNT = 0x04, // +0x04
+  OBJ_STATUSBAR_SIZE = 0x08           // 8 字节
+};
+
+#define G_STATUSBAR_ADDR (SHIM_OBJ_BASE + 0x1E00U)
+
+// 全局数组，最多 16 个 HTTP 对象指针
+extern int *dword_659C8[16];
+
+typedef struct obj_http_st {
+  void *vtable;         // +0x00, 指向 g_aee_http_vtbl
+  int32_t ref_count;    // +0x04, 初始化为 1，很可能是引用计数
+  int32_t field_08;     // +0x08, 来自参数 a4
+  int32_t field_0C;     // +0x0C, 未初始化（malloc 后未赋值）
+  int32_t field_10;     // +0x10, 来自参数 a3
+  int32_t field_14;     // +0x14, 初始化为 0
+  int32_t field_18;     // +0x18, 初始化为 0
+  uint8_t buffer[1024]; // +0x1C ~ +0x41B, 被 memset 清零，可能是请求/响应缓冲区
+  int32_t field_41C;    // +0x41C, v10[263], 初始化为 0
+  int32_t field_420;    // +0x420, v10[264], 初始化为 0
+  int32_t field_424;    // +0x424, v10[265], 初始化为 0
+  int32_t field_428;    // +0x428, v10[266], 初始化为 0
+  int32_t field_42C;    // +0x42C, v10[267], 未赋值
+  int32_t field_430;    // +0x430, v10[268], 初始化为 0
+  int32_t field_434;    // +0x434, v10[269], 未赋值
+  int32_t field_438;    // +0x438, v10[270], 未赋值
+  int32_t field_43C;    // +0x43C, v10[271], 未赋值
+  int32_t field_440;    // +0x440, v10[272], 未赋值
+  int32_t field_444;    // +0x444, v10[273], 未赋值
+  int32_t slot_index;   // +0x448, v10[274], 在全局数组中的槽位索引 0~15
+  int32_t field_44C;    // +0x44C, v10[275], 初始化为 1
+} obj_http_st;          // 总大小 0x450 (1104 字节)
+
+enum obj_http_inner_off {
+  OBJ_HTTP_OFF_VTABLE = 0x00,      // +0x00
+  OBJ_HTTP_OFF_REF_COUNT = 0x04,   // +0x04
+  OBJ_HTTP_OFF_FIELD_08 = 0x08,    // +0x08
+  OBJ_HTTP_OFF_FIELD_0C = 0x0C,    // +0x0C
+  OBJ_HTTP_OFF_FIELD_10 = 0x10,    // +0x10
+  OBJ_HTTP_OFF_FIELD_14 = 0x14,    // +0x14
+  OBJ_HTTP_OFF_FIELD_18 = 0x18,    // +0x18
+  OBJ_HTTP_OFF_BUFFER = 0x1C,      // +0x1C, 1024 字节
+  OBJ_HTTP_OFF_FIELD_41C = 0x41C,  // +0x41C
+  OBJ_HTTP_OFF_FIELD_420 = 0x420,  // +0x420
+  OBJ_HTTP_OFF_FIELD_424 = 0x424,  // +0x424
+  OBJ_HTTP_OFF_FIELD_428 = 0x428,  // +0x428
+  OBJ_HTTP_OFF_FIELD_42C = 0x42C,  // +0x42C
+  OBJ_HTTP_OFF_FIELD_430 = 0x430,  // +0x430
+  OBJ_HTTP_OFF_FIELD_434 = 0x434,  // +0x434
+  OBJ_HTTP_OFF_FIELD_438 = 0x438,  // +0x438
+  OBJ_HTTP_OFF_FIELD_43C = 0x43C,  // +0x43C
+  OBJ_HTTP_OFF_FIELD_440 = 0x440,  // +0x440
+  OBJ_HTTP_OFF_FIELD_444 = 0x444,  // +0x444
+  OBJ_HTTP_OFF_SLOT_INDEX = 0x448, // +0x448
+  OBJ_HTTP_OFF_FIELD_44C = 0x44C,  // +0x44C
+  OBJ_HTTP_SIZE = 0x450            // 1104 字节
+};
+
+// 全局数组
+#define HTTP_MAX_INSTANCES 16
+
+//
+
+typedef struct idisplay_layer_st {
+  uint8_t reserved0[0x24]; // +0x00 ~ +0x23
+  int32_t format;          // +0x24
+  int32_t field_28;        // +0x28
+  int32_t field_2C;        // +0x2C
+  int32_t width;           // +0x30
+  int32_t height;          // +0x34
+  int32_t field_38;        // +0x38
+  int32_t field_3C;        // +0x3C
+  int32_t width2;          // +0x40
+  int32_t height2;         // +0x44
+  void *buffer;            // +0x48
+  uint8_t reserved1[0x0C]; // +0x4C ~ +0x57
+} idisplay_layer_st;       // 至少 0x58 (88 字节)
+
+enum idisplay_layer_inner_off {
+  IDISPLAY_LAYER_OFF_FORMAT = 0x24,
+  IDISPLAY_LAYER_OFF_FIELD_28 = 0x28,
+  IDISPLAY_LAYER_OFF_FIELD_2C = 0x2C,
+  IDISPLAY_LAYER_OFF_WIDTH = 0x30,
+  IDISPLAY_LAYER_OFF_HEIGHT = 0x34,
+  IDISPLAY_LAYER_OFF_FIELD_38 = 0x38,
+  IDISPLAY_LAYER_OFF_FIELD_3C = 0x3C,
+  IDISPLAY_LAYER_OFF_WIDTH2 = 0x40,
+  IDISPLAY_LAYER_OFF_HEIGHT2 = 0x44,
+  IDISPLAY_LAYER_OFF_BUFFER = 0x48,
+  IDISPLAY_LAYER_SIZE = 0x58,
+  IDISPLAY_LAYER_STRIDE_CODE = 0x34 // 代码中的步长，与大小矛盾
+};

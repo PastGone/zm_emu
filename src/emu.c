@@ -151,6 +151,10 @@ int zm_emu_build_vtables() {
   err = uc_write32(g_uc, G_NETMGR_ADDR, NETMGR_VT_ADDR);
   err = uc_write32(g_uc, G_TAPI_ADDR, TAPI_VT_ADDR);
 
+  /* ZMAEE IZip（0x100000F）：返回模拟对象，+0 vtable 指向 ZIP_VT_ADDR，
+   * 方法调用经 trap 派发到 zm_zip_stub 观测探针。 */
+  err = uc_write32(g_uc, ZIP_ADDR, ZIP_VT_ADDR);
+
   /* ---- CBK 回调对象（sub_84E04 返回，vt[+8] 会被 applet 覆写为 sub_82FF8）
    * ---- */
   err = uc_write32(g_uc, CBK_OBJ, CBK_OBJ_VT_ADDR);
