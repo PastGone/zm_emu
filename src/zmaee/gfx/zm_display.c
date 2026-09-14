@@ -295,10 +295,26 @@ static void fb_draw_text(uc_engine *uc, uint32_t rect_ptr, const char *text,
 
 /* 绘制 RGBA8888 图像到帧缓冲（IImage / IBitmap 共用）。
  *
- * mode：applet 的"类型字节"（unk_1F714 表的索引），在 sub_50D8 / sub_51A0
- * 等函数里表现为对矩形做镜像/交换，因此这里把常见几种翻转折算进去：
- *   0 = 原样，1 = 垂直翻转，2 = 水平翻转，3 = 180°，
- *   4 = 转置，5 = 转置+垂直，6 = 转置+水平，7 = 转置+180°
+ * mode：显示接口的"类型字节"，即固件 ZMAEE_GDI_BitBlt_Ext 的 a6，
+ * 它用来选 `g_zmaee_blt_func[mode]`（那族函数正好 8 个：
+ * Blt / Blt_Mir / Blt_Mir90 / Blt_Mir180 / Blt_Mir270 /
+ * Blt_Rot90 / Blt_Rot180 / Blt_Rot270 = 4 镜像 + 3 旋转 + 恒等，D4 群）。
+ *
+ * 【2026-09 修正】旧表（1=垂直翻转,2=水平翻转,3=180°,4=转置,
+ * 5=转置+垂直,6=转置+水平,7=转置+180°）是**猜的**，实际 1/2/3/6/7 五项错位。
+ * 正确表由三方交叉验证得出：
+ *   ① applet 自带的 8 项变换表（00000506 sub_5070 → sub_50D8/5108/5138/
+ *      5168/5180/51A0/51C0）逐函数的点映射；
+ *   ② applet 用 byte_1F714（紧跟 "zms2" 字符串之后的 64 字节 D4 复合表）
+ *      把原始 mode 换成变换索引 v13，再把 byte_1F714[v13] 当 mode 传给我们
+ *      —— 其第 0 行 [0,3,1,6,4,5,7,2] 就是"索引 → mode"的对应；③ 固件函数命名。
+ *   实测症状：net.zmspx（35x35 渔网）走 mode 5/7，mode7 被当成"反对角镜像"
+ *   而不是"270° 旋转"，方形精灵就表现为**象限转置**。
+ *
+ * 现在（点映射，(X,Y) 为源像素局部坐标）：
+ *   0 = 恒等 (X,Y)          1 = 左右翻转 (-X,Y)     2 = 反对角镜像 (-Y,-X)
+ *   3 = 上下翻转 (X,-Y)     4 = 主对角镜像/转置 (Y,X) 5 = 90° (-Y,X)
+ *   6 = 180° (-X,-Y)        7 = 270° (Y,-X)
  * alpha==0 的像素视为透明（PNG 自带 alpha；JPEG 全不透明）。
  * 另外兼容固件的 RGB565 透明色键 0xF81F（洋红）——部分 sprite 用它做抠图。
  */
@@ -310,13 +326,13 @@ static void fb_blit_rgba_mode(int x, int y, int w, int h, const uint8_t *rgba,
     for (int sx = 0; sx < w; sx++) {
       int dx = sx, dy = sy;
       switch (mode & 7) {
-      case 1: dy = h - 1 - sy; break;
-      case 2: dx = w - 1 - sx; break;
-      case 3: dx = w - 1 - sx; dy = h - 1 - sy; break;
-      case 4: dx = sy; dy = sx; break;
-      case 5: dx = h - 1 - sy; dy = sx; break;
-      case 6: dx = sy; dy = w - 1 - sx; break;
-      case 7: dx = h - 1 - sy; dy = w - 1 - sx; break;
+      case 1: dx = w - 1 - sx; break;                              /* (-X,Y) */
+      case 2: dx = h - 1 - sy; dy = w - 1 - sx; break;              /* (-Y,-X) */
+      case 3: dy = h - 1 - sy; break;                              /* (X,-Y) */
+      case 4: dx = sy; dy = sx; break;                             /* (Y,X) */
+      case 5: dx = h - 1 - sy; dy = sx; break;                     /* (-Y,X) */
+      case 6: dx = w - 1 - sx; dy = h - 1 - sy; break;              /* (-X,-Y) */
+      case 7: dx = sy; dy = w - 1 - sx; break;                     /* (Y,-X) */
       default: break;
       }
       const uint8_t *p = rgba + ((size_t)sy * w + sx) * 4u;
