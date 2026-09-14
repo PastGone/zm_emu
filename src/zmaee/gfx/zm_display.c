@@ -1499,8 +1499,49 @@ uint32_t zm_display_CreateLayerExt(uc_engine *uc, uint32_t off, uint32_t r0,
                                    uint32_t r1, uint32_t r2, uint32_t r3) {
   return zm_display_stub(uc, off, r0, r1, r2, r3);
 }
+/* IDisplay +0x14 = ZMAEE_IDisplay_FreeLayer(display, idx)
+ *
+ * 反编译（用户提供）：
+ *   if (a1 == 0 || (unsigned)(a2 - 1) > 0xE) return -4;
+ *   v5 = *(void **)(a1 + 52*a2 + 72);          // = 层载荷 +0x24（像素缓冲指针）
+ *   if (v5) {
+ *     if (*(BYTE*)(a1 + a2 + 20) != 0) free(v5);   // 该层"缓冲自持"才释放
+ *     *(DWORD*)(a1 + 52*a2 + 72) = 0;              // 指针清零
+ *   }
+ *   return 0;
+ *
+ * 我们的像素池是 bump 分配器（zm_pix_pool_alloc，无 free、会回绕复用），
+ * 所以"释放"只能记为日志；真正要紧的是**把客户机里的缓冲指针清零** ——
+ * applet 自带 GDI 会拿它判断层是否有效。 */
 uint32_t zm_display_FreeLayer(uc_engine *uc, uint32_t r0, uint32_t r1) {
-  return zm_display_stub(uc, 0x14, r0, r1, 0, 0);
+  if (r0 == 0 || r1 < 1u || r1 > 15u)
+    return (uint32_t)-4; /* (unsigned)(idx-1) > 0xE */
+  uint32_t P = zm_layer_payload(r0, r1);
+  uint32_t buf = uc_read32(uc, P + 0x24);
+  if (!buf)
+    return 0;
+  uint8_t own = 0;
+  uc_mem_read(uc, r0 + r1 + 20, &own, 1);
+  uint32_t zero = 0;
+  uc_mem_write(uc, P + 0x24, &zero, 4);
+  log_info("FreeLayer(层=%u) 缓冲@0x%X（自持标志=%u%s）→ 指针已清零", r1, buf,
+           own, own ? "，真机 free；本模拟器像素池为 bump 分配，仅释放记录" : "");
+  return 0;
+}
+
+/* IDisplay +0x18 = ZMAEE_IDisplay_FreeAllLayer(display) */
+uint32_t zm_display_FreeAllLayer(uc_engine *uc, uint32_t r0) {
+  if (r0 == 0)
+    return (uint32_t)-4;
+  uint32_t zero = 0;
+  uc_mem_write(uc, r0 + 8, &zero, 4); /* 活动层索引归 0 */
+  int ret = 0;
+  for (uint32_t i = 1; i != 16u; ++i) {
+    if (zm_display_FreeLayer(uc, r0, i) != 0)
+      ret = -1;
+  }
+  log_info("FreeAllLayer: 活动层归 0，层 1..15 已释放（层 0 基础层保留）→ %d", ret);
+  return (uint32_t)ret;
 }
 uint32_t zm_display_GetLayerInfo(uc_engine *uc, uint32_t off, uint32_t r0,
                                  uint32_t r1, uint32_t r2, uint32_t r3) {

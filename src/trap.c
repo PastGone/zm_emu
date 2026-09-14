@@ -692,8 +692,8 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_display_FreeLayer:
     ret = zm_display_FreeLayer(uc, r0, r1);
     break;
-  case TR_display_FreeAllLayer: /* 真机虚表 +0x18 = FreeAllLayer（实测被调 1 次启动期，保持 stub） */
-    ret = zm_display_stub(uc, 0x18, r0, r1, r2, r3);
+  case TR_display_FreeAllLayer: /* +0x18：按真机反编译实现（清活动层 + 释放层 1..15） */
+    ret = zm_display_FreeAllLayer(uc, r0);
     break;
   case TR_display_GetLayerInfo:
     ret = zm_display_GetLayerInfo(uc, 0x1CU, r0, r1, r2, r3);
@@ -1131,6 +1131,9 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_zip_x0C:
   case TR_zip_x10:
     ret = zm_zip_stub(uc, trap_address - ZIP_VT_ADDR, r0, r1, r2, r3);
+    break;
+  case TR_dll_release: /* +0x04 = Release（00000506 付费流程实测）→ 与 NetMgr/Tapi 同款 */
+    ret = zm_svc_release(uc);
     break;
   case TR_dll_init:
     ret = zm_dll_init(uc);

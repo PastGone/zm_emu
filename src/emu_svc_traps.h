@@ -37,6 +37,11 @@ enum ZM_TAPI_VT {
 
 /* DLL 对象虚表槽位（基址 DLL_OBJ_VT_ADDR） */
 enum ZM_DLL_OBJ_VT {
+  /* +0x04 = Release：00000506 付费流程实测（点购买后 35 次走这里）。
+   * 调用点 sub_19A84（紧挨着 "zmsys001.dll" 串）：
+   *   R0=[this+4];  R1=[[R0]+4];  BLX R1;  STR 0,[this+4]
+   * ——调完把成员清零，是标准的 Release 惯用法。此前未接 → "非法的外部调用"。 */
+  ZM_Dll_release = 0x04U,
   ZM_Dll_init = 0x08U,
   ZM_Dll_config = 0x0CU,
   ZM_Dll_entry = 0x10U
@@ -96,6 +101,7 @@ enum ZM_ZIP_VT {
 #define TR_tapi_x4C TRAP(TAPI_VT_ADDR + ZM_Tapi_x4C)
 #define TR_tapi_x50 TRAP(TAPI_VT_ADDR + ZM_Tapi_x50)
 
+#define TR_dll_release TRAP(DLL_OBJ_VT_ADDR + ZM_Dll_release)
 #define TR_dll_init TRAP(DLL_OBJ_VT_ADDR + ZM_Dll_init)
 #define TR_dll_config TRAP(DLL_OBJ_VT_ADDR + ZM_Dll_config)
 #define TR_dll_entry TRAP(DLL_OBJ_VT_ADDR + ZM_Dll_entry)

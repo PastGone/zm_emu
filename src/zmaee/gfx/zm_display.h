@@ -75,6 +75,13 @@ uint32_t zm_display_base_layer_addr(void);
 uint32_t zm_display_CreateLayerExt(uc_engine *uc, uint32_t off, uint32_t r0,
                                    uint32_t r1, uint32_t r2, uint32_t r3);
 uint32_t zm_display_FreeLayer(uc_engine *uc, uint32_t r0, uint32_t r1);
+
+/* IDisplay +0x18 = ZMAEE_IDisplay_FreeAllLayer（反编译见下，实现见 zm_display.c）：
+ *   if (a1 == 0) return -4;
+ *   *(DWORD*)(a1 + 8) = 0;                     // 活动层索引归 0
+ *   for (i = 1; i != 16; ++i) if (FreeLayer(a1, i)) ret = -1;
+ * 层 0（基础层）从 i=1 起循环，故永不被释放。 */
+uint32_t zm_display_FreeAllLayer(uc_engine *uc, uint32_t r0);
 uint32_t zm_display_GetLayerInfo(uc_engine *uc, uint32_t off, uint32_t r0,
                                  uint32_t r1, uint32_t r2, uint32_t r3);
 uint32_t zm_display_SetLayerPosition(uc_engine *uc, uint32_t off, uint32_t r0,
