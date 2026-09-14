@@ -5,6 +5,7 @@
 
 #include "../../emu.h"
 #include "../../log/log.h"
+#include "../../tool/uc_helper.h" /* uc_write16（UCS-2 目标写入） */
 #include "../../ulibc/include/u_mem.h" /* u_strlen（root[0x90] zm_strlen） */
 
 /* 读取客户机地址 addr 处的 C 字符串到宿主机 buf，最多 maxlen-1 字符 */
@@ -28,12 +29,93 @@ char *read_cstr(uc_engine *uc, uint32_t addr, char *buf, size_t maxlen) {
 
 /*
  * 已删除的死代码（其功能由 src/ulibc 完全取代，trap.c 已接到 ulibc）：
- *   zm_strcpy       → u_memcpy   （TR_root_str_copy）
  *   zm_sprintf      → u_sprintf  （TR_root_sprintf）
  *   zm_strcpy_cstr  → u_strcpy   （TR_root_str_ctor）
  * 保留本文件的其余函数，它们处理的是 zmaee 领域语义（字符串对象三元组、
- * 规格表查询），ulibc 只提供标准 C 语义，不覆盖这些。
+ * 规格表查询、窄⇄宽字符转换），ulibc 只提供标准 C 语义，不覆盖这些。
  */
+
+/**
+ * @brief root[0x20] = ZMAEE_Utf8_2_Ucs2：UTF-8 → UCS-2 转换拷贝
+ *
+ * 真机反编译（ZMAEE_Utf8_2_Ucs2(a1=utf8, a2=utf8字节数, a3=ucs2目标,
+ * a4=目标字符容量)）：
+ *   - 逐字符解码 1 / 2 / 3 字节 UTF-8 写进 _WORD 目标；
+ *   - 其余前导（含 4 字节序列）一律写 0xFFFF 并**跳过 5 字节**；
+ *   - 输入读尽（a2 用满）或"下一格就是收尾 NUL"（a4 == 已写数+1）即停；
+ *   - 结尾一定在 a3 + 2*写入字符数 处补一个 0；
+ *   - 返回 **R0 = 写入的字符数**（真机同时返回 R1 = 2*字符数，即字节数；
+ *     模拟器的 trap 只回写 R0，实测调用方只读 R0）。
+ *
+ * 【2026-09 正名】这个槽以前被误判成 `str_copy`（按长度 memcpy、src 在前）。
+ * 误判能"看着能用"是因为当时的样本全是 ASCII，memcpy 恰好把字节原样搬过去。
+ * 真值由 00000102（数字键盘）坐实：它 `sprintf("%u")` 出窄串 → 本槽转换 →
+ * 把**返回的字符数**当 IDisplay::DrawText 的 len 用，缓冲实测为 UCS-2；
+ * 而 applet 镜像里的字面量（"%u" / "zmr"）全是 ASCII，与 a2=源字节数吻合。
+ *
+ * @param src        UTF-8 源（客户机地址，对应 r0）
+ * @param src_bytes  源字节数（r1）
+ * @param dst        UCS-2 目标（r2）
+ * @param dst_words  目标**字符**容量（r3，含收尾 NUL 的位置）
+ * @return 写入的 UCS-2 字符数（不含收尾 NUL）
+ */
+uint32_t zm_utf8_to_ucs2(uc_engine *uc, uint32_t src, uint32_t src_bytes,
+                         uint32_t dst, uint32_t dst_words) {
+  uint8_t b0 = 0, b1, b2;
+  uint32_t written = 0; /* 已写入的 UCS-2 字符数（= 返回值） */
+  uint32_t i = 0;       /* 当前字符的输入字节下标 */
+  uint32_t next;        /* 下一个字符的输入字节下标 */
+
+  if (!src || !dst || src_bytes == 0 || dst_words <= 1 ||
+      uc_mem_read(uc, src, &b0, 1) != UC_ERR_OK || b0 == 0) {
+    uc_write16(uc, dst, 0); /* 真机：早退也要在目标开头补 NUL */
+    return 0;
+  }
+
+  for (;;) {
+    if ((b0 & 0x80) == 0) { /* 1 字节 */
+      if (src_bytes < i + 1)
+        break;
+      uc_write16(uc, dst + 2 * written, b0);
+      next = i + 1;
+    } else if ((b0 & 0xE0) == 0xC0) { /* 2 字节 */
+      if (src_bytes < i + 2)
+        break;
+      uc_mem_read(uc, src + i + 1, &b1, 1);
+      uc_write16(uc, dst + 2 * written,
+                 (uint16_t)(((b0 & 0x3F) << 6) | (b1 & 0x3F)));
+      next = i + 2;
+    } else if ((b0 & 0xF0) == 0xE0) { /* 3 字节 */
+      if (src_bytes < i + 3)
+        break;
+      uc_mem_read(uc, src + i + 1, &b1, 1);
+      uc_mem_read(uc, src + i + 2, &b2, 1);
+      uc_write16(uc, dst + 2 * written,
+                 (uint16_t)((b0 << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F)));
+      next = i + 3;
+    } else { /* 非法前导（含 4 字节序列）：写 0xFFFF 并跳 5 字节（真机行为） */
+      uc_write16(uc, dst + 2 * written, 0xFFFF);
+      next = i + 5;
+      written++;
+      if (src_bytes <= next)
+        break;
+      goto next_char;
+    }
+    written++;
+    if (src_bytes <= next)
+      break; /* 输入读尽 */
+
+  next_char:
+    if (uc_mem_read(uc, src + next, &b0, 1) != UC_ERR_OK)
+      break;
+    if (b0 == 0 || dst_words == written + 1)
+      break; /* 遇 '\0'，或再写一格就没位置放收尾 NUL */
+    i = next;
+  }
+
+  uc_write16(uc, dst + 2 * written, 0); /* 真机：结尾一定补 NUL */
+  return written;
+}
 
 /**
  * @brief root[0xA4] = zmaee_strpbrk(str, charset)：找集合中任一字符的首次出现
@@ -185,6 +267,36 @@ uint32_t zm_strstr(uc_engine *uc, uint32_t haystack, uint32_t needle) {
   if (!hit)
     return 0;
   return hp + (uint32_t)(hit - hbuf);
+}
+
+/**
+ * @brief root[0xD8] = zmaee_wcslen：**宽字符串（UCS-2）长度，返回字符数**
+ *
+ * 【2026-09 正名】这个槽以前被记成 `GetTickCount`（返回 SDL_GetTicks），
+ * 是早前的猜测。实测 5 处调用点全是"取长度"、没有一处像时间：
+ *   00000506 sub_19178：返回值直接当 IDisplay::DrawText 的 len（文本是 UCS-2）
+ *   00000440 sub_3C4C4：同上（`LDR R0,[R4,#0x64]` → 长度 → DrawText(text=[R4+0x64])）
+ *   0000050b：`BL 0xD8` → `MOV R0,R0,LSL#1` —— **×2 = 字符数→字节数**
+ *   00000001 sub_10920：同样 `LSL#1` 后当长度用
+ *   00000001 0xF49C：`MUL R2,R0,R5`（长度 × 个数，布局用）
+ * `LSL#1` 这条是决定性的：只有"字符数"才需要乘 2 换成字节。
+ * GetTick 在别处另有来源（IShell 的 +0x48 等），与本槽无关。
+ *
+ * @param ptr UCS-2 字符串（客户机地址）
+ * @return 字符数（不含收尾 NUL）；ptr 为 0 返回 0
+ */
+uint32_t zm_wcslen(uc_engine *uc, uint32_t ptr) {
+  if (!ptr)
+    return 0;
+  uint32_t n = 0;
+  for (; n < 0x10000u; n++) { /* 上限防御：脏指针不至于死循环 */
+    uint8_t b[2] = {0, 0};
+    if (uc_mem_read(uc, ptr + n * 2u, b, 2) != UC_ERR_OK)
+      break;
+    if (b[0] == 0 && b[1] == 0)
+      break;
+  }
+  return n;
 }
 
 /**

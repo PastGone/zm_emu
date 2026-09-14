@@ -61,4 +61,30 @@ uint32_t zm_strlen(uc_engine *uc, uint32_t str_obj_ptr);
  */
 uint32_t zm_read_str_obj(uc_engine *uc, uint32_t ptr, char *buf, size_t cap);
 
+/**
+ * @brief root[0x20] = ZMAEE_Utf8_2_Ucs2：UTF-8 → UCS-2 转换拷贝
+ *
+ * 真机签名 (utf8_src, utf8字节数, ucs2_dst, dst字符容量)，返回**写入字符数**
+ * （真机 R1 另回字节数 2*count，模拟器只回写 R0，实测调用方只读 R0）。
+ * 与 DrawText/MeasureString 里的 Ucs2_2_Utf8 互为反向操作。
+ *
+ * @param src        UTF-8 源（客户机地址，对应 r0）
+ * @param src_bytes  源字节数（r1）
+ * @param dst        UCS-2 目标（r2）
+ * @param dst_words  目标字符容量（r3，含收尾 NUL 的位置）
+ * @return 写入的 UCS-2 字符数（不含收尾 NUL）
+ */
+uint32_t zm_utf8_to_ucs2(uc_engine *uc, uint32_t src, uint32_t src_bytes,
+                         uint32_t dst, uint32_t dst_words);
+
+/**
+ * @brief root[0xD8] = zmaee_wcslen：宽字符串（UCS-2）长度（**字符数**）
+ *
+ * 证据见 zm_str.c 的注释（5 处调用点皆是"取长度"，其中两处 `LSL#1` 把
+ * 字符数换字节数）。此槽此前被误记为 GetTickCount。
+ *
+ * @return 字符数（不含收尾 NUL）；ptr 为 0 返回 0
+ */
+uint32_t zm_wcslen(uc_engine *uc, uint32_t ptr);
+
 #endif

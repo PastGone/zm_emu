@@ -9,7 +9,7 @@ enum ZM_ROOT_TABLE {
   ZM_Malloc = 0x08U,
   ZM_Free = 0x0cU,
   ZM_Abort = 0x14U,
-  ZM_StrCopy = 0x20U,
+  ZM_Utf8ToUcs2 = 0x20U, /* 旧名 ZM_StrCopy：见下方 TR_root_utf8_to_ucs2 说明 */
   ZM_SRand = 0x40U,
   ZM_Rand = 0x44U,
   ZM_MemCmp = 0x50U,
@@ -23,7 +23,7 @@ enum ZM_ROOT_TABLE {
   ZM_SpecLookup = 0xa4U,
   ZM_StrFind = 0xa8U,
   ZM_StrStr = 0xb0U,
-  ZM_GetTick = 0xD8U,
+  ZM_WcsLen = 0xD8U, /* 旧名 ZM_GetTick：实测是宽字符串长度，见 TR_root_wcslen */
   ZM_Sqrt = 0x104U,
   ZM_Atan = 0x110U,
   ZM_Cos = 0x114U,
@@ -47,7 +47,18 @@ enum ZM_ROOT_TABLE {
 #define TR_root_getShell TRAP(ROOT_TABLE_ADDR + ZM_GetShell)
 #define TR_root_malloc TRAP(ROOT_TABLE_ADDR + ZM_Malloc)
 #define TR_root_free TRAP(ROOT_TABLE_ADDR + ZM_Free)
-#define TR_root_str_copy TRAP(ROOT_TABLE_ADDR + ZM_StrCopy)
+/* ROOT_TABLE_ADDR+0x20 = **ZMAEE_Utf8_2_Ucs2**（UTF-8 窄串 → UCS-2 转换拷贝）
+ *
+ * 真机：(a1=utf8 源, a2=源**字节数**, a3=UCS-2 目标, a4=目标**字符容量**)，
+ *       返回 R0 = 写入字符数（R1 另回字节数 2*count）。
+ * 坐实它的现场是 00000102（数字键盘）：`sprintf("%u")` 出窄串（该 applet 的
+ * 字面量 "%u"/"zmr" 全是 ASCII）→ 本槽转换 → 直接把**返回的字符数**当
+ * IDisplay::DrawText 的 len 用，而 DrawText 内部只吃 UCS-2。
+ *
+ * 【正名】此槽以前叫 `str_copy`，被当成"按长度 memcpy、src 在前、返回字节数"。
+ * 那个误判在 ASCII 样本上"看着能用"，但语义是错的：真机是把每个字符**加宽**
+ * 成 16 位再写（逐个解码 1/2/3 字节 UTF-8）。实现见 zm_str.c 的 zm_utf8_to_ucs2。 */
+#define TR_root_utf8_to_ucs2 TRAP(ROOT_TABLE_ADDR + ZM_Utf8ToUcs2)
 #define TR_root_sprintf TRAP(ROOT_TABLE_ADDR + ZM_Sprintf)
 
 /* ROOT_TABLE_ADDR+0x74 = **数值字符串解析**（strtol 家族：str, endptr, base）。
@@ -89,8 +100,14 @@ enum ZM_ROOT_TABLE {
 #define TR_root_str_assign                                                     \
   TRAP(ROOT_TABLE_ADDR + ZM_StrAssign) /* str_assign(str_obj, cstr) */
 
-#define TR_root_get_tick                                                       \
-  TRAP(ROOT_TABLE_ADDR + ZM_GetTick) /* ROOT_TABLE_ADDR[0xD8] */
+/* ROOT_TABLE_ADDR[0xD8] = **zmaee_wcslen**（宽字符串长度，返回字符数）
+ *
+ * 【正名】此前记成 GetTickCount（返回 SDL_GetTicks），是猜测。实测 5 处调用点
+ * 全是"取长度"：506/440 把返回值当 DrawText 的 len；0000050b 与 00000001 都做
+ * `LSL#1`（字符数 ×2 → 字节数）——这条是决定性证据。详见 zm_str.c 的 zm_wcslen。
+ * 固件的宽字符家族（zmaee_wcscat/wcscmp/wcscpy/wcslen/wcsstr…）与窄家族并存，
+ * 本槽属于宽家族。 */
+#define TR_root_wcslen TRAP(ROOT_TABLE_ADDR + ZM_WcsLen)
 
 /* ROOT_TABLE_ADDR 导入表的双精度数学函数（00000506 实测，见 zm_root.h 注释）。
  * 这几个槽若缺失会返回 0：sin/cos 为 0 会让极坐标算出的坐标全部塌到
