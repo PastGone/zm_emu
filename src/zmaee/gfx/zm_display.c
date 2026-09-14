@@ -6,6 +6,7 @@
 #include "../../trap.h" /* getArg：第 5 个及以后的参数 */
 #include "../../tool/uc_helper.h"
 #include "../runtime/timer/zm_timer.h" /* zm_timer_poll：到期定时器检查 */
+#include "../audio/zm_audio.h" /* zm_media_pending_cb_poll：音频完成回调跳板 */
 #include "zm_image.h" /* IImage/IBitmap 像素取用（DrawImage/DrawBitmap） */
 #include "zm_layer.h" /* IDisplay 层结构（CreateLayer/GetLayerInfo/合成） */
 #include "../fs/zm_file_mgr.h" /* zm_fs_read_file：宿主侧整文件读取 */
@@ -1389,6 +1390,10 @@ bool zm_display_event_loop(void (*on_click)(uint32_t x, uint32_t y),
       return false; /* 超时 → 模拟结束 */
     if (zm_timer_poll(SDL_GetTicks()))
       return true; /* 定时器回调已挂上跳板 → 让模拟器执行 cb */
+    /* IMedia 的"上一首被打断"完成回调同理（真机在起新音乐前同步调，
+     * 我们只能在 trap 里排队、到这里挂跳板） */
+    if (zm_media_pending_cb_poll(g_uc))
+      return true;
 
     /* 每轮兜底合成并呈现一次。
      *

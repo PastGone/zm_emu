@@ -939,17 +939,17 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_media_x0C:
     ret = zm_media_stub(uc, 0x0C, r0, r1, r2, r3);
     break;
-  case TR_media_play: /* +0x10：命令分发器 loc_32E80（cmd=r1 低16位） */
-    ret = zm_media_command(uc, r0, r1, r2, r3);
+  case TR_media_play: /* +0x10：命令分发器 loc_32E80（cmd=r1 低16位，第5参数起在栈上） */
+    ret = zm_media_command(uc, r0, r1, r2, r3, sp);
     break;
   case TR_media_stop: /* +0x14：停止播放 */
     ret = zm_media_stop(uc);
     break;
-  case TR_media_x18:
-    ret = zm_media_stub(uc, 0x18, r0, r1, r2, r3);
+  case TR_media_x18: /* +0x18 = pauseMusic（JNI 同名），applet"声音关"靠它 */
+    ret = zm_media_pause_music(uc);
     break;
-  case TR_media_x1C:
-    ret = zm_media_stub(uc, 0x1C, r0, r1, r2, r3);
+  case TR_media_x1C: /* +0x1C = resumeMusic（JNI 同名），applet"声音开"靠它 */
+    ret = zm_media_resume_music(uc);
     break;
   case TR_media_x20:
     ret = zm_media_stub(uc, 0x20, r0, r1, r2, r3);
@@ -969,14 +969,14 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_media_x34:
     ret = zm_media_stub(uc, 0x34, r0, r1, r2, r3);
     break;
-  case TR_media_x38:
-    ret = zm_media_stub(uc, 0x38, r0, r1, r2, r3);
+  case TR_media_x38: /* RE sub_32BDC：固定返回 -1 */
+    ret = (uint32_t)-1;
     break;
   case TR_media_x3C:
     ret = zm_media_stub(uc, 0x3C, r0, r1, r2, r3);
     break;
-  case TR_media_x40:
-    ret = zm_media_stub(uc, 0x40, r0, r1, r2, r3);
+  case TR_media_x40: /* RE sub_32BE8：固定返回 -1 */
+    ret = (uint32_t)-1;
     break;
   case TR_media_x44:
     ret = zm_media_stub(uc, 0x44, r0, r1, r2, r3);
@@ -991,7 +991,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     ret = zm_media_stub(uc, 0x50, r0, r1, r2, r3);
     break;
   case TR_media_x54: /* +0x54：sub_33128 = 同一分发器的 thunk */
-    ret = zm_media_command(uc, r0, r1, r2, r3);
+    ret = zm_media_command(uc, r0, r1, r2, r3, sp);
     break;
   case TR_media_x58:
     ret = zm_media_stub(uc, 0x58, r0, r1, r2, r3);
@@ -1016,13 +1016,22 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_setting_x14:
     ret = zm_setting_stub(uc, 0x14, r0, r1, r2, r3);
     break;
-  case TR_setting_x18:
-    ret = zm_setting_stub(uc, 0x18, r0, r1, r2, r3);
+  case TR_setting_x18: /* +0x18 = 声音开关（键 "on"），RE 见 zm_shell.c */
+    /* 调用点一定要记：applet 里"开始"用 on=1、"停止"用 on=0（+pauseMusic），
+     * 排查"开关方向不对"时全靠这个 lr 定位是哪支函数在说话。 */
+    log_info("ISetting[0x18] lr=0x%X on=%u", lr, r1);
+    ret = zm_setting_set_sound(uc, r1);
     break;
   case TR_setting_x1C:
+    if (g_disasm)
+      log_debug("ISetting[0x1C] 调用点 lr=0x%X r0=0x%X r1=0x%X r2=0x%X r3=0x%X",
+                lr, r0, r1, r2, r3);
     ret = zm_setting_stub(uc, 0x1C, r0, r1, r2, r3);
     break;
   case TR_setting_x20:
+    if (g_disasm)
+      log_debug("ISetting[0x20] 调用点 lr=0x%X r0=0x%X r1=0x%X r2=0x%X r3=0x%X",
+                lr, r0, r1, r2, r3);
     ret = zm_setting_stub(uc, 0x20, r0, r1, r2, r3);
     break;
   case TR_setting_x24: /* 保留既有"写 0"行为，applet 依赖其分支判断 */

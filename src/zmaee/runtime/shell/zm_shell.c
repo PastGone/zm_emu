@@ -5,6 +5,7 @@
 #include "../../../tool/uc_helper.h"
 #include "../../core/zm_root.h" /* zm_root_get_tick（SDL_GetTicks） */
 #include "../../core/zm_str.h"  /* read_cstr */
+#include "../../audio/zm_audio.h" /* zm_audio_set_sound_on：声音开关真正落地 */
 #include <stdint.h>
 #include <string.h> /* memset（GetDeviceInfo 整块清零） */
 
@@ -273,6 +274,31 @@ uint32_t zm_setting_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
   (void)uc;
   log_debug("setting stub[0x%X] r0=0x%X r1=0x%X r2=0x%X r3=0x%X", off, r0, r1,
             r2, r3);
+  return 0;
+}
+
+/* ISetting[+0x18] = **声音开关**（把设置键 "on" 置为 r1，再转给系统侧）
+ *
+ * RE（固件 sub_33FB4 @0x33FB4，挂在 g_aee_setting_vtbl +0x18）：
+ *   env->NewStringUTF("on");
+ *   b = AEEJNIBridge.obtainBundle();
+ *   putBundleInt(b, "on", r1);
+ *   postMessageToJava(5, b);      // 消息 5 = 设置变更
+ *   return 0;
+ * 00000506 启动时调它**两次、两次 r1 都是 1**（applet 自己把声音设为"开"；
+ * 它多传的那两个函数指针真机只当多余实参忽略）。
+ *
+ * 真机上"听不听得到"由 Java 侧音量 + applet 开关共同决定；在模拟器里我们让
+ * applet 开关说了算（默认出声，ZM_SOUND=0 才强制静音），而落地那一枪是
+ * IMedia 的 pauseMusic/resumeMusic（+0x18/+0x1C，见 zm_audio.c）——所以这里
+ * 仍然只记录偏好，真正的静音/恢复交给那两支。 */
+uint32_t zm_setting_set_sound(uc_engine *uc, uint32_t on) {
+  (void)uc;
+  /* 注意值语义：非 0 = 关声音（见 zm_audio.c 顶部说明，实测 00000506）。 */
+  log_info("ISetting[0x18] 声音开关: 值=%u（真机转给 Java 侧调媒体音量；"
+           "本 app 约定 非0=关/0=开，由 zm_audio 扮演 Java 侧落地）",
+           on);
+  zm_audio_set_sound_flag(on);
   return 0;
 }
 

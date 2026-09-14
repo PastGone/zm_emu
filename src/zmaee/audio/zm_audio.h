@@ -32,11 +32,29 @@ void zm_audio_shutdown(void);
  * 未知命令返回 -1（与原生 default 一致）。
  * +0x54（sub_33128）为同一分发器的 thunk，亦调用本函数。
  */
+/* 第 5 个参数起在栈上（sp 指向调用方的实参区）——applet 确实会传，
+ * 以前被丢掉，见 zm_audio.c 里的说明。 */
 uint32_t zm_media_command(uc_engine *uc, uint32_t r0, uint32_t r1,
-                          uint32_t r2, uint32_t r3);
+                          uint32_t r2, uint32_t r3, uint32_t sp);
 
 /* IMedia.stop（+0x14）：停止播放，固定返回 0 */
 uint32_t zm_media_stop(uc_engine *uc);
+
+/* IMedia[+0x18] pauseMusic / +0x1C resumeMusic（RE：JNI AEEJNIBridge 同名方法）。
+ * applet 的"声音开关"就是靠这两支真正生效的（见 zm_audio.c 注释）。 */
+uint32_t zm_media_pause_music(uc_engine *uc);
+uint32_t zm_media_resume_music(uc_engine *uc);
+
+/* ISetting[+0x18]（键 "on"）落到音频侧：真机是转给 Java 调媒体音量，这里由
+ * 我们扮演 Java 侧。⚠ 该值语义是**反的**：非 0 = 关声音（静音+暂停 BGM），
+ * 0 = 开声音（恢复音量+resume）—— 依据见 zm_audio.c 注释（实测 00000506）。
+ * ZM_SOUND=0（总闸静音）优先级更高。 */
+void zm_audio_set_sound_flag(uint32_t raw);
+
+/* 完成回调跳板：主循环每轮调用。有排队的回调时写 LR/R0-R2/PC 并返回 true
+ * （表示"让 Unicorn 去执行这个 cb"），与 zm_timer_poll 同一套路。
+ * RE 依据见 zm_audio.c 的 queue_completion_cb。 */
+bool zm_media_pending_cb_poll(uc_engine *uc);
 
 /* IMedia 通用 stub（未实现槽）：记录 offset 与参数，返回 0 */
 uint32_t zm_media_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
