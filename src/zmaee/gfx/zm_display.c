@@ -345,6 +345,65 @@ static void fb_draw_rect(int x, int y, int w, int h, uint32_t color) {
   }
 }
 
+/* 文本缓冲 → UTF-8（自动判定 UCS-2 还是窄串）
+ *
+ * 真机的 IDisplay::DrawText / MeasureString **只吃 UCS-2**（内部先
+ * Ucs2_2_Utf8 再交 Android 渲染）。但实测 applet 侧存在两种用法：
+ *
+ *   00000506（帮助页）: 逐字符 `STRH R6,[SP,#var_24]` 写 UCS-2
+ *                       （"操"=0x64CD），len = **字符数**；
+ *   00000102（数字键盘）: 窄串 + len = **字节数**
+ *                       （`sprintf("%u")` → `str_copy` → `DrawText`，
+ *                        实测缓冲为 31 30 00 00 = "10"）。
+ *
+ * 后者若一律按 UCS-2 解读，`31 30` 会读成一个 16 位字 U+3031，
+ * 症状正是"1~9 正常、10 以后全变乱码汉字"（截图实测）。
+ *
+ * 判据：len 个字节**全部落在 0x01..0x7F**（既无 NUL 也无高位字节）→ 窄串；
+ * 否则按 UCS-2 转。可判定性说明：
+ *   - UCS-2 的 ASCII 文本必然出现 0x00 高位字节（"AB" = 41 00 42 00）→ UCS-2 ✓
+ *   - 汉字的 UTF-16 高位字节 ≥ 0x4E（"操"= CD 64）→ UCS-2 ✓
+ *   - 纯 ASCII 单字符（"1" = 31 00）两种解读结果相同，不影响 ✓
+ * 拿不准时一律走真机语义（UCS-2），所以这个适配是"只加法"。 */
+static size_t text_to_utf8(uc_engine *uc, uint32_t ptr, uint32_t len, char *out,
+                           size_t cap) {
+  if (cap == 0)
+    return 0;
+  out[0] = '\0';
+  if (!ptr || !len)
+    return 0;
+
+  /* 单字符不判窄串：1 个 UCS-2 字（2 字节）与 1 个窄字节在法律上不可区分，
+   * 而真机语义是 UCS-2。这里必须走 UCS-2 —— 否则低字节恰好是可打印 ASCII 的
+   * 汉字会被"腰斩"（实测 506 帮助页："作"=5C 4F 渲染成 '\'、"键"=2E 95 渲染
+   * 成 '.'、"按"=09 63 渲染成制表符）。反过来 0x0031 与窄串 "1" 结果相同，
+   * 所以单字符走 UCS-2 对窄串样本也无损。 */
+  if (len >= 2) {
+    uint32_t i = 0;
+    for (; i < len && i < 512u; i++) {
+      uint8_t c = 0;
+      if (uc_mem_read(uc, ptr + i, &c, 1) != UC_ERR_OK)
+        break;
+      /* 只有**可打印 ASCII**（0x20..0x7E）才算窄串；控制字符与高位字节
+       * 一律按 UCS-2 解（汉字的高位字节 ≥ 0x4E，控制字符则是 UCS-2 的低
+       * 字节，两种都不该被当成窄串）。 */
+      if (c < 0x20 || c >= 0x7F)
+        break;
+    }
+    if (i == len) { /* 全是可打印 ASCII → 窄串，原样输出 */
+      size_t n = len < cap - 1 ? len : cap - 1;
+      for (size_t k = 0; k < n; k++) {
+        uint8_t c = 0;
+        uc_mem_read(uc, ptr + (uint32_t)k, &c, 1);
+        out[k] = (char)c;
+      }
+      out[n] = '\0';
+      return n;
+    }
+  }
+  return ucs2_to_utf8(uc, ptr, len, out, cap);
+}
+
 /* 在 rect_ptr 指向的矩形 {x,y,w,h} 内按对齐标志绘制文本。
  * 用 TTF 光栅化成 ARGB8888 表面后逐像素 alpha 混合进软件帧缓冲
  * （不再走 SDL_Render*，保证与 BitBlt 等操作共用同一块画布）。
@@ -1746,10 +1805,10 @@ uint32_t zm_display_MeasureString(uc_engine *uc, uint32_t disp, uint32_t str_ptr
   int w = 0;
   if (str_ptr && len) {
     /* 真机顺序：先按 UCS-2 '\0' 定有效长度，再 Ucs2_2_Utf8 转 UTF-8，
-     * 然后用它去 NewStringUTF/MeasureText。这里用同一个 helper，避免和
-     * DrawText 的编码理解再次分叉（历史上就是这里按 UCS-2、那里按 UTF-8）。 */
+     * 然后用它去 NewStringUTF/MeasureText。这里和 DrawText 用**同一个**
+     * text_to_utf8（含窄串判定），避免两处编码理解再次分叉。 */
     char utf8[4096];
-    size_t ul = ucs2_to_utf8(uc, str_ptr, len, utf8, sizeof(utf8));
+    size_t ul = text_to_utf8(uc, str_ptr, len, utf8, sizeof(utf8));
     TTF_Font *font = get_font(g_font_size);
     int h = 0;
     if (font)
@@ -1798,7 +1857,7 @@ uint32_t zm_display_DrawText(uc_engine *uc, uint32_t rect_ptr, uint32_t text_ptr
   if (!rect_ptr || !text_ptr || !text_len)
     return 0;
   char text[512];
-  ucs2_to_utf8(uc, text_ptr, text_len, text, sizeof(text));
+  text_to_utf8(uc, text_ptr, text_len, text, sizeof(text));
   if (!text[0])
     return 0;
   uint32_t color = uc_read32(uc, sp);

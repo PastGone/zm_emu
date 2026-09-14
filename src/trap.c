@@ -347,15 +347,12 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     applet_free(uc, r0);
     ret = 0;
     break; /* free(r0=ptr) */
-  case TR_root_str_copy:
-    /*
-     * ROOT_TABLE_ADDR[0x20] str_copy(src, src_len, dst, dst_len)
-     * 语义是 **memcpy 而非 strcpy**：按长度拷贝，取两者较小值，
-     * 不关心 '\0'。返回值是实际拷贝的字节数。
-     * 参数顺序 src 在前、dst 在后，与标准 memcpy(dst, src, n) 相反，
-     * 这里换算时注意别写反。
-     */
-    ret = u_memcpy(uc, r2, r0, (r1 < r3) ? r1 : r3);
+  case TR_root_utf8_to_ucs2:
+    /* ROOT_TABLE_ADDR[0x20] = ZMAEE_Utf8_2_Ucs2(utf8_src=r0, 源字节数=r1,
+     * ucs2_dst=r2, 目标字符容量=r3) → 返回写入的字符数。
+     * 详见 emu_root_traps.h 的 TR_root_utf8_to_ucs2 注释与 zm_str.c 的实现
+     * （旧实现按 memcpy 处理，是误判）。 */
+    ret = zm_utf8_to_ucs2(uc, r0, r1, r2, r3);
     break;
   case TR_root_sprintf:
     /*
@@ -1101,13 +1098,11 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_cbk_default:
     ret = zm_root_cbk_default(uc, r0, r1, r2, r3);
     break;
-  case TR_root_get_tick:
-    /*
-     * ROOT_TABLE_ADDR[0xD8]：返回单调毫秒时间戳（zmaee 的 GetTickCount）。
-     * 宏与实现此前都已存在，只是漏了 case，走到 default 报"非法的外部调用"。
-     * 语义等同 ulibc 的 u_tick_ms，但这里是 zmaee 槽位，直接走 zm_root。
-     */
-    ret = zm_root_get_tick(uc);
+  case TR_root_wcslen:
+    /* ROOT_TABLE_ADDR[0xD8] = zmaee_wcslen(ptr=r0)：宽字符串长度（字符数）。
+     * 旧实现返回 SDL_GetTicks（猜测），实测调用点全是"取长度"，详见
+     * emu_root_traps.h 与 zm_str.c 的 zm_wcslen 注释。 */
+    ret = zm_wcslen(uc, r0);
     break;
   case TR_root_create_cbk:
     /*

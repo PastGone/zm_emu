@@ -13,4 +13,7 @@ uint32_t uc_read32(uc_engine *uc, uint32_t addr);
 /* 向客户机地址 addr 写入一个 32 位整数（小端） */
 uc_err uc_write32(uc_engine *uc, uint32_t addr, uint32_t val);
 
+/* 向客户机地址 addr 写入一个 16 位整数（小端） */
+uc_err uc_write16(uc_engine *uc, uint32_t addr, uint16_t val);
+
 #endif
