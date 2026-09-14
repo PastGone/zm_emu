@@ -1081,25 +1081,45 @@ bool zm_display_event_loop(void (*on_click)(uint32_t x, uint32_t y),
   /* present 最终画布（init 绘制内容）让用户看到界面 */
   fb_present();
 
-  /* 自动点击（实测用）：ZM_AUTO_CLICK="x,y[,间隔毫秒]" —— 首帧发一次点击，
-   * 用于在没有真人操作的环境（脚本/远端）验证触摸链路是否真的通到 applet。
+  /* 自动点击（实测用）：ZM_AUTO_CLICK="x,y[,间隔毫秒]" —— 用于在没有真人
+   * 操作的环境（脚本/远端）验证触摸链路是否真的通到 applet。
    * 事件码语义已实测确认（00000506 sub_80FC）：
    *   evt=9  PEN_DOWN → obj->vt[0x1C](obj, x, y)
    *   evt=10 PEN_UP   → obj->vt[0x1C](obj, x, y)
    *   evt=11 PEN_MOVE → obj->vt[0x1C](obj, x, y)（拖动）
-   * 点击后 handler 通常会重绘界面，可直接用 ZM_SCREENSHOT 对比截图验证。 */
+   * 点击后 handler 通常会重绘界面，可直接用 ZM_SCREENSHOT 对比截图验证。
+   *
+   * 省略"间隔毫秒"= 只发一次（旧行为）。给间隔则**按时重复**：本函数在
+   * applet 的 EV_RESUME 之后立即进入，此时界面往往还没就绪，早到的点击会被
+   * applet 直接丢掉（实测 00000506 标题页：只发一次时点不动，重复点击才会
+   * 进关卡列表）。重复上限 20 次，避免无人值守时无限点下去。 */
   {
     static int auto_done = 0;
     if (!auto_done && on_click) {
       const char *ac = getenv("ZM_AUTO_CLICK");
       if (ac && ac[0]) {
-        auto_done = 1;
-        int ax = 0, ay = 0;
-        if (sscanf(ac, "%d,%d", &ax, &ay) >= 2) {
-          log_info("自动点击测试: (%d, %d)", ax, ay);
-          on_click((uint32_t)ax, (uint32_t)ay);
-          fb_present();
-          return true;
+        int ax = 0, ay = 0, iv = 0;
+        if (sscanf(ac, "%d,%d,%d", &ax, &ay, &iv) >= 2) {
+          if (iv <= 0) {
+            auto_done = 1;
+            log_info("自动点击测试: (%d, %d)", ax, ay);
+            on_click((uint32_t)ax, (uint32_t)ay);
+            fb_present();
+            return true;
+          }
+          static uint32_t last = 0;
+          static int cnt = 0;
+          uint32_t now = SDL_GetTicks();
+          if (cnt == 0 || now - last >= (uint32_t)iv) {
+            last = now;
+            cnt++;
+            if (cnt > 20)
+              auto_done = 1;
+            log_info("自动点击测试(#%d): (%d, %d)", cnt, ax, ay);
+            on_click((uint32_t)ax, (uint32_t)ay);
+            fb_present();
+            return true;
+          }
         }
       }
     }
@@ -1871,6 +1891,21 @@ uint32_t zm_display_DrawImage(uc_engine *uc, uint32_t off, uint32_t r0,
   int w = 0, h = 0;
   const uint8_t *rgba = NULL;
   if (zm_image_get_pixels(r3, &w, &h, &rgba)) {
+    /* 首次记录：用来区分"某张图走的是 PNG 路径(DrawImage 0x90) 还是位图路径"，
+     * 以及两条路径各自的坐标单位（0x90 传的是 applet 的原始坐标）。 */
+    static uint32_t seen[24];
+    static int nseen = 0;
+    int known = 0;
+    for (int i = 0; i < nseen; i++)
+      if (seen[i] == r3) {
+        known = 1;
+        break;
+      }
+    if (!known && nseen < 24) {
+      seen[nseen++] = r3;
+      log_info("[DrawImage 首次] obj=0x%X %dx%d 目标=(%d,%d) a5=%d", r3, w, h,
+               (int)r1, (int)r2, (int)getArg(uc, 4));
+    }
     fb_blit_rgba((int)r1, (int)r2, w, h, rgba);
     return 1;
   }
@@ -1879,9 +1914,27 @@ uint32_t zm_display_DrawImage(uc_engine *uc, uint32_t off, uint32_t r0,
 }
 
 /* +0x94 DrawBitmap(this=display, x=r1, y=r2, IBitmap*=r3, rect=[sp+0],
- *                  alpha/flag=[sp+4])
- * 00000506 sub_388 type 1 走这里：rect = {left, top, right, bottom}
- * （该路径上固定为 {0,0,w,h}），尺寸由 IBitmap.GetInfo 得到。 */
+ *                  mask_flag=[sp+4])
+ *
+ * 真机（ZMAEE_IDisplay_DrawBitmap 反编译）：
+ *     if (a4 == 0 || display == 0 || a5 == 0) return;      // rect 必须非空
+ *     IBitmap_GetInfo(a4, info);                           // info = 32B 位图头
+ *     GDI_BitBlt(层载荷, x, y, info, rect, a6);            // ← a4 换成"信息头"
+ * GDI_BitBlt 内部（ZMAEE_GDI_BitBlt 反编译）：
+ *     src_fmt = info[2]; tc = info[3];
+ *     isMask  = a6 & (tc >= 0 ? 1 : 0);                    // ★ a6 = 抠透明色开关
+ *     fn = (isMask ? mask*_func : copy*_func)[src_fmt];
+ *     ZMAEE_Blt(bpp[目标色深], bpp[src_fmt], rect, ...);   // ★ 索引里没有 mode
+ *
+ * 【要点】第 6 参 a6 **不是模式号**，而是 mask/copy 家族选择位；4 种镜像变体
+ * （Copy/Mir/Mir90/Mir270 = `byte_5B658[mode+8]` 选组）只挂在 **7 参**的
+ * IDisplay::BitBlt 上（那里才有 `a6 <= 7` 的校验）。applet 侧也自洽：
+ * 00000506 sub_388 的同一个 wrapper 字段（a1[2]）在 type1 当 DrawBitmap 的
+ * a6、在 type2 当 BitBlt 的 a7 —— 两条路径的末参是同一个"mask 开关"。
+ *
+ * 因此这里恒传 mode=0（无镜像）。真机在 a6=0 时走 copy 家族（只跳 alpha==0，
+ * 不抠 tc）；我们统一走"alpha==0 与洋红 key 都跳"的更严版本，肉眼无差，
+ * 属有意的简化。00000506 的关卡列表实测走的是 +0x98，0x94 在这几屏没被调用。 */
 /* 把某个 surface 对象的指定矩形画到 (dx,dy)：
  * surface 可以是 IImage / IBitmap（都在 zm_image 池里）；
  * rect_ptr = {left, top, right, bottom}（客户机内存），0 表示整图；
@@ -1899,6 +1952,47 @@ static int blit_surface_region(uc_engine *uc, uint32_t obj, int dx, int dy,
       obj = sub_surf;
     } else {
       return 0;
+    }
+  }
+
+  /* 每个对象第一次被成功解析就记一行 —— 用来把"资源载入地址"和"真的被画了"
+   * 对上号（诊断"某张图没显示"时最直接：载入了但从未出现在这里 = 没被画）。 */
+  {
+    static uint32_t seen[24];
+    static uint8_t onscr[24];
+    static int nseen = 0;
+    int idx = -1;
+    for (int i = 0; i < nseen; i++)
+      if (seen[i] == obj) {
+        idx = i;
+        break;
+      }
+    if (idx < 0 && nseen < 24) {
+      idx = nseen;
+      seen[nseen++] = obj;
+      log_info("[绘制首次] obj=0x%X %dx%d 目标=(%d,%d) mode=%d rect=%s", obj, w, h,
+               dx, dy, mode & 7, rect_ptr ? "有" : "无");
+    }
+    /* 每个对象再补记前 3 次调用，用来判断坐标是"恒定"还是"随时间动画" */
+    if (idx >= 0) {
+      static uint8_t cnt[24];
+      if (cnt[idx] < 3) {
+        cnt[idx]++;
+        log_info("[绘制#%d] obj=0x%X 目标=(%d,%d)", cnt[idx], obj, dx, dy);
+      }
+    }
+    /* 首次"落在屏内"也算一行：用来区分"从没被画"和"一直被画到屏外" */
+    if (idx >= 0 && !onscr[idx] && dx > -w && dx < 240 && dy > -h && dy < 320) {
+      onscr[idx] = 1;
+      int rl = 0, rt = 0, rr = 0, rb = 0;
+      if (rect_ptr) {
+        rl = (int)uc_read32(uc, rect_ptr);
+        rt = (int)uc_read32(uc, rect_ptr + 4);
+        rr = (int)uc_read32(uc, rect_ptr + 8);
+        rb = (int)uc_read32(uc, rect_ptr + 12);
+      }
+      log_info("[绘制入屏] obj=0x%X %dx%d 目标=(%d,%d) rect={%d,%d,%d,%d} mode=%d",
+               obj, w, h, dx, dy, rl, rt, rr, rb, mode & 7);
     }
   }
 
@@ -1937,7 +2031,8 @@ uint32_t zm_display_DrawBitmap(uc_engine *uc, uint32_t off, uint32_t r0,
   (void)off;
   (void)r0;
   fb_refresh_draw_target();
-  /* rect（可选）：{left, top, right, bottom}，用于把源图裁剪后画到 (x,y) */
+  /* rect：{left, top, right, bottom}，用于把源图裁剪后画到 (x,y)。
+   * 第 6 参（mask 开关）不透传 —— 见上方注释：它不进镜像表。 */
   if (blit_surface_region(uc, r3, (int)r1, (int)r2, getArg(uc, 4), 0))
     return 1;
   log_debug("IDisplay.DrawBitmap: 对象 0x%X 无像素数据（stub）", r3);
@@ -1945,11 +2040,21 @@ uint32_t zm_display_DrawBitmap(uc_engine *uc, uint32_t off, uint32_t r0,
 }
 
 /* +0x98 DrawBitmapEx(this=display, x=r1, y=r2, bitmap=r3,
- *                    srcRect=[sp+0], mode=[sp+4], flags=[sp+8])
+ *                    srcRect=[sp+0], mode=[sp+4], mask_flag=[sp+8])
  *
- * 逆向证据（00000506 sub_42C0 → vt[0x98]）：srcRect={0,0,w,h} 来自记录里的
- * (x1,y1)-(x2,y2)，mode 是 unk_1F714 表选出的"类型字节"（sub_50D8/sub_51A0
- * 会据此对矩形做翻转/转置），flags=0。这是主 sprite 绘制入口。 */
+ * 真机（ZMAEE_IDisplay_DrawBitmapEx 反编译）：
+ *     if (a4 == 0 || display == 0 || a6 > 7 || a5 == 0) return;   // ★ a6<=7 校验
+ *     IBitmap_GetInfo(a4, info);
+ *     GDI_BitBlt_Ext(层载荷, x, y, info, rect, a6, a7);           // ★ 与 7 参 BitBlt 同一条路
+ * 即 **DrawBitmapEx ≡ DrawBitmap + mode + mask**：
+ *     a6 = 模式号（0..7），进 `byte_5B658[a6+8]` 选 Copy/Mir/Mir90/Mir270 变体；
+ *     a7 = 上面 DrawBitmap 同款的 mask 开关（不参与几何）。
+ * applet 侧自洽（00000506 sub_4A0 type1）：sp+0/4/8 = srcRect / 模式 / [wrapper+8]，
+ * 末参正是那个开关。这是主 sprite 绘制入口。
+ *
+ * 【已证】此处 `getArg(uc,5)` 当 mode 交给 fb_blit_rgba_mode（内部 `mode & 7`
+ * 做镜像/转置）与真机一致 —— 之前是本模拟器按调用形状推的假设，现已由上面
+ * 的 `a6 <= 7` 校验 + GDI_BitBlt_Ext 落表坐实。 */
 uint32_t zm_display_DrawBitmapEx(uc_engine *uc, uint32_t off, uint32_t r0,
                                  uint32_t r1, uint32_t r2, uint32_t r3) {
   (void)off;

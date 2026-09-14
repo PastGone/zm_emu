@@ -21,12 +21,23 @@
 
 typedef enum { REC_ENTRY = 0, REC_SURF = 1, REC_BITMAP = 2 } rec_kind;
 
+/* IImage 的**类型枚举** —— 存在对象 +0x18，是 ZMAEE_IImage_Decode 的分派键。
+ * RE（ZMAEE_IImage_Decode 反编译）：
+ *     v11 = a1[6];                     // = *(int *)(this + 0x18)
+ *     if      (v11 == 1) PNG_Decode(); // 1 = PNG
+ *     else if (v11 == 2) JPG_Decode(); // 2 = JPG
+ *     else if (v11 != 0) return -1;    // 其它值 = 非法类型
+ *     else               GIF_Decode(); // 0 = GIF（也是对象刚建好时的默认值）
+ * 所以"恒填 0"等价于把所有图都标成 GIF —— 必须按实际文件格式回填。 */
+enum { ZM_IMG_TYPE_GIF = 0, ZM_IMG_TYPE_PNG = 1, ZM_IMG_TYPE_JPG = 2 };
+
 typedef struct {
   int used;
   rec_kind kind;   /* ENTRY=CreateImage 造的数据对象；SURF=entry+8 绘制对象；
                       BITMAP=Decode 出的位图 */
   int refcnt;
   int w, h;
+  int type;        /* ZM_IMG_TYPE_*：装入时按魔数定，写回 entry +0x18 */
   uint8_t *rgba;   /* w*h*4，RGBA8888（ENTRY 与其 SURF 共享，仅 SURF 释放） */
   char name[160];  /* 最近一次 SetData 的文件名（调试用） */
 } zm_img_rec;
@@ -346,17 +357,25 @@ static int decode_jpg(const uint8_t *data, size_t len, int *ow, int *oh,
   return 0;
 }
 
-/* 按内容魔数选择解码器（applet 传的文件名可能没有扩展名） */
+/* 按内容魔数选择解码器（applet 传的文件名可能没有扩展名）。
+ * 同时报出实际命中的格式 → *type（真机 IImage 的类型字段）。 */
 static int decode_any(const uint8_t *data, size_t len, int *w, int *h,
-                      uint8_t **rgba) {
+                      uint8_t **rgba, int *type) {
   if (len >= 8 && data[0] == 0x89 && data[1] == 'P' && data[2] == 'N' &&
-      data[3] == 'G')
+      data[3] == 'G') {
+    *type = ZM_IMG_TYPE_PNG;
     return decode_png(data, len, w, h, rgba);
-  if (len >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF)
+  }
+  if (len >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF) {
+    *type = ZM_IMG_TYPE_JPG;
     return decode_jpg(data, len, w, h, rgba);
+  }
   /* 兜底：先按 PNG，再按 JPEG 试一遍（某些文件头带偏移） */
-  if (decode_png(data, len, w, h, rgba) == 0)
+  if (decode_png(data, len, w, h, rgba) == 0) {
+    *type = ZM_IMG_TYPE_PNG;
     return 0;
+  }
+  *type = ZM_IMG_TYPE_JPG;
   return decode_jpg(data, len, w, h, rgba);
 }
 
@@ -367,9 +386,9 @@ static int rec_load_file(zm_img_rec *r, const char *name) {
   if (zm_fs_read_file(name, &raw, &raw_len) != 0)
     return -1;
 
-  int w = 0, h = 0;
+  int w = 0, h = 0, type = ZM_IMG_TYPE_GIF;
   uint8_t *rgba = NULL;
-  int rc = decode_any(raw, raw_len, &w, &h, &rgba);
+  int rc = decode_any(raw, raw_len, &w, &h, &rgba, &type);
   free(raw);
   if (rc != 0) {
     log_warn("IImage: 无法解码 \"%s\"（%zu 字节）", name, raw_len);
@@ -378,9 +397,12 @@ static int rec_load_file(zm_img_rec *r, const char *name) {
   rec_free_pixels(r);
   r->w = w;
   r->h = h;
+  r->type = type;
   r->rgba = rgba;
   snprintf(r->name, sizeof(r->name), "%s", name);
-  log_info("IImage: 载入 \"%s\" %dx%d", name, w, h);
+  log_info("IImage: 载入 \"%s\" %dx%d type=%d(%s)", name, w, h, type,
+           type == ZM_IMG_TYPE_PNG ? "PNG"
+                                   : (type == ZM_IMG_TYPE_JPG ? "JPG" : "GIF"));
   return 0;
 }
 
@@ -430,6 +452,11 @@ uint32_t zm_image_CreateImage(uc_engine *uc, uint32_t r0, uint32_t r1,
   uc_write32(uc, obj, IMAGE_VT_ADDR);
   uc_write32(uc, obj + 4, 0);
   uc_write32(uc, obj + 8, surf);
+  /* +0x18 = 类型字段（IImage::GetType 读的就是这里）。
+   * 真机由解码器按文件魔数写入（PNG=1）；我们尚无"魔数→枚举"的完整
+   * 证据，显式写 0（未识别）—— 比依赖"池初始为 0"更明确，也避免槽复用
+   * 时残留上一张图的类型。 */
+  uc_write32(uc, obj + IMAGE_ENTRY_OFF_TYPE, 0);
 
   /* surface：首字=自己的虚表（对象池里仍按 surf 识别）；其余为解码元数据 */
   uc_write32(uc, surf, IMAGE_VT_ADDR);
@@ -472,7 +499,13 @@ uint32_t zm_image_Release(uc_engine *uc, uint32_t r0) {
 
 /* +0x08 SetData(this, mode, name_ptr, len)
  * applet 传的是**文件名**（sprintf 拼出的 "res\xxx.png"），len = strlen。
- * 返回 0 = 成功；非 0 = 失败（applet 会立刻 Release）。 */
+ * 返回 0 = 成功；非 0 = 失败（applet 会立刻 Release）。
+ *
+ * 真机在这里做的另一件事：把数据装进对象（+0xC=原始数据、+0x10=长度）并
+ * **按魔数定下类型字段 +0x18** —— 这个字段就是 IImage::Decode 的分派键
+ * （见 ZM_IMG_TYPE_* 注释）。我们的 Decode 是整槽 trap、不看这个键，但
+ * GetType 会原样把它交给 applet，所以必须和真机一致地回填，
+ * 否则 PNG 会被报成 GIF(0)。 */
 uint32_t zm_image_SetData(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
                           uint32_t r3) {
   (void)r1; /* mode/flag，实测恒为 0 */
@@ -485,7 +518,12 @@ uint32_t zm_image_SetData(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
   read_cstr(uc, r2, name, sizeof(name));
   if (name[0] == '\0' && r3)
     return (uint32_t)-1;
-  return rec_load_file(r, name) == 0 ? 0u : (uint32_t)-1;
+  if (rec_load_file(r, name) != 0)
+    return (uint32_t)-1;
+  /* 类型写回**传入对象**的 +0x18（GetType / 真机 Decode 都读这里）。
+   * 传进来的一定是 entry（CreateImage 的产物），不是 surf。 */
+  uc_write32(uc, r0 + IMAGE_ENTRY_OFF_TYPE, (uint32_t)r->type);
+  return 0;
 }
 
 /* +0x0C GetFrameCount(this) → 帧数（静态图返回 1；applet 未据此分支） */
@@ -509,11 +547,40 @@ uint32_t zm_image_Height(uc_engine *uc, uint32_t r0) {
   return (uint32_t)(r ? r->h : 0);
 }
 
-/* +0x18 GetType(this) → 类型枚举（JPEG/PNG…；applet 未据此分支） */
+/* +0x18 GetType(this) → 对象 +0x18 的**类型字段**
+ *
+ * 真机（ZMAEE_IImage_GetType @0x30490）没有逻辑，就是一个字段 getter：
+ *     CMP  R0, #0
+ *     BEQ  loc_30498          ; 空对象 → 返回 -4
+ *     LDR  R0, [R0,#0x18]     ; 否则原样读出 +0x18
+ *     BX   LR
+ * loc_30498: MOVS R0,#4 / NEGS R0,R0   ; R0 = -4
+ *
+ * 类型值由 SetData/装入器按文件魔数写入（见 ZM_IMG_TYPE_*：0=GIF 1=PNG 2=JPG，
+ * 也是 ZMAEE_IImage_Decode 的分派键；固件 ZMAEE_IDisplay_DrawImage 同样用
+ * `GetType()==1` 判 PNG 专用路径）。
+ * 【2026-09 修正】旧实现恒返回 0：一是空对象时应返回 -4（applet 若用
+ * `< 0` 判失败会走错分支），二是丢掉了"读字段"这一语义，三是 0 在真机
+ * 枚举里恰恰是 **GIF**。现按真机照读，字段由 SetData 按魔数回填。 */
 uint32_t zm_image_GetType(uc_engine *uc, uint32_t r0) {
-  (void)uc;
-  (void)r0;
-  return 0;
+  if (!r0)
+    return (uint32_t)-4; /* 真机：空对象哨兵 */
+
+  uint32_t t = uc_read32(uc, r0 + IMAGE_ENTRY_OFF_TYPE);
+  /* 临时探针（RE 用，确认后删）：applet 到底有没有调这个槽？调的时候
+   * 对象是哪张图？—— 决定要不要把魔数映射成真机的类型枚举。 */
+  {
+    static int n = 0;
+    if (n < 8) {
+      uint32_t lr = 0;
+      uc_reg_read(g_uc, UC_ARM_REG_LR, &lr);
+      zm_img_rec *r = pixel_rec(r0);
+      n++;
+      log_info("[IImage.GetType] obj=0x%X → %u (%s) 调用点 0x%X", r0, t,
+               r && r->name[0] ? r->name : "池外对象", lr);
+    }
+  }
+  return t;
 }
 
 /* +0x1C Decode(this=entry, alloc=r1, free=r2, out=r3, flags=[sp+0]) → 0 成功
@@ -666,19 +733,36 @@ uint32_t zm_surf_wh(uc_engine *uc, uint32_t r0, uint32_t which) {
   return (uint32_t)(which == 0 ? r->w : r->h);
 }
 
-/* SURF_VT_ADDR+0x10：GetRect(this, out) —— 写矩形 {left, top, right, bottom}。
- * 逆向（00000506 sub_388 type1 → loc_448）：
- *   obj = res+0xC; obj->vt[0x10](obj, &var_30);
- *   var_8 = var_30; var_4 = var_2C;      ← 只取前两个字段
- *   DrawBitmapEx(disp, x, y, obj, {var_8, var_4, 0, 0}, res+8, 0);
- * 用 int16 写，兼顾"矩形"与"宽高对"两种解释。 */
+/* SURF_VT_ADDR+0x10 = **IBitmap::GetInfo(this, out)**
+ *
+ * 真机虚表依据：libaee.so 的 `g_aee_bitmap_vtbl` @ 0x63DF4：
+ *   +0x00 AddRef  +0x04 Release  +0x08 SetTransColor  +0x0C ?
+ *   +0x10 **ZMAEE_IBitmap_GetInfo**  +0x14 ?  +0x18 ?
+ * 而 `ZMAEE_IBitmap_GetInfo` 的实现就是 `memcpy(out, bitmap + 8, 32)`，
+ * 于是 out 的 8 个 dword 恰好是 IBitmap 字段：
+ *   +0 宽  +4 高  +8 颜色格式  +12 透明色
+ *   +16 调色板标志  +20 调色板指针  +24 调色板大小  +28 像素指针
+ *
+ * applet 用法（00000506 sub_388 type1）：
+ *   (*(a1[3]->vt + 0x10))(a1[3], v10);      // 填 v10
+ *   v13 = v10[0]; v14 = v10[1];             // ← 取**宽高**（各一个 32 位字）
+ *   DrawBitmap(disp, x, y, a1[3], {0,0,v13,v14}, ...)
+ *
+ * 【2026-09 修正】旧实现按 int16 写了 4 个短整型（且顺序是 rect 的 l,t,r,b），
+ * applet 读到的是 v10[0]=(t<<16)|l、v10[1]=(h<<16)|w ——
+ * 实测 31x39 的对象在 applet 侧变成 rect={0,0,0,2555935}，
+ * 而 2555935 = 39*65536+31 ✓ 完全吻合；这个"尺寸"又被 applet 用于居中
+ * 计算，于是出现 y≈−h×32768 的诡异坐标（关卡选择界面 9 张图全部画到屏外）。
+ * 现在按真机语义：直接把客户机对象 +8 起的 32 字节原样拷进 out。 */
 uint32_t zm_surf_getrect(uc_engine *uc, uint32_t r0, uint32_t r1) {
-  zm_img_rec *r = pixel_rec(r0);
-  int w = r ? r->w : 0;
-  int h = r ? r->h : 0;
   if (r1) {
-    int16_t rect[4] = {0, 0, (int16_t)w, (int16_t)h};
-    uc_mem_write(uc, r1, rect, sizeof(rect));
+    uint32_t info[8] = {0};
+    if (uc_mem_read(uc, r0 + 8, info, sizeof(info)) != UC_ERR_OK) {
+      zm_img_rec *r = pixel_rec(r0);
+      info[0] = (uint32_t)(r ? r->w : 0);
+      info[1] = (uint32_t)(r ? r->h : 0);
+    }
+    uc_mem_write(uc, r1, info, sizeof(info));
   }
   return 0;
 }

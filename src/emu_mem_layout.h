@@ -134,6 +134,19 @@
  * 因此池容量按"每张图 2 个槽"规划。 */
 #define IMAGE_ENTRY_OFF_SURF 0x08U
 
+/* entry +0x18 = **图像类型字段**（IImage::Decode 的分派键）。
+ * RE（ZMAEE_IImage_GetType @0x30490）：该函数没有逻辑，就是
+ *     if (this == 0) return -4;
+ *     return *(int *)(this + 0x18);
+ * 枚举值（ZMAEE_IImage_Decode：`v11 = a1[6]` 后分派）：
+ *     0 = GIF（也是对象刚建好时的默认值）
+ *     1 = PNG  → IImage_PNG_Decode
+ *     2 = JPG  → IImage_JPG_Decode
+ *     其它     → 直接 return -1（非法类型）
+ * 同一对象上：+0x0C = 原始数据指针，+0x10 = 数据长度（Decode 用它们造
+ * IMemStream）。模拟器里 Decode 是整槽 trap，故这两格暂不维护。 */
+#define IMAGE_ENTRY_OFF_TYPE 0x18U
+
 /* ============================================================
  *                        像 素 区  (0x30000)
  *
