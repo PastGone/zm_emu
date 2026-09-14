@@ -47,28 +47,6 @@ void zm_diag_dump_buttons(uc_engine *uc) {
 //   }
 // }
 
-void zm_diag_auto_click(void) {
-  const char *ac = getenv("ZM_AUTO_CLICK");
-  if (!ac || !*ac)
-    return;
-
-  /* 支持一次注入多个点击，用 ';' 分隔，例如 "25,25;72,25" */
-  char buf[256];
-  strncpy(buf, ac, sizeof(buf) - 1);
-  buf[sizeof(buf) - 1] = '\0';
-
-  char *save = NULL;
-  char *tok = strtok_r(buf, ";", &save);
-  while (tok) {
-    unsigned ax = 0, ay = 0;
-    if (sscanf(tok, "%u,%u", &ax, &ay) == 2) {
-      log_info("自动点击测试: (%u,%u)", ax, ay);
-      on_touch_click((uint32_t)ax, (uint32_t)ay);
-    }
-    tok = strtok_r(NULL, ";", &save);
-  }
-}
-
 void zm_diag_run_event_loop(void) {
   uint32_t hold_ms = 0;
   const char *env = getenv("ZM_GFX_HOLD_MS");

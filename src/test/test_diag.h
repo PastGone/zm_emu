@@ -9,9 +9,6 @@ void zm_diag_dump_buttons(uc_engine *uc);
 /* 音频自测：ZM_AUDIO_TEST=N（或 random）播放 .zmr 资源 */
 void zm_diag_audio_test(uc_engine *uc);
 
-/* 自动点击测试：ZM_AUTO_CLICK="x,y" 注入一次触摸 */
-void zm_diag_auto_click(void);
-
 /* 事件循环：ZM_GFX_HOLD_MS 控制渲染窗口停留毫秒数（0=直到关闭） */
 void zm_diag_run_event_loop(void);
 
