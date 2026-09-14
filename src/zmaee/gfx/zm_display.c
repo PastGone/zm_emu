@@ -50,8 +50,70 @@
 
 /* ---------- 渲染后端状态 ---------- */
 
-/* 系统中可用的拉丁字体；applet(Soundboard) 只渲染数字 1~25，拉丁字体足够 */
+/* ---------- 字体选择 ----------
+ * 真机的文本渲染不在固件里：ZMAEE_IDisplay_DrawText 把 UCS-2 转 UTF-8 后走
+ * Android（JNI NewStringUTF + AndroidAEE_GetTextBitmap），字形由**系统字体**
+ * 提供，天然含 CJK。宿主侧用 SDL_ttf 顶替，就得自己挑一个含汉字的字体：
+ * 早期写死的 LiberationSans 只有拉丁字形，汉字全落 .notdef → 豆腐块。
+ * 优先级：ZM_FONT 环境变量 > 常见 CJK 字体 > 拉丁兜底。 */
 #define ZM_FONT_PATH "/usr/share/fonts/liberation/LiberationSans-Regular.ttf"
+static const char *g_font_cands[] = {
+    "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+    "/usr/share/fonts/noto-cjk/NotoSansCJK-Light.ttc",
+    ZM_FONT_PATH, /* 拉丁兜底：没有 CJK 字体时保持旧行为 */
+};
+static const char *pick_font_path(void) {
+  static const char *chosen = NULL;
+  if (chosen)
+    return chosen;
+  const char *env = getenv("ZM_FONT");
+  if (env && env[0]) {
+    chosen = env;
+  } else {
+    chosen = ZM_FONT_PATH;
+    for (size_t i = 0; i < sizeof(g_font_cands) / sizeof(g_font_cands[0]); i++) {
+      FILE *f = fopen(g_font_cands[i], "rb");
+      if (f) {
+        fclose(f);
+        chosen = g_font_cands[i];
+        break;
+      }
+    }
+  }
+  log_info("文本字体文件: %s", chosen);
+  return chosen;
+}
+
+/* 在 .ttc 里挑 face —— Noto Sans CJK 这类集合体里通常有
+ * JP / KR / SC / TC / HK 五个 face，而 TTF_OpenFont 只会开 **face 0 = JP**，
+ * 简体汉字于是带上日文写法（直/骨/画/边…）。
+ * 这里按 family 名扫一遍，取第一个含 "SC"（简体）的 face；没找到就回退 0。
+ * 结果按文件路径缓存，字号变化不会重复扫。 */
+static int pick_font_face(const char *path, int ptsize) {
+  static const char *cached_path = NULL;
+  static int cached_idx = 0;
+  if (cached_path == path)
+    return cached_idx;
+  cached_path = path;
+  cached_idx = 0;
+  for (int idx = 0; idx < 16; idx++) {
+    TTF_Font *f = TTF_OpenFontIndex(path, ptsize, idx);
+    if (!f)
+      break; /* 没有更多 face 了 */
+    const char *fam = TTF_FontFaceFamilyName(f);
+    if (fam && strstr(fam, "SC")) {
+      cached_idx = idx;
+      TTF_CloseFont(f);
+      break;
+    }
+    TTF_CloseFont(f);
+  }
+  return cached_idx;
+}
 
 static SDL_Window *g_win = NULL;
 static SDL_Renderer *g_ren = NULL;
@@ -76,8 +138,13 @@ static SDL_Color to_sdl_color(uint32_t argb) {
 
 /* 根据 font_size 打开（或复用）字体 */
 static TTF_Font *get_font(int font_size) {
-  if (font_size <= 0)
-    font_size = 16;
+  if (font_size <= 0) {
+    /* 真机的字号来自字体上下文（dword_64BA8 +0x3C/0x40/0x44，按 SelectFont
+     * 选中的字体类型取），模拟器没有那份上下文，给 240x320 上的合理默认值，
+     * 并允许 ZM_FONT_SIZE 覆盖。 */
+    const char *fs = getenv("ZM_FONT_SIZE");
+    font_size = (fs && *fs) ? atoi(fs) : 14;
+  }
   /* 00000405.app 传入的 font_size 可能是 font_id(1,2)而非像素值；
    * 小于 8 时视为 font_id，映射到可读的像素大小。 */
   if (font_size < 8)
@@ -88,13 +155,65 @@ static TTF_Font *get_font(int font_size) {
     TTF_CloseFont(g_font);
     g_font = NULL;
   }
-  g_font = TTF_OpenFont(ZM_FONT_PATH, font_size);
+  const char *fpath = pick_font_path();
+  int face = pick_font_face(fpath, font_size);
+  g_font = TTF_OpenFontIndex(fpath, font_size, face);
   if (!g_font) {
-    log_error("TTF_OpenFont failed: %s", TTF_GetError());
+    log_error("TTF_OpenFontIndex(%s, face=%d) failed: %s", fpath, face,
+              TTF_GetError());
     return NULL;
   }
   g_font_size = font_size;
+  {
+    const char *fam = TTF_FontFaceFamilyName(g_font);
+    log_info("文本字体: %s face=%d (%s) %dpx", fpath, face, fam ? fam : "?", font_size);
+  }
   return g_font;
+}
+
+/* ---------- 文本编码：UCS-2(LE) → UTF-8 ----------
+ * RE（ZMAEE_Ucs2_2_Utf8(a1=src, a2=字数, a3=dst, a4=dst容量)）：
+ *   逐 16 位字符写 1/2/3 字节 UTF-8；**写下一个字符前若容量不够就停**
+ *   （`if (a4 <= v7 + n) break;`），最后一定补 '\0'，返回写入字节数。
+ * 真机的 IDisplay::MeasureString / DrawText 在对字符串做任何处理前都会先调它
+ * （把 UCS-2 转成给 Android NewStringUTF 用的 UTF-8）。
+ *
+ * 【2026-09 修正】模拟器以前跳过了这一步：把 UCS-2 的**原始字节**当 UTF-8
+ * 直接喂 TTF_RenderUTF8_Blended。汉字两字节 "CD 64"（U+64CD 操）按 UTF-8 解
+ * 是一个非法首字节 + 一个 ASCII，SDL_ttf 把非法字节替成 U+FFFD，落到字体里
+ * 就是 .notdef —— 屏幕上看到的"豆腐块"。现在按真机先转换。
+ * 返回值 = 产出的 UTF-8 字节数（不含结尾 '\0'）。 */
+static size_t ucs2_to_utf8(uc_engine *uc, uint32_t ptr, uint32_t max_chars,
+                           char *out, size_t cap) {
+  size_t o = 0;
+  if (!ptr || !max_chars || cap == 0) {
+    if (cap)
+      out[0] = '\0';
+    return 0;
+  }
+  for (uint32_t i = 0; i < max_chars; i++) {
+    uint8_t b[2];
+    if (uc_mem_read(uc, ptr + i * 2u, b, 2) != UC_ERR_OK)
+      break;
+    uint16_t c = (uint16_t)(b[0] | (b[1] << 8));
+    if (c == 0)
+      break; /* 真机：遇 UCS-2 '\0' 即有效长度到此为止 */
+    size_t need = (c < 0x80) ? 1u : ((c < 0x800) ? 2u : 3u);
+    if (cap <= o + need)
+      break; /* 真机：容量不够就停 */
+    if (need == 1) {
+      out[o++] = (char)c;
+    } else if (need == 2) {
+      out[o++] = (char)(0xC0 | (c >> 6));
+      out[o++] = (char)(0x80 | (c & 0x3F));
+    } else {
+      out[o++] = (char)(0xE0 | (c >> 12));
+      out[o++] = (char)(0x80 | ((c >> 6) & 0x3F));
+      out[o++] = (char)(0x80 | (c & 0x3F));
+    }
+  }
+  out[o] = '\0';
+  return o;
 }
 
 /* ---------- 宿主软件帧缓冲 ----------
@@ -226,11 +345,17 @@ static void fb_draw_rect(int x, int y, int w, int h, uint32_t color) {
   }
 }
 
-/* 在 rect_ptr 指向的矩形 {x,y,w,h} 内居中绘制文本。
+/* 在 rect_ptr 指向的矩形 {x,y,w,h} 内按对齐标志绘制文本。
  * 用 TTF 光栅化成 ARGB8888 表面后逐像素 alpha 混合进软件帧缓冲
- * （不再走 SDL_Render*，保证与 BitBlt 等操作共用同一块画布）。 */
+ * （不再走 SDL_Render*，保证与 BitBlt 等操作共用同一块画布）。
+ *
+ * text 必须是**已转好的 UTF-8**（真机在这里之前先过 Ucs2_2_Utf8，见
+ * ucs2_to_utf8）。
+ * flags = 真机 DrawText 的 a7（栈 +8）：
+ *   &2 右对齐   &4 水平居中   &0x20 底对齐   &0x10 垂直居中
+ * 其余位（实测 applet 常带 bit0）含义未知，忽略 —— 它不参与定位。 */
 static void fb_draw_text(uc_engine *uc, uint32_t rect_ptr, const char *text,
-                         uint32_t color, int font_size) {
+                         uint32_t color, int font_size, uint32_t flags) {
   if (!g_fb || !rect_ptr || !text || !text[0])
     return;
 
@@ -256,8 +381,16 @@ static void fb_draw_text(uc_engine *uc, uint32_t rect_ptr, const char *text,
     return;
 
   int tw = conv->w, th = conv->h;
-  int dx = rx + (rw - tw) / 2;
-  int dy = ry + (rh - th) / 2;
+  /* 对齐：忠实照搬真机的位判断（真机先用 MeasureString 量宽高再按 a7 定位） */
+  int dx = rx, dy = ry;
+  if (flags & 2)
+    dx = rx + rw - tw; /* 右对齐 */
+  else if (flags & 4)
+    dx = rx + (rw - tw) / 2; /* 水平居中 */
+  if (flags & 0x20)
+    dy = ry + rh - th; /* 底对齐 */
+  else if (flags & 0x10)
+    dy = ry + (rh - th) / 2; /* 垂直居中 */
 
   if (SDL_MUSTLOCK(conv))
     SDL_LockSurface(conv);
@@ -982,6 +1115,9 @@ int zm_display_init(void) {
     log_error("TTF_Init failed: %s", TTF_GetError());
     return -1;
   }
+  /* 预热并记录"实际选中的字体 + face"：文本渲染出问题时（豆腐块/方框）
+   * 第一件事就是看这行日志。 */
+  (void)get_font(0);
 
   char window_title[128];
   char *ext_char = " (zm_emu)";
@@ -1081,46 +1217,76 @@ bool zm_display_event_loop(void (*on_click)(uint32_t x, uint32_t y),
   /* present 最终画布（init 绘制内容）让用户看到界面 */
   fb_present();
 
-  /* 自动点击（实测用）：ZM_AUTO_CLICK="x,y[,间隔毫秒]" —— 用于在没有真人
-   * 操作的环境（脚本/远端）验证触摸链路是否真的通到 applet。
+  /* 自动点击（实测用）：ZM_AUTO_CLICK —— 无人值守时驱动界面。
+   *
+   *   单点： "x,y"            只点一次
+   *          "x,y,间隔毫秒"    按时重复（上限 20 次）
+   *   序列： "x,y;x,y;..."     按顺序每 1500ms 走一步，用于复现多点导航
+   *                            （例 00000506：标题页"左箭头×2 → 中间"→ 关于页）
+   *
+   * 为什么单点常常"点不动"：本函数在 applet 的 EV_RESUME 之后立即进入，
+   * 此时界面还没就绪，早到的点击会被 applet 丢掉 → 需要重复或走序列。
    * 事件码语义已实测确认（00000506 sub_80FC）：
    *   evt=9  PEN_DOWN → obj->vt[0x1C](obj, x, y)
    *   evt=10 PEN_UP   → obj->vt[0x1C](obj, x, y)
    *   evt=11 PEN_MOVE → obj->vt[0x1C](obj, x, y)（拖动）
-   * 点击后 handler 通常会重绘界面，可直接用 ZM_SCREENSHOT 对比截图验证。
-   *
-   * 省略"间隔毫秒"= 只发一次（旧行为）。给间隔则**按时重复**：本函数在
-   * applet 的 EV_RESUME 之后立即进入，此时界面往往还没就绪，早到的点击会被
-   * applet 直接丢掉（实测 00000506 标题页：只发一次时点不动，重复点击才会
-   * 进关卡列表）。重复上限 20 次，避免无人值守时无限点下去。 */
+   * 点击后 handler 通常会重绘界面，可直接用 ZM_SCREENSHOT 对比截图验证。 */
   {
-    static int auto_done = 0;
-    if (!auto_done && on_click) {
-      const char *ac = getenv("ZM_AUTO_CLICK");
+    enum { AC_OFF, AC_SEQ, AC_ONCE, AC_REPEAT };
+    static int ac_mode = -1;   /* -1 = 尚未解析环境变量 */
+    static char seq[512];
+    static char *cursor = NULL;
+    static int ax = 0, ay = 0, iv = 0;
+    static uint32_t last = 0;
+    static int cnt = 0;
+    static int done = 0;
+    const char *ac = getenv("ZM_AUTO_CLICK");
+
+    if (ac_mode < 0) {
+      ac_mode = AC_OFF;
       if (ac && ac[0]) {
-        int ax = 0, ay = 0, iv = 0;
-        if (sscanf(ac, "%d,%d,%d", &ax, &ay, &iv) >= 2) {
-          if (iv <= 0) {
-            auto_done = 1;
-            log_info("自动点击测试: (%d, %d)", ax, ay);
-            on_click((uint32_t)ax, (uint32_t)ay);
-            fb_present();
-            return true;
-          }
-          static uint32_t last = 0;
-          static int cnt = 0;
-          uint32_t now = SDL_GetTicks();
-          if (cnt == 0 || now - last >= (uint32_t)iv) {
-            last = now;
-            cnt++;
-            if (cnt > 20)
-              auto_done = 1;
-            log_info("自动点击测试(#%d): (%d, %d)", cnt, ax, ay);
-            on_click((uint32_t)ax, (uint32_t)ay);
-            fb_present();
-            return true;
-          }
+        if (strchr(ac, ';')) { /* 序列 */
+          snprintf(seq, sizeof(seq), "%s", ac);
+          cursor = seq;
+          ac_mode = AC_SEQ;
+        } else if (sscanf(ac, "%d,%d,%d", &ax, &ay, &iv) >= 2) {
+          ac_mode = (iv > 0) ? AC_REPEAT : AC_ONCE;
         }
+        if (ac_mode != AC_OFF)
+          log_info("自动点击脚本: %s", ac);
+      }
+    }
+
+    if (!done && on_click && ac_mode != AC_OFF) {
+      uint32_t now = SDL_GetTicks();
+      int fire = 0, cx = 0, cy = 0;
+      if (ac_mode == AC_ONCE) {
+        fire = 1;
+        done = 1;
+      } else if (ac_mode == AC_REPEAT) {
+        if (cnt == 0 || now - last >= (uint32_t)iv) {
+          fire = 1;
+          last = now;
+          if (++cnt >= 20)
+            done = 1; /* 上限，避免无人值守时无限点下去 */
+        }
+      } else if (!cursor || !*cursor) {
+        done = 1;
+      } else if (cnt == 0 || now - last >= 1500u) {
+        if (sscanf(cursor, "%d,%d", &cx, &cy) >= 2)
+          fire = 1;
+        char *semi = strchr(cursor, ';');
+        cursor = semi ? semi + 1 : NULL;
+        if (!cursor)
+          done = 1;
+        cnt++;
+        last = now;
+      }
+      if (fire) {
+        log_info("自动点击(#%d): (%d, %d)", cnt, cx, cy);
+        on_click((uint32_t)cx, (uint32_t)cy);
+        fb_present();
+        return true;
       }
     }
   }
@@ -1564,45 +1730,26 @@ uint32_t zm_display_GetFontHeight(uc_engine *uc) {
 }
 
 /* +0x4C：MeasureString(this, str_ptr, len, width_out, sp[metrics_out])
- * 真机（000267E0 附近）：先按 len 扫描 UCS2 串里的 '\0' 截断有效长度；
- * 若选中字体类型==3 走自定义字体 vtable（未注册返回 -1），否则 ZMAEE_Ucs2_2_Utf8
- * 转 UTF8 后用当前字体量宽，写 *width_out；再调 sub_26378 写 *metrics_out（字体高度）。
- * context 空返回 -4。模拟器：context 恒非空 → 返回 0；用 g_font 量像素宽写 *width_out、
- * 量像素行高写 *metrics_out。metrics_out 指针在栈第 5 参（guest sp[0]）。 */
+ * 真机（ZMAEE_IDisplay_MeasureString 反编译）：
+ *   1) ctx = dword_64BA8；==0 → -4；
+ *   2) 按 UCS-2 '\0' 把 len 截到有效字数（len==0 或 *str==0 → 记 0）；
+ *   3) 若选中字体类型(ctx[2])==3 → 走自定义字体 vtable（未注册返回 -1）；
+ *   4) 否则 ZMAEE_Ucs2_2_Utf8(str, len, buf[512], 0x200)
+ *      → NewStringUTF → AndroidAEE_MeasureText(...) → *width_out = 宽（float）；
+ *   5) 若 a5 != 0 → sub_26378(this, 0, a5) 写字体高度指标。
+ * 模拟器：context 恒非空 → 返回 0；用同一个 ucs2_to_utf8 + 当前 TTF 量宽高。 */
 uint32_t zm_display_MeasureString(uc_engine *uc, uint32_t disp, uint32_t str_ptr,
                                   uint32_t len, uint32_t width_out, uint32_t sp) {
   zm_display_slot_tick(0x4CU);
   (void)disp;
 
   int w = 0;
-  size_t cap = (size_t)len * 2;
-  if (cap > 4096)
-    cap = 4096;
-  uint8_t raw[4096];
-  if (str_ptr && len && uc_mem_read(uc, str_ptr, raw, cap) == UC_ERR_OK) {
-    /* 有效长度：遇 UCS2 '\0'（两字节均为 0）截断，与真机一致 */
-    size_t n = 0;
-    for (; n * 2 + 1 < cap; n++) {
-      if (raw[2 * n] == 0 && raw[2 * n + 1] == 0)
-        break;
-    }
-    /* UCS2 → UTF8 */
+  if (str_ptr && len) {
+    /* 真机顺序：先按 UCS-2 '\0' 定有效长度，再 Ucs2_2_Utf8 转 UTF-8，
+     * 然后用它去 NewStringUTF/MeasureText。这里用同一个 helper，避免和
+     * DrawText 的编码理解再次分叉（历史上就是这里按 UCS-2、那里按 UTF-8）。 */
     char utf8[4096];
-    size_t ul = 0;
-    for (size_t i = 0; i < n && i * 2 + 1 < cap; i++) {
-      uint16_t c = (uint16_t)(raw[2 * i] | (raw[2 * i + 1] << 8));
-      if (c < 0x80) {
-        utf8[ul++] = (char)c;
-      } else if (c < 0x800) {
-        utf8[ul++] = (char)(0xC0 | (c >> 6));
-        utf8[ul++] = (char)(0x80 | (c & 0x3F));
-      } else {
-        utf8[ul++] = (char)(0xE0 | (c >> 12));
-        utf8[ul++] = (char)(0x80 | ((c >> 6) & 0x3F));
-        utf8[ul++] = (char)(0x80 | (c & 0x3F));
-      }
-    }
-    utf8[ul] = '\0';
+    size_t ul = ucs2_to_utf8(uc, str_ptr, len, utf8, sizeof(utf8));
     TTF_Font *font = get_font(g_font_size);
     int h = 0;
     if (font)
@@ -1627,23 +1774,37 @@ uint32_t zm_display_MeasureString(uc_engine *uc, uint32_t disp, uint32_t str_ptr
 }
 
 /* +0x50：drawText
- * r1=rect_ptr, r2=text_ptr, r3=text_len, sp=color, sp+8=font_size */
+ *
+ * 真机（ZMAEE_IDisplay_DrawText 反编译）签名与语义：
+ *   DrawText(this=r0, rect=r1, text=r2 (UCS-2), len=r3,
+ *            color=[sp+0], a6=[sp+4], flags=[sp+8])
+ *   1) 校验：this/text/rect 为 0 → -4；len==0 或 *text==0 → 直接返回；
+ *   2) 按 UCS-2 '\0' 把 len 截到有效字数；
+ *   3) **MeasureString(自身, text, len, &w, &h)** 量出文本宽高；
+ *   4) 用 flags 把文本在 rect 内定位：
+ *        &2 右对齐  &4 水平居中  &0x20 底对齐  &0x10 垂直居中；
+ *   5) Ucs2_2_Utf8(text, len, buf, 256) → NewStringUTF → AndroidAEE_GetTextBitmap
+ *      （渲染发生在 **Android 侧**，用系统字体，所以真机汉字一定有字形）；
+ *   6) ZMAEE_Blt 把这张文字位图贴进当前层。
+ *
+ * 【2026-09 修正】模拟器以前：把 UCS-2 原始字节当 UTF-8 直接喂 TTF（汉字
+ * 两字节被当成非法 UTF-8 → .notdef = 豆腐块），并且把 `flags` 当字号用
+ * （实测 applet 传 0x21/0x14/0x11，是"底对齐/居中"而不是 33px/20px）。
+ * 现在：先 ucs2_to_utf8 转换 → 字体按 ZM_FONT/CJK 候选挑 → flags 按位定位。
+ * a6（[sp+4]）真机透传给 AndroidAEE_GetTextBitmap，含义未定，暂忽略。 */
 uint32_t zm_display_DrawText(uc_engine *uc, uint32_t rect_ptr, uint32_t text_ptr,
                              uint32_t text_len, uint32_t sp) {
   zm_display_slot_tick(0x50U);
-  char text[256];
-  if (text_ptr && text_len) {
-    uint32_t n = text_len < (uint32_t)sizeof(text) - 1
-                     ? text_len
-                     : (uint32_t)sizeof(text) - 1;
-    uc_mem_read(uc, text_ptr, text, n);
-    text[n] = '\0';
-  } else {
-    text[0] = '\0';
-  }
+  if (!rect_ptr || !text_ptr || !text_len)
+    return 0;
+  char text[512];
+  ucs2_to_utf8(uc, text_ptr, text_len, text, sizeof(text));
+  if (!text[0])
+    return 0;
   uint32_t color = uc_read32(uc, sp);
-  uint32_t font_sz = uc_read32(uc, sp + 8);
-  fb_draw_text(uc, rect_ptr, text, color, (int)font_sz);
+  uint32_t flags = uc_read32(uc, sp + 8);
+  /* 字号来自字体上下文（SelectFont 选中的类型 → 大小），不是栈参数 */
+  fb_draw_text(uc, rect_ptr, text, color, g_font_size, flags);
   return 0;
 }
 
