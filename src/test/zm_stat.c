@@ -156,7 +156,8 @@ static void zm_stat_dump_table(const char *title, zm_stat_ent_t *tab,
   if (!s_on)
     return;
   log_info("===== %s：累计 %u 次，%u 个不同目标 =====", title, total, used);
-  for (int k = 0; k < 20; k++) {
+  /* 上限 64：applet 一局通常只用到 40 多个槽，全列出来便于盘"哪些是 stub" */
+  for (int k = 0; k < 64; k++) {
     int best = -1;
     uint32_t bestc = 0;
     for (uint32_t i = 0; i < ZM_STAT_CAP; i++) {
