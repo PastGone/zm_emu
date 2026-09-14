@@ -125,6 +125,9 @@ uint32_t zm_setting_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
  * 比较），改掉会改变 applet 走向。 */
 uint32_t zm_setting_x24(uc_engine *uc, uint32_t out4, uint32_t out_buf);
 
+/* +0x18：声音开关（设置键 "on" 置为 on 并转给系统侧），只记录偏好 */
+uint32_t zm_setting_set_sound(uc_engine *uc, uint32_t on);
+
 /* stub DLL 对象 vtable 方法（loadDLL 返回的 DLL_OBJ） */
 uint32_t zm_dll_init(uc_engine *uc);
 uint32_t zm_dll_config(uc_engine *uc, uint32_t a1, uint32_t a2, uint32_t a3);

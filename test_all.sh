@@ -14,7 +14,8 @@
 # 环境变量:
 #   ZM_TEST_SEC      每个 applet 运行秒数（默认 6；填 0 / inf / none 表示不限时长）
 #   ZM_TEST_OUT      日志输出目录（默认 /tmp/zm_test）
-#   ZM_TEST_DISPLAY  置 1 则用真实窗口
+#   ZM_TEST_DISPLAY  置 1 则用真实窗口（默认只把**画面**设成 dummy，音频照常出声）
+#   ZM_TEST_MUTE     置 1 才把音频驱动设成 dummy（默认不静音）
 #
 # 判定:
 #   稳定 = 跑满时长且日志无“异常停止”
@@ -39,11 +40,17 @@ if [ ! -x "$BIN" ]; then
   exit 1
 fi
 
-# 无头运行，避免批量弹窗；需要肉眼看画面时用 ZM_TEST_DISPLAY=1
+# 无头运行，避免批量弹窗；需要肉眼看画面时用 ZM_TEST_DISPLAY=1。
+# 注意：**不再默认静音**——出不出声是 applet 自己设置（ISetting 键 "on"）说了算，
+# 把音频驱动设成 dummy 会让"声音开关"看起来永远失效。批量跑嫌吵再设
+# ZM_TEST_MUTE=1。
 if [ "${ZM_TEST_DISPLAY:-0}" = "1" ]; then
   DRV=()
 else
-  DRV=(SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy)
+  DRV=(SDL_VIDEODRIVER=dummy)
+fi
+if [ "${ZM_TEST_MUTE:-0}" = "1" ]; then
+  DRV+=(SDL_AUDIODRIVER=dummy)
 fi
 
 # 时长控制：ZM_TEST_SEC=0/inf/none/off/unlimited → 不限时长（不加 timeout，
