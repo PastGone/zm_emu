@@ -2,6 +2,7 @@
 #include "./log/log.h"
 #include "./tool/uc_helper.h"       /* uc_read32：调试用实例字段 dump */
 #include "./zmaee/audio/zm_audio.h" /* zm_audio_note_user_input：首次点击通知 */
+#include "./test/zm_stat.h"        /* zm_stat_touch：点击坐标统计（ZM_STAT=1） */
 #include "unicorn/arm.h"
 #include <stdbool.h>
 
@@ -11,6 +12,20 @@ static struct {
   uint32_t evt;
   uint32_t x, y;
 } g_pending_touch = {false, 0, 0, 0};
+
+/* applet 是否请求过关闭自己（IShell.CloseApplet） */
+static bool s_close_requested = false;
+
+void zm_event_request_close(void) {
+  if (s_close_requested)
+    return;
+  s_close_requested = true;
+  log_info("IShell.CloseApplet：applet 请求关闭自己 → 先派发 EV_STOP(evt=1) "
+           "让它收尾（停声音 + 存盘），收尾后结束模拟");
+  dispatch_applet_event(1, 0, 0);
+}
+
+bool zm_event_close_requested(void) { return s_close_requested; }
 
 void dispatch_applet_event(uint32_t evt, uint32_t x, uint32_t y) {
   if (!g_instance || !g_handler)
@@ -73,9 +88,12 @@ void dispatch_applet_event(uint32_t evt, uint32_t x, uint32_t y) {
 void on_touch_click(uint32_t x, uint32_t y) {
   log_info("触摸事件: (%u, %u) -> handler=0x%X instance=0x%X", x, y, g_handler,
            g_instance);
-  // /* 通知音频侧"用户已经操作过了"：解除"进去默认关"的静音锁定，
-  //  * 此后按 applet 自己的开关状态出声（见 zm_audio.c sound_allowed）。 */
+  /* 音频侧：通知"用户操作过了"（见 zm_audio.c 的 zm_audio_note_user_input /
+   * sound_allowed）。注意：当前用的是"任意点击即解除进去默认关"这一版，
+   * 与"只有点到声音开关才切换"的热区版（zm_audio_note_touch）二选一。 */
   zm_audio_note_user_input();
+  /* 点击坐标统计（ZM_STAT=1）：找"哪块 UI 被反复点" */
+  zm_stat_touch(x, y);
   /* 派发 case 9 (penDown)：记录按下点到 INSTANCE[25..26] */
   dispatch_applet_event(9, x, y);
   /* 排队 case 10 (penUp)：等 handler 执行完 case 9 后，下一轮事件循环再派发 */

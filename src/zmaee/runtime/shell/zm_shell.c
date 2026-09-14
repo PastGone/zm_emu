@@ -5,7 +5,8 @@
 #include "../../../tool/uc_helper.h"
 #include "../../core/zm_root.h" /* zm_root_get_tick（SDL_GetTicks） */
 #include "../../core/zm_str.h"  /* read_cstr */
-#include "../../audio/zm_audio.h" /* zm_audio_set_sound_on：声音开关真正落地 */
+#include "../../audio/zm_audio.h" /* zm_audio_set_sound_*：声音开关真正落地 */
+#include "../../../event.h"       /* zm_event_request_close：applet 请求关闭 */
 #include <stdint.h>
 #include <string.h> /* memset（GetDeviceInfo 整块清零） */
 
@@ -356,5 +357,21 @@ uint32_t zm_util_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
     log_info("[IUtil] 槽+0x%X r0=0x%X r1=0x%X r2=0x%X r3=0x%X", off, r0, r1,
              r2, r3);
   (void)uc;
+  return 0;
+}
+
+/* IShell[+0x24] = CloseApplet(bRetToIdle)
+ *
+ * RE（固件 sub_3482C）：里面那句日志串就是 "CloseApplet: bRetToIdle = %d"。
+ * 00000506 在标题页点"退出"那一块（约 (96~107, 219~225)）会调它 —— 以前我们
+ * 当成未知槽（zm_shell_stub 返回 0），点了毫无反应。
+ *
+ * 现在：先派发 EV_STOP(evt=1) 让 applet 跑完自己的退出回调（sub_9270：
+ * ISetting(0) 关声音、pauseMusic、取消定时器、释放 UI 并存盘 data/farm），
+ * 收尾后由 TR_enter_event_loop 分支检测到"已请求关闭"而结束模拟。 */
+uint32_t zm_shell_CloseApplet(uc_engine *uc, uint32_t b_ret_to_idle) {
+  (void)uc;
+  log_info("IShell.CloseApplet(bRetToIdle=%u) → applet 请求关闭自己", b_ret_to_idle);
+  zm_event_request_close();
   return 0;
 }

@@ -42,6 +42,10 @@ uint32_t zm_fs_release(uc_engine *uc);
  *       *out_len 为字节数；失败：返回 -1，*out_buf=NULL、*out_len=0。 */
 int zm_fs_read_file(const char *name, uint8_t **out_buf, size_t *out_len);
 
+/* 把 IFile.Write 改过的内容写回宿主机文件（full_path 是 open 时解析出的全路径）。
+ * 成功 0，失败 -1。 */
+int zm_fs_write_back(const char *full_path, const uint8_t *data, size_t len);
+
 /* 默认初始化：设置数据目录（不扫描任何文件） */
 void zm_fs_register_default(const char *applet_dir);
 

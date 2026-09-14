@@ -128,6 +128,11 @@ uint32_t zm_setting_x24(uc_engine *uc, uint32_t out4, uint32_t out_buf);
 /* +0x18：声音开关（设置键 "on" 置为 on 并转给系统侧），只记录偏好 */
 uint32_t zm_setting_set_sound(uc_engine *uc, uint32_t on);
 
+/* IShell[+0x24] = CloseApplet(bRetToIdle)（RE：固件 sub_3482C，日志串
+ * "CloseApplet: bRetToIdle = %d"）。applet 用它请求关闭自己：我们先派发
+ * EV_STOP 让它的退出回调跑完（停声音 + 存盘），再由事件循环结束模拟。 */
+uint32_t zm_shell_CloseApplet(uc_engine *uc, uint32_t b_ret_to_idle);
+
 /* stub DLL 对象 vtable 方法（loadDLL 返回的 DLL_OBJ） */
 uint32_t zm_dll_init(uc_engine *uc);
 uint32_t zm_dll_config(uc_engine *uc, uint32_t a1, uint32_t a2, uint32_t a3);

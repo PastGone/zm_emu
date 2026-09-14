@@ -1,5 +1,6 @@
 #include "./trap.h"
 #include "./log/log.h"
+#include "./test/zm_stat.h" /* zm_stat_trap：槽位调用次数统计（ZM_STAT=1） */
 #include <inttypes.h> /* PRIx32，用于第 294 行格式化输出 */
 #include <stdint.h>
 #include <stdio.h>
@@ -186,6 +187,9 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   if (g_disasm)
     print_non_zero_registers(uc);
 
+  /* 统计探针（ZM_STAT=1）：在真正分发前记一笔，供"哪个槽位被疯狂调用"分析 */
+  zm_stat_trap(trap_address - TRAMP_BASE);
+
   uint32_t ret = 0;
   switch (trap_address) {
   case TR_init_callback: {
@@ -262,6 +266,13 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     static int resume_enabled = 1;
     static int resume_inited = 0;
 
+    /* applet 调过 IShell.CloseApplet（+0x24）：它的退出回调 EV_STOP 已跑完，收工 */
+    if (zm_event_close_requested()) {
+      log_info("applet 的退出回调已跑完（CloseApplet）→ 结束模拟");
+      uc_emu_stop(uc);
+      return;
+    }
+
     if (!resume_inited) {
       const char *ar = getenv("ZM_AUTO_RESUME");
       resume_enabled = (!ar || ar[0] != '0');
@@ -321,7 +332,30 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     const char *env = getenv("ZM_GFX_HOLD_MS");
     if (env && *env)
       hold_ms = (uint32_t)strtoul(env, NULL, 0);
+    /* 关窗/超时后的收尾：
+     *   1) 已派发过 EV_STOP → 直接收工（**必须先判**，否则会再次进入事件循环，
+     *      而 SDL_QUIT 已被消费，循环再也不返回 → 只能被 timeout -k 强杀）。
+     *   2) 否则在 ZM_EXIT_EVENT=1 时先派发 EV_STOP(evt=1)，让 applet 自己跑完
+     *      收尾（依据 00000506 入口 sub_87C8：evt=0 建屏、evt=1 释放屏幕；
+     *      那条链路到 sub_9270：ISetting[+0x18](0) 关声音、pauseMusic、
+     *      取消定时器、释放 UI 并存盘 data/farm）—— 也就是"applet 自己的
+     *      退出回调"。handler 返回后回到本 trap，再走 1) 收工。
+     * 默认关闭（ZM_EXIT_EVENT=1 开启）：部分 applet 的退出路径会踩到已释放
+     * 的对象，开启前先确认该 applet 稳定。 */
+    static int exit_dispatched = 0;
+    if (exit_dispatched) {
+      uc_emu_stop(uc);
+      return;
+    }
     if (!zm_display_event_loop(on_touch_click, hold_ms)) {
+      const char *ex = getenv("ZM_EXIT_EVENT");
+      if (ex && *ex && ex[0] != '0') {
+        exit_dispatched = 1;
+        log_info("派发 EV_STOP(evt=1) -> handler=0x%X（让 applet 自己收尾）",
+                 g_handler);
+        dispatch_applet_event(1, 0, 0);
+        return;
+      }
       uc_emu_stop(uc);
     }
     return;
@@ -482,8 +516,8 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   case TR_shell_StartApplet:
     ret = zm_shell_stub(uc, 0x20, r0, r1, r2, r3);
     break;
-  case TR_shell_x24: /* RE sub_3482C，未知 */
-    ret = zm_shell_stub(uc, 0x24, r0, r1, r2, r3);
+  case TR_shell_CloseApplet: /* +0x24 = CloseApplet(bRetToIdle)：applet 请求关闭 */
+    ret = zm_shell_CloseApplet(uc, r1);
     break;
   case TR_shell_CanStartApplet:
     ret = zm_shell_stub(uc, 0x28, r0, r1, r2, r3);
@@ -618,6 +652,9 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break; /* file.close(r0=this/file_id) */
   case TR_file_read:
     ret = zm_file_read(uc, r0, r1, r2);
+    break;
+  case TR_file_write: /* +0x0C = ZMAEE_IFile_Write(ifile, buf, len)：applet 存档 */
+    ret = zm_file_write(uc, r0, r1, r2);
     break;
   case TR_file_seek:
     ret = zm_file_seek(uc, r0, r1, r2);
