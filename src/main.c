@@ -214,7 +214,6 @@ int main() {
   // 调试 & 自测（已拆至 test/test_diag.c）//diag 的意思是诊断
   // zm_diag_dump_buttons(g_uc);
   // // zm_diag_audio_test(g_uc);
-  // zm_diag_auto_click();
   // zm_diag_run_event_loop();
 
   // 释放资源
