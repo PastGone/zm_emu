@@ -65,6 +65,7 @@ enum ZM_FILEMGR_VT {
  */
 #define TR_file_close TRAP(FILE_VT_ADDR + ZM_File_Release) /* Release */
 #define TR_file_read TRAP(FILE_VT_ADDR + ZM_File_Read)
+#define TR_file_write TRAP(FILE_VT_ADDR + ZM_File_Write)
 #define TR_file_seek TRAP(FILE_VT_ADDR + ZM_File_Seek)
 #define TR_file_tell                                                           \
   TRAP(FILE_VT_ADDR + ZM_File_Tell) /* Tell：返回当前读写位置 */

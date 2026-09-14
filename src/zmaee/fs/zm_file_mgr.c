@@ -304,6 +304,9 @@ uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr) {
   g_file_data = buf;
   g_file_size = (size_t)sz;
   g_file_pos = 0;
+  g_file_dirty = 0;
+  /* 记住宿主机全路径：Write 之后 close 时要靠它写回（自动存档） */
+  snprintf(g_file_path, sizeof(g_file_path), "%s", full_path);
 
   log_info("fs.open(\"%s\") -> FILE1 (size=%zu)", name, g_file_size);
   return FILE1; /* FILE1 是预定义的虚拟句柄地址 */
@@ -382,6 +385,27 @@ void zm_fs_register_default(const char *applet_dir) {
   zm_fs_set_data_dir(applet_dir);
   log_info("zm_fs: 数据目录 = \"%s\"（文件将在 fs.open 时按需加载）",
            s_data_dir);
+}
+
+/* ---------- 写回宿主机文件 ----------
+ * IFile.Write 改动的内容最终由这里落盘。
+ * 00000506 每 10 秒写一次 40 字节的存档 `data`（SetTimer(10000, cb=0x9F84)）；
+ * 以前 +0x0C 这个槽没接，applet 的存档/设置从来没能保存。 */
+int zm_fs_write_back(const char *full_path, const uint8_t *data, size_t len) {
+  if (!full_path || !full_path[0])
+    return -1;
+  FILE *fp = fopen(full_path, "wb");
+  if (!fp) {
+    log_error("zm_fs_write_back: 打不开 \"%s\" 写入", full_path);
+    return -1;
+  }
+  if (len && fwrite(data, 1, len, fp) != len) {
+    fclose(fp);
+    log_error("zm_fs_write_back: 写 \"%s\" 失败", full_path);
+    return -1;
+  }
+  fclose(fp);
+  return 0;
 }
 
 /* ---------- 清理 ---------- */

@@ -1,10 +1,12 @@
 #include "zm_file.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "../../emu.h"
 #include "../../log/log.h"
+#include "zm_file_mgr.h" /* zm_fs_write_back：close 时把改动写回宿主机文件 */
 
 /* ========== 通用单文件系统：IFile 层 ==========
  *
@@ -16,14 +18,27 @@
 uint8_t *g_file_data = NULL; /* 当前打开文件的内容 */
 size_t g_file_size = 0;      /* 文件大小 */
 uint32_t g_file_pos = 0;     /* 读写游标 */
+char g_file_path[ZM_FILE_PATH_MAX] = {0}; /* 宿主机全路径（写回用） */
+int g_file_dirty = 0;         /* 是否被 Write 改过 */
 
 uint32_t zm_file_close(uc_engine *uc, uint32_t file_id) {
   (void)uc;
   if (file_id == FILE1 && g_file_data) {
+    /* 被 Write 改过 → 落盘。00000506 的自动存档（10 秒一次，40 字节 `data`）
+     * 就是 open → write → close 这条链路，以前 write 没实现，等于从没存上。 */
+    if (g_file_dirty && g_file_path[0]) {
+      if (zm_fs_write_back(g_file_path, g_file_data, g_file_size) == 0)
+        log_info("file.close: 已写回宿主机 \"%s\"（%zu 字节）", g_file_path,
+                 g_file_size);
+      else
+        log_error("file.close: 写回 \"%s\" 失败", g_file_path);
+    }
     free(g_file_data);
     g_file_data = NULL;
     g_file_size = 0;
     g_file_pos = 0;
+    g_file_path[0] = 0;
+    g_file_dirty = 0;
     log_debug("file.close");
   }
   return 0;
@@ -57,6 +72,51 @@ uint32_t zm_file_read(uc_engine *uc, uint32_t file_id, uint32_t buf,
                nfail);
   }
   return n;
+}
+
+/* IFile vtable +0x0C = ZMAEE_IFile_Write(ifile, buf, len)。
+ * 把客户机 buf 处的 len 字节写进当前文件缓冲（必要时扩容），游标前进，
+ * 并置 dirty —— 真正的落盘在 close 时做（见 zm_file_close）。 */
+uint32_t zm_file_write(uc_engine *uc, uint32_t file_id, uint32_t buf,
+                       uint32_t length) {
+  if (file_id != FILE1 || !g_file_data) {
+    log_warn("file.write: 没有打开的文件（id=0x%X）", file_id);
+    return 0;
+  }
+  if (length == 0)
+    return 0;
+
+  uint32_t need = g_file_pos + length;
+  if (need > g_file_size) { /* 写超末尾 → 扩容 */
+    uint8_t *nb = realloc(g_file_data, need);
+    if (!nb) {
+      log_error("file.write: 扩容到 %u 字节失败", need);
+      return 0;
+    }
+    g_file_data = nb;
+    g_file_size = need;
+  }
+
+  if (uc_mem_read(uc, buf, g_file_data + g_file_pos, length) != UC_ERR_OK) {
+    log_error("file.write: 读客户机内存 0x%X/%u 失败", buf, length);
+    return 0;
+  }
+  g_file_pos += length;
+  g_file_dirty = 1;
+  log_info("file.write buf=0x%X len=%u -> pos=%u size=%zu（将在 close 时写回 %s）",
+           buf, length, g_file_pos, g_file_size,
+           g_file_path[0] ? g_file_path : "(未知路径)");
+  /* 小写入（存档都是几十字节）顺手打 16 进制：定位"哪个字节是声音开关位"
+   * 就靠对比两次存档的内容。 */
+  if (length <= 64) {
+    char hex[64 * 3 + 1];
+    int n = 0;
+    for (uint32_t i = 0; i < length && n < (int)sizeof(hex) - 4; i++)
+      n += snprintf(hex + n, sizeof(hex) - (size_t)n, "%02X ",
+                    g_file_data[g_file_pos - length + i]);
+    log_info("file.write 内容: %s", hex);
+  }
+  return length;
 }
 
 uint32_t zm_file_seek(uc_engine *uc, uint32_t file_id, uint32_t whence,

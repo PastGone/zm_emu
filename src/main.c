@@ -4,6 +4,7 @@
 //
 #include "./emu.h"
 #include "./test/test_diag.h"
+#include "./test/zm_stat.h" /* zm_stat_init/dump：槽位与点击统计（ZM_STAT=1） */
 #include "./tool/odds.h"
 #include "./zmaee/audio/zm_audio.h"
 #include "./zmaee/fs/zm_file_mgr.h"
@@ -49,6 +50,9 @@ int main() {
   log_set_level(log_level);
   log_set_quiet(log_quiet);
   log_info("hello world!");
+
+  /* 统计探针（ZM_STAT=1）：统计各槽位调用次数与点击坐标，退出时打印 Top 榜 */
+  zm_stat_init();
 
   /* 关日志时连 log.txt 也不开、不注册回调（否则回调仍会写盘）。 */
   FILE *logfile = NULL;
@@ -215,6 +219,9 @@ int main() {
   // zm_diag_dump_buttons(g_uc);
   // // zm_diag_audio_test(g_uc);
   // zm_diag_run_event_loop();
+
+  /* 统计探针收尾：打印"哪个槽位被疯狂调用 / 哪块坐标被反复点" */
+  zm_stat_dump();
 
   // 释放资源
   zm_audio_shutdown();

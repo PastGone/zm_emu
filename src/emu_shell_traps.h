@@ -4,7 +4,36 @@
 #include "emu_mem_layout.h"
 
 /* -------------------- SHELL_VT_ADDR 枚举 -------------------- */
-/* ZMAEE IShell 原生虚表槽位（基址 SHELL_VT_ADDR，34 槽，止于 +0x88） */
+/* ZMAEE IShell 原生虚表槽位（基址 SHELL_VT_ADDR，34 槽，止于 +0x88）
+ *
+ * 槽位本身来自固件虚表 .data:0x64440（34 个函数指针，已 dump 核对）。
+ *
+ * 名字的证据分两档，注释里标了 ✅ / ❓：
+ *   ✅ 已证  —— 从该槽指向的函数里解出的**字符串字面量**得名
+ *             （如 +0x24 sub_3482C 里的日志串 "CloseApplet: bRetToIdle = %d"；
+ *              IMedia 那批则是真的 JNI 方法名字面量 + 签名）。
+ *   ❓ 疑似  —— 固件里存在同名字符串（下面【疑名清单】），但**没有**建立
+ *             "字符串 ↔ 该槽位"的引用链（Thumb/ARM 全扫无 PC 相对引用，
+ *             也不在虚表旁边的名字表里），属历史沿用命名，待证。
+ */
+/*
+ * 【疑名清单】固件中出现的 ZMAEE_IShell_* 字符串（均未建立引用链，仅供对照）
+ *   0x05DBA  ZMAEE_IShell_ActiveApplet
+ *   0x05DE5  ZMAEE_IShell_GetApplet
+ *   0x0645B  ZMAEE_IShell_StartApplet
+ *   0x081DA  ZMAEE_IShell_EntryApplet
+ *   0x081F3  ZMAEE_GetFixedApplet
+ *   0x0823E  ZMAEE_IShell_StartAppletROM
+ *   0x0825A  ZMAEE_IShell_StartAppletROM_Internal
+ *   0x082B2  ZMAEE_GetApplet
+ *   0x082C2  ZMAEE_IShell_GetAppletMask
+ *   0x082DD  ZMAEE_IShell_SetAppletMask
+ *   0x083A4  ZMAEE_IShell_CanStartApplet
+ *   0x083C0  ZMAEE_IShell_ValidateApplet
+ *   0x08458  ZMAEE_IShell_RunApplet
+ *   0x0846F  ZMAEE_IShell_StartApplet_Internal
+ *   0x5C43C  "CloseApplet: bRetToIdle = %d"   ← ✅ 已证，属 +0x24
+ */
 enum ZM_SHELL_VT {
   ZM_Shell_AddRef = 0x00U,
   ZM_Shell_Release = 0x04U,
@@ -14,10 +43,22 @@ enum ZM_SHELL_VT {
   ZM_Shell_GetRootDir = 0x14U,
   ZM_Shell_SetWorkDir = 0x18U,
   ZM_Shell_GetWorkDir = 0x1CU,
+  /* ❓ 疑名：固件串 ZMAEE_IShell_StartApplet @0x0645B（无引用链，待证）
+   *          对应函数 sub_3592C（未解出可自证的字符串） */
   ZM_Shell_StartApplet = 0x20U,
-  ZM_Shell_x24 = 0x24U,
+
+  /* ✅ 已证 +0x24 = CloseApplet(bRetToIdle)：
+   *   该槽指向 sub_3482C，其日志串就是 "CloseApplet: bRetToIdle = %d"（@0x5C43C）。
+   *   applet 用它请求关闭自己（00000506 点标题页"退出"那块会调它）。 */
+  ZM_Shell_CloseApplet = 0x24U,
+
+  /* ❓ 疑名：ZMAEE_IShell_CanStartApplet @0x083A4（无引用链）→ sub_34D60 */
   ZM_Shell_CanStartApplet = 0x28U,
+
+  /* ❓ 疑名：ZMAEE_IShell_ActiveApplet @0x05DBA（无引用链）→ sub_345F8 */
   ZM_Shell_ActiveApplet = 0x2CU,
+
+  /* ❓ 疑名：ZMAEE_IShell_GetApplet @0x05DE5（无引用链）→ sub_3461C */
   ZM_Shell_GetApplet = 0x30U,
   ZM_Shell_x34 = 0x34U,
   ZM_Shell_x38 = 0x38U,
@@ -61,9 +102,9 @@ enum ZM_SHELL_VT {
 #define TR_shell_GetWorkDir TRAP(SHELL_VT_ADDR + ZM_Shell_GetWorkDir)
 #define TR_shell_StartApplet TRAP(SHELL_VT_ADDR + ZM_Shell_StartApplet)
 
-#define TR_shell_x24                                                           \
-  TRAP(SHELL_VT_ADDR + ZM_Shell_x24) /* RE sub_3482C，未知                  \
-                                      */
+/* +0x24 CloseApplet(bRetToIdle)：RE sub_3482C（日志串 "CloseApplet: bRetToIdle
+ * = %d"）。applet 请求关闭自己 → zm_shell_CloseApplet 处理。 */
+#define TR_shell_CloseApplet TRAP(SHELL_VT_ADDR + ZM_Shell_CloseApplet)
 
 #define TR_shell_CanStartApplet TRAP(SHELL_VT_ADDR + ZM_Shell_CanStartApplet)
 #define TR_shell_ActiveApplet TRAP(SHELL_VT_ADDR + ZM_Shell_ActiveApplet)

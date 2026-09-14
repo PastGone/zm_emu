@@ -47,4 +47,16 @@ void on_touch_move(uint32_t x, uint32_t y);
  */
 bool zm_event_dispatch_pending(void);
 
+/**
+ * @brief applet 调用 IShell.CloseApplet（vtable +0x24）→ 它请求关闭自己
+ *
+ * 固件侧是 sub_3482C，日志串 "CloseApplet: bRetToIdle = %d"。
+ * 我们收到后：先派发 EV_STOP(evt=1) 让 applet 跑完自己的退出回调
+ * （00000506 会停声音 + 写 data/farm 存档），收尾完由事件循环分支结束模拟。
+ */
+void zm_event_request_close(void);
+
+/** @brief 是否已经收到过 CloseApplet（事件循环据此收工） */
+bool zm_event_close_requested(void);
+
 #endif
