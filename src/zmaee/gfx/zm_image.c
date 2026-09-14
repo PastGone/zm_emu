@@ -910,6 +910,28 @@ int zm_image_blit_gdi_surface(uc_engine *uc, uint32_t surf, int dx, int dy,
   if (!base)
     return 0; /* 候选基址都不可读 → 不是有效 surface */
 
+  /* 首次遇到某个 (step, ck) 组合就打一行 —— 用最低的噪音记录
+   * "这个 applet 到底用了哪些像素格式"，诊断 fmt/alpha 语义时的关键依据
+   * （例如判断有没有精灵真的走 2 字节/LA88 路径）。 */
+  {
+    static uint32_t seen[24];
+    static int nseen = 0;
+    uint32_t key = step * 1000003u + (ck & 0xFFFFFFu) + (uint32_t)(mode & 7) * 7919u;
+    int known = 0;
+    for (int i = 0; i < nseen; i++)
+      if (seen[i] == key) {
+        known = 1;
+        break;
+      }
+    if (!known) {
+      if (nseen < 24)
+        seen[nseen++] = key;
+      log_info("[GDI 首次] step=%d(每像素%d字节) ck=0x%X mode=%d 尺寸=%dx%d "
+               "目标=(%d,%d) surf=0x%X pix@0x%X",
+               step, bytes, ck, mode & 7, w, h, dx, dy, surf, base);
+    }
+  }
+
   if (g_disasm) {
     static int shown = 0;
     if (shown < 12) {
@@ -935,14 +957,22 @@ int zm_image_blit_gdi_surface(uc_engine *uc, uint32_t surf, int dx, int dy,
       if (rc <= 0)
         continue; /* 透明/越界 */
       int ddx = x, ddy = y;
+      /* mode（固件 ZMAEE_GDI_BitBlt_Ext 的 a6）→ 变换。
+       * 完整 RE 依据见 zm_display.c 的 fb_blit_rgba_mode 注释（同一张表）。
+       *   0 恒等 (X,Y)     1 左右翻转 (-X,Y)        2 反对角镜像 (-Y,-X)
+       *   3 上下翻转 (X,-Y) 4 主对角镜像/转置 (Y,X)  5 90° (-Y,X)
+       *   6 180° (-X,-Y)    7 270° (Y,-X)
+       * 【2026-09 修正】旧的 1/2/3/6/7 是错位表：mode7 应为 270° 旋转
+       * （net.zmspx 35x35 渔网走 mode5/7），旧实现做成反对角镜像 →
+       * 方形精灵看起来是象限转置。 */
       switch (mode & 7) {
-      case 1: ddy = sh - 1 - y; break;
-      case 2: ddx = sw - 1 - x; break;
-      case 3: ddx = sw - 1 - x; ddy = sh - 1 - y; break;
+      case 1: ddx = sw - 1 - x; break;
+      case 2: ddx = sh - 1 - y; ddy = sw - 1 - x; break;
+      case 3: ddy = sh - 1 - y; break;
       case 4: ddx = y; ddy = x; break;
       case 5: ddx = sh - 1 - y; ddy = x; break;
-      case 6: ddx = y; ddy = sw - 1 - x; break;
-      case 7: ddx = sh - 1 - y; ddy = sw - 1 - x; break;
+      case 6: ddx = sw - 1 - x; ddy = sh - 1 - y; break;
+      case 7: ddx = y; ddy = sw - 1 - x; break;
       default: break;
       }
       int ox = dx + ddx, oy = dy + ddy;
