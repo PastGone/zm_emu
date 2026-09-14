@@ -16,6 +16,7 @@ enum ZM_ROOT_TABLE {
   ZM_MemCpy = 0x5CU,
   ZM_Memset = 0x60U,
   ZM_Sprintf = 0x6cU,
+  ZM_StrToNum = 0x74U,
   ZM_StrAssign = 0x78U,
   ZM_StrCtor = 0x88U,
   ZM_StrChr = 0x90U,
@@ -48,6 +49,18 @@ enum ZM_ROOT_TABLE {
 #define TR_root_free TRAP(ROOT_TABLE_ADDR + ZM_Free)
 #define TR_root_str_copy TRAP(ROOT_TABLE_ADDR + ZM_StrCopy)
 #define TR_root_sprintf TRAP(ROOT_TABLE_ADDR + ZM_Sprintf)
+
+/* ROOT_TABLE_ADDR+0x74 = **数值字符串解析**（strtol 家族：str, endptr, base）。
+ *
+ * RE 证据（00000506 导入跳板 sub_18F98：`LDR R3,[R3,#(off_1B4 - 0x140)]`
+ * → 槽 = 0x1B4-0x140 = 0x74，共 5 个调用点）：
+ *   帮助页的标记解析器把 "{c #FF0000}" 拆成三段两字符，各调一次：
+ *     R5 = f(buf,"FF",16); R6 = f(buf,"00",16); R4 = f(buf,"00",16);
+ *     颜色 = R5<<16 | R6<<8 | R4 | (第 4 段 << 24)
+ *   调用形状恒为 (str=r0, endptr=0, base=0x10)，返回值就是解析出的数值。
+ * 这个槽以前没接线（走 default 分支返回 0），实测**每轮 3716 次**
+ * "非法的外部调用"，颜色全部塌成黑。 */
+#define TR_root_str_to_num TRAP(ROOT_TABLE_ADDR + ZM_StrToNum)
 #define TR_root_str_ctor TRAP(ROOT_TABLE_ADDR + ZM_StrCtor)
 #define TR_root_spec_lookup TRAP(ROOT_TABLE_ADDR + ZM_SpecLookup)
 

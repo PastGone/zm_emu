@@ -388,6 +388,13 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
       }
     }
     break;
+  case TR_root_str_to_num:
+    /* ROOT_TABLE_ADDR[0x74] = 数值字符串解析：strtol(str=r0, endptr=r1, base=r2)。
+     * RE 详见 emu_root_traps.h 的 ZM_StrToNum 注释：帮助页的标记解析器用它把
+     * "#FF0000" 拆成的三段两字符转成颜色分量，恒以 (buf, 0, 16) 调用；
+     * 未接线时该槽返回 0，实测每轮报 3716 次"非法的外部调用"、颜色塌成黑。 */
+    ret = (uint32_t)u_strtol(uc, r0, r1, (int)r2);
+    break;
   case TR_root_str_ctor:
     /* ROOT_TABLE_ADDR[0x88] str_ctor(dst=r0, src=r1)：含 '\0' 一起拷，返回 dst */
     ret = u_strcpy(uc, r0, r1);
