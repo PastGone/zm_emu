@@ -97,7 +97,20 @@ int zm_image_get_pixels(uint32_t obj, int *w, int *h, const uint8_t **rgba);
  * 供 IImage::Decode 与 IDisplay::LoadBitmap 共用。 */
 uint32_t zm_pix_pool_alloc(uint32_t bytes);
 
+/* 从池尾向下预留一块"终身常驻"缓冲，返回客户机地址（0 = 失败）。
+ *
+ * 用途：基础层缓冲（真机是在 ZMAEE_IDisplay_Init 里 malloc 一次、终身不释放，
+ * 见 RE 00026838）。它绝不能走 zm_pix_pool_alloc —— 那是个会回绕复用的 bump
+ * 分配器，一旦 s_pix_next 溢出回绕到 0，就会把基础层整块冲掉（00000506 有
+ * 上千次 LoadBitmap，必然回绕）。
+ * 预留后 bump 指针的上限随之降到该块之前，保证两者永不重叠。 */
+uint32_t zm_pix_pool_reserve_tail(uint32_t bytes);
+
 /* 清空所有图像对象（重新加载 applet 时调用） */
 void zm_image_reset(void);
+
+/* 诊断：打印图像池里所有在用的记录（槽号 / 种类 / 尺寸 / 对象地址 / 文件名）。
+ * 用于把 applet 传给绘制接口的"源位图描述符"对回到具体资源。 */
+void zm_image_dump_pool(void);
 
 #endif /* ZM_IMAGE_H */

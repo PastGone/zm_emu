@@ -7,6 +7,7 @@
 #include "./zmaee/fs/zm_file_mgr.h"
 #include "./zmaee/fs/zm_file.h"
 #include "./zmaee/gfx/zm_display.h" /* zm_display_size（初始化 CBK_CTX 用） */
+#include "./zmaee/gfx/zm_layer.h"   /* zm_layer_init_base（建立层 0） */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -252,37 +253,32 @@ int zm_emu_build_vtables() {
   /* 活动层索引。FillRect / DrawBitmap / DrawImage / GetLayerInfo 都用
    *   &v7[13 * v7[2] + 9]        （v7[2] = *(IDisplay+8)）
    * 定位层结构；以前 +8 是 build_vtables 填的 trap 值，applet 自带 GDI
-   * 算出的层地址是错的。实测 applet 只用层 1（GetLayerInfo 恒请求 r1=1，
-   * 且它自己会调 IDisplay.CreateLayer(display, 1, rect, fmt=1)）。
-   *
-   * 层本身**不再预建**：CreateLayer 才是决定层缓冲与尺寸的地方
-   * （固件版会自己 malloc，层已存在则返回 -8），实现见 zm_layer.c。 */
-  err = uc_write32(g_uc, DISPLAY + 8, 1);
+   * 算出的层地址是错的。
+   * 【2026-09 修正】以前这里强制写 1（模拟器权宜选择），但真机 `New` 不写
+   * 这一格 —— 它在 .bss 里是 **0**，即"启动时活动层 = 层 0"。
+   * 这个差异不是首帧问题：applet 在启动阶段就调 SetTransColor / FillRect，
+   * 它们都作用于**当时的活动层**，起点是 0 还是 1 决定了这些设置落到哪一层。
+   * 现已改回真机值 0。 */
+  err = uc_write32(g_uc, DISPLAY + 8, 0);
 
-  /* ---- 预建层 1（实测必须）----
-   * applet 在 init 阶段就会 GetLayerInfo 并把返回的**缓冲指针缓存下来**，
-   * 之后所有绘制都用那个缓存值。实测：
-   *   - 不预建 → 首次 GetLayerInfo 返回 -4，applet 缓存到空指针，
-   *     此后永远不往层缓冲写 → 画面全黑（层缓冲统计 100% 为 0）
-   *   - 预建   → 首次即拿到 LAYER_BUF，绘制正常（0xFFFF 回到基线 52500）
-   * 而 applet 自己随后调用的 CreateLayer(display, 1, rect, fmt=1) 会因为我们
-   * 已建该层而返回 -8（固件语义：层已存在），**applet 对此完全能接受**。
-   * 层结构由 zm_layer.c 统一定义，这里按同一布局预建。 */
-  {
-    uint8_t pl[52];
-    memset(pl, 0, sizeof(pl));
-    uint32_t fmt = 1, x0 = 0, y0 = 0, w = LAYER_W, h = LAYER_H;
-    uint32_t buf = LAYER_BUF;
-    memcpy(pl + 0x00, &fmt, 4);
-    memcpy(pl + 0x04, &x0, 4);
-    memcpy(pl + 0x08, &y0, 4);
-    memcpy(pl + 0x0C, &w, 4);
-    memcpy(pl + 0x10, &h, 4);
-    memcpy(pl + 0x1C, &w, 4);
-    memcpy(pl + 0x20, &h, 4);
-    memcpy(pl + 0x24, &buf, 4);
-    uc_mem_write(g_uc, DISPLAY + 36 + 52, pl, sizeof(pl));
-  }
+  /* ---- 层 0（基础层）：按 RE 的 ZMAEE_IDisplay_New 语义建立 ----
+   * 真机上它就是 New 内联构造的（`CreateLayer` 的 `(idx-1) > 0xE` 拒绝 idx=0，
+   * 所以层 0 只能由 New 建）。缓冲取自 GetBaseLayerBuffer()，尺寸 =
+   * 屏宽×屏高×色深对应字节数，初始 memset(0xFF) 全白。
+   * 以前这里是"缺失 + 两处惰性补建"，见 zm_layer_init_base 的说明。 */
+  (void)zm_layer_init_base(g_uc, DISPLAY);
+
+  /* ---- 层 1 不再预建（2026-09 判定）----
+   * 历史：这里曾"预建层 1"并注释为"实测必须"，否则 GetLayerInfo(1) 返回 -4、
+   * applet 缓存到空指针、画面全黑。当时的前提是**层 0 还不存在**（基础层没建），
+   * applet 拿不到任何可用缓冲，自然全黑。
+   *
+   * 现在层 0 已按 RE 的 ZMAEE_IDisplay_New 语义建立，且实测：
+   *   - applet **从不调用 CreateLayer**（槽位统计 +0x0C 恒为 0）；
+   *   - 它只调 GetLayerInfo(1) 取缓冲，然后 UpdateEx 要求显示 **层 0**。
+   * 若真机上"层 1"本就不存在（没人建过），GetLayerInfo(1) 会返回 -4，
+   * applet 应当改用它真正会上屏的那一层 —— 这正是我们要验证的。
+   * 保留 LAYER_BUF 的定义供其它模块使用，但这里不再往层 1 写载荷。 */
 
   /* INIT_CTX 显式零填充（Unicorn 默认零，此处双保险，确保 r3+0x100 可读） */
   {

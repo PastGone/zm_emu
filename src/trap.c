@@ -664,9 +664,11 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     ret = zm_display_SetLayerPosition(uc, 0x24U, r0, r1, r2, r3);
     break;
   case TR_display_Update:
-    ret = zm_display_Update(uc, r0);
+    /* RE：Update(display, x, y, w, h) —— x/y/w 在 r1/r2/r3，h 在第 5 个参数。 */
+    ret = zm_display_Update(uc, r0, r1, r2, r3, getArg(uc, 4));
     break;
-  case TR_display_UpdateEx: /* 真机虚表 +0x2C = UpdateEx(display, rect, count, layerList) */
+  case TR_display_UpdateEx: /* 真机虚表 +0x2C = UpdateEx(display, rect, count, layerList)
+                             * 四个参数正好在 r0~r3，无需取栈参数。 */
     ret = zm_display_UpdateEx(uc, r0, r1, r2, r3);
     break;
   case TR_display_GetActiveLayer:

@@ -107,33 +107,15 @@ static TTF_Font *get_font(int font_size) {
  */
 static uint32_t *g_fb = NULL;
 static int g_fb_w = 0, g_fb_h = 0;
-/* RGB565==0 是否当透明跳过。
- * **默认关闭**：黑色是游戏里大量使用的正常颜色（实测占 15~18%），
- * 把它当透明跳过等于这些像素永远不更新 → 精灵移动后旧位置变黑也不刷新，
- * 保留着上一帧的旧精灵 → **残影**（实测帧缓冲黑像素从 119438 累积到 140220）。
- * 这是早期"层还没实现"时用来透出背景的权宜做法，现已无必要。
- * ZM_FB_MASK0=1 可临时恢复旧行为做对照实验。 */
-static bool g_fb_mask0 = false;
-static bool g_fb_mask0_inited = false;
 
-/* 当前层透明色（color key）。
- *
- * ZMAEE 的透明是「透明色」而非 alpha 通道：
- *   - ZMAEE_IDisplay_SetTransColor(this, c2, c3) → 层结构 +80 = c2、+84 = c3
- *   - ZMAEE_IBitmap_SetTransColor(bmp, c)        → 位图对象 +20 = c
- * 实测 00000506 调的是 SetTransColor(DISPLAY, 0x1)，即透明色 = RGB565 的
- * 0x0001（近黑，刻意避开真正的黑 0x0000）。
- *
- * 旧实现把透明色硬编码成 0，恰好和游戏设的 1 相反：真正的黑被当透明丢掉
- * （透出上一帧 → 残影），真正的透明像素却被画了出来。
- * ZM_TRANS_KEY=<hex> 可强制指定，便于对照实验。 */
-static uint32_t g_trans_color = 0;
-static uint32_t g_trans_color2 = 0; /* 第二个值（掩码/替换色），语义待定 */
-static bool g_trans_forced = false;
+/* 透明判定已收敛为 RE 语义（ZMAEE 的透明是「透明色」而非 alpha 通道）：
+ *   - 层载荷 +0x2C 非 0 → 走 mask（该层像素 == +0x30 转 RGB565 则跳过）
+ *   - 层载荷 +0x2C == 0 → 走 copy（整块直写，不透明）
+ *   - 位图对象 +20        → IBitmap 自己的透明色（见 zm_bitmap_SetTransColor）
+ * 以前这里是 6 个全局开关（ZM_TRANS_KEY / ZM_FB_MASK0 / ZM_NO_SKIP …）与
+ * "全局透明色回退"，语义互相矛盾；现在全部删除，只按层字段走。 */
 /* ZM_COLORSTAT=1：统计层缓冲 RGB565 颜色直方图（诊断透明色是否被写入） */
 static bool g_colorstat = false;
-/* 本次统计窗口内被"跳过"（保留上一帧像素）的计数，用于诊断拖影 */
-static uint32_t g_skipped = 0;
 
 /* argb8888 → rgb565（写客户机层缓冲用） */
 static inline uint16_t to_rgb565(uint32_t argb) {
@@ -142,21 +124,54 @@ static inline uint16_t to_rgb565(uint32_t argb) {
   return (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
 }
 
+static inline void fb_px(int x, int y, uint32_t argb);
+
+/* ---- 当前绘制目标 = 活动层的像素缓冲 ----
+ * RE：绘制类槽的目标都是 `&display[52*活动层 + 36]`（载荷），像素缓冲在
+ * 载荷 +0x24。活动层变化时刷新一次缓存，避免逐像素去读客户机内存。 */
+static uint32_t g_draw_buf = 0;
+static uint32_t g_draw_w = 0, g_draw_h = 0;
+static uint32_t g_draw_act = 0xFFFFFFFFu;
+
+static void fb_refresh_draw_target(void) {
+  if (!g_uc)
+    return;
+  uint32_t act = uc_read32(g_uc, DISPLAY + 8);
+  if (act == g_draw_act && g_draw_buf)
+    return;
+  g_draw_act = act;
+  zm_layer_t L;
+  if (zm_layer_get(g_uc, DISPLAY, act, &L) == 0 && L.buf && L.w && L.h) {
+    g_draw_buf = L.buf;
+    g_draw_w = L.w;
+    g_draw_h = L.h;
+  } else {
+    g_draw_buf = 0;
+    g_draw_w = g_draw_h = 0;
+  }
+}
+
 static inline void fb_px(int x, int y, uint32_t argb) {
   if ((unsigned)x >= (unsigned)g_fb_w || (unsigned)y >= (unsigned)g_fb_h)
     return;
   if (g_fb)
     g_fb[(size_t)y * (size_t)g_fb_w + (size_t)x] = argb;
 
-  /* 同步写客户机可见的层缓冲（RGB565）：
-   * applet 会通过 GetLayerInfo 拿到这块缓冲的指针，并直接读它做后续
-   * 合成（例如把层内容再 BitBlt 到别处），所以两边必须一致。
-   * 层尺寸与屏幕一致，坐标在范围内时才写。 */
-  if (g_uc && (unsigned)x < (unsigned)LAYER_W &&
-      (unsigned)y < (unsigned)LAYER_H) {
+  /* 同步写客户机可见的**活动层像素缓冲**（RGB565）。
+   *
+   * 【2026-09 修正】以前这里写死 `LAYER_BUF` —— 一个我们自己在内存布局里
+   * 挑的常量地址。后果：所有经 IDisplay 绘制槽进来的图形都落在"没有层
+   * 拥有的那块内存"上，而 applet 上屏用的是层载荷里的缓冲（见 UpdateEx），
+   * 于是画面永远对不上。
+   * RE：绘制类槽（FillRect / DrawBitmap / BitBlt …）的目标都是
+   *     `&display[52*活动层 + 36]` 的 +0x24 像素缓冲；FillRect 早已如此实现。
+   * 现在统一走 g_draw_buf（由 fb_refresh_draw_target 随活动层刷新）。 */
+  if (g_uc && g_draw_buf && (unsigned)x < (unsigned)g_draw_w &&
+      (unsigned)y < (unsigned)g_draw_h) {
     uint16_t c = to_rgb565(argb);
-    uc_mem_write(g_uc, LAYER_BUF + ((uint32_t)y * LAYER_W + (uint32_t)x) * 2u,
-                 &c, sizeof(c));
+    uc_mem_write(g_uc,
+                 g_draw_buf + ((uint32_t)y * g_draw_w + (uint32_t)x) * 2u, &c,
+                 sizeof(c));
   }
 }
 
@@ -470,7 +485,7 @@ static int fb_merge_layer(void);
 static void fb_present(void) {
   if (!g_ren || !g_canvas || !g_fb)
     return;
-  fb_merge_layer(); /* 先把 applet 层缓冲的内容合并进帧缓冲 */
+  fb_merge_layer(); /* 帧缓冲 → 宿主 g_fb（纯转换，不合成） */
   SDL_UpdateTexture(g_canvas, NULL, g_fb, g_fb_w * 4);
   SDL_SetRenderTarget(g_ren, NULL);
   SDL_RenderCopy(g_ren, g_canvas, NULL, NULL);
@@ -512,128 +527,183 @@ static void fb_present(void) {
   }
 }
 
-/* 把 applet 的层缓冲（RGB565）合成到宿主帧缓冲。
- * applet 的绘制（BitBlt/sprite 贴图）最终都写在这块客户机可见的缓冲上，
- * 每次 present 前同步一次即可显示。返回写入的像素数（0 表示层还是空的）。 */
-/* 合成时当作"透明"跳过的 RGB565 键。
- * 默认 0（与历史行为一致）；ZM_TRANS_KEY=<hex> 可覆盖做对照实验。
- * 注意：这里刻意**不**跟随 SetTransColor 的值 —— 实测把游戏设的 0x1
- * 用作合成键会改变既有画面，而层缓冲里 0x0000/0x0001 都几乎不出现，
- * 收益为零。SetTransColor 的值仍会记录并写进层结构的 +0x2C/+0x30，
- * 供 applet 自己读取。 */
-static uint32_t g_merge_key = 0;
+/* ---- 诊断：重建 applet 的每帧调用序列 ----
+ * 目的：搞清"applet 到底把画面画在哪一层、为什么上屏要层 0"。
+ * 把 SetActiveLayer / FillRect / UpdateEx / StretchBlt 的关键参数按时间记进
+ * 一个环形缓冲，在头几次 UpdateEx（= 上屏）时把最近若干条打出来。 */
+#define ZM_SEQ_N 24
+typedef struct {
+  uint8_t kind; /* 1=SetActiveLayer 2=FillRect 3=UpdateEx 4=StretchBlt */
+  uint32_t a0, a1, act, lr;
+} zm_seq_ev;
+static zm_seq_ev g_seq[ZM_SEQ_N];
+static int g_seq_i = 0;
+static int g_seq_dumped = 0;
+static void zm_seq_push(uint8_t kind, uint32_t a0, uint32_t a1) {
+  uint32_t lr = 0;
+  if (g_uc)
+    uc_reg_read(g_uc, UC_ARM_REG_LR, &lr);
+  g_seq[g_seq_i].kind = kind;
+  g_seq[g_seq_i].a0 = a0;
+  g_seq[g_seq_i].a1 = a1;
+  g_seq[g_seq_i].act = g_uc ? uc_read32(g_uc, DISPLAY + 8) : 0;
+  g_seq[g_seq_i].lr = lr;
+  g_seq_i = (g_seq_i + 1) % ZM_SEQ_N;
+}
+static void zm_seq_dump(void) {
+  if (g_seq_dumped >= 3)
+    return;
+  g_seq_dumped++;
+  log_info("[序列] 最近 %d 次调用（旧→新，act=当时活动层）：", ZM_SEQ_N);
+  for (int k = 0; k < ZM_SEQ_N; k++) {
+    int i = (g_seq_i + k) % ZM_SEQ_N;
+    const zm_seq_ev *e = &g_seq[i];
+    const char *nm = e->kind == 1   ? "SetActiveLayer"
+                     : e->kind == 2 ? "FillRect"
+                     : e->kind == 3 ? "UpdateEx"
+                     : e->kind == 4 ? "StretchBlt"
+                                    : "?";
+    log_info("   %-15s a0=%-6u a1=0x%-8X act=%u lr=0x%X", nm, e->a0, e->a1,
+             e->act, e->lr);
+  }
+}
 
-/* 诊断开关 ZM_NO_SKIP=1：合成时**完全不做透明跳过**（层整行直写）。
- * 用来一刀切开"残影来自哪里"：
- *   - 若残影消失 → 残影是"帧缓冲保留了上一帧的旧值"造成的
- *   - 若层没覆盖到的区域变成品红块 → 说明 applet 并不每帧重画背景，
- *     背景其实是靠帧缓冲留存下来的
- * 注意它同时让 fb_composite_layers 和 fb_merge_layer 都不跳过，
- * 否则品红会被写进帧缓冲再被 merge 跳过，诊断失效。 */
-static bool g_no_skip = false;
-static bool g_no_skip_inited = false;
-
-/* 把 applet 的层缓冲（RGB565）合成到宿主帧缓冲。
- * applet 的绘制（自带 GDI 的 BitBlt/mask blit）最终都写在这块客户机可见
- * 的缓冲上，每次 present 前同步一次即可显示。返回写入的像素数。 */
-/* 层 → 帧缓冲：等价于固件 IDisplay_Update / UpdateEx 的合成循环。
- * RE：Update(display,x,y,w,h) → UpdateEx(display,{x,y,w,h},4,{0,1,2,3})
- *     UpdateEx: LockFrameBuffer(&desc) → desc[5..8]=裁剪矩形
- *               → 逐层 sub_285D8(desc, 层载荷)   （内部走 ZMAEE_Blt）
- *               → UnLockFrameBuffer(desc)        （内部 AndroidAEE_Update 上屏）
- * 我们等价拆成两步：先合成到 guest 帧缓冲，再由宿主转 g_fb 上屏。
- * 帧缓冲描述符（LockFrameBuffer 填的）：
- *   [0]色深(=1 → RGB565) [1]x=0 [2]y=0 [3]宽(pitch) [4]高
- *   [5..8]裁剪矩形（UpdateEx 后填） [9]基址 */
-static void fb_composite_layers(int rw, int rh) {
-  if (!g_uc || rw <= 0 || rh <= 0)
+/* 层 → 帧缓冲（= 固件的 sub_285D8 + ZMAEE_Blt）。
+ *
+ * RE 规格：
+ *   ZMAEE_IDisplay_UpdateEx @00029C84 → sub_285D8 @000285D8
+ *                                     → ZMAEE_Blt     @0002C7D0
+ *   1) 遍历 applet 给的 layerList，**顺序即叠加顺序**（后者压前者）；
+ *      idx > 0xF 跳过（无符号比较，idx=0 合法）；层无像素缓冲跳过。
+ *   2) 每层整块贴，目标位置 = 层.x − 帧缓冲.x、层.y − 帧缓冲.y。
+ *      注意 sub_285D8 **不读层的裁剪区**（+0x14..+0x20）——层裁剪只约束
+ *      绘制路径（FillRect / StretchBlt），不约束合成。
+ *   3) 裁剪发生在 Blt 内部：源矩形与**帧缓冲描述符的裁剪矩形**（desc[5..8]）
+ *      求交。这里的 rx/ry/rw/rh 就是 UpdateEx 裁剪后的 rect。
+ *   4) 透明只有一条判据：层载荷 +0x2C 非 0 → mask（像素 == +0x30 转 RGB565
+ *      则跳过），== 0 → copy（整块直写）。没有"全局透明色"这种东西。
+ *
+ * list/count 为空表示不合成。 */
+static void fb_composite(uc_engine *uc, int rx, int ry, int rw, int rh,
+                         const uint32_t *list, uint32_t count) {
+  if (!uc || !list || count == 0)
     return;
   static uint16_t row[LAYER_MAX_W];
   static uint16_t frow[LAYER_MAX_W];
-  /* 叠加顺序。
-   *
-   * 【实测决定】对比"建层 0 / 不建层 0"两种行为：
-   *   不建层 0（SetActiveLayer(0) 恒失败）→ applet 退回"全画进层 1"
-   *                                         → 鱼可见，但层不清 → 残影
-   *   建层 0（SetActiveLayer(0) 成功）    → applet 走正规路径：
-   *                                         背景进层 1、**鱼进层 0**，
-   *                                         而层 1 是 100% 不透明的
-   * 所以层 0 必须**最后**叠加，否则被层 1 盖住。
-   * 对照开关：ZM_LAYER_ORDER=0 恢复"层 0 先叠加"的旧顺序。 */
-  static int layer0_last = -1;
-  if (layer0_last < 0) {
-    const char *e = getenv("ZM_LAYER_ORDER");
-    layer0_last = (e && e[0] == '0') ? 0 : 1;
-    log_info("[合成] 层 0 %s叠加", layer0_last ? "最后" : "最先");
-  }
-  for (uint32_t step = 0; step < ZM_LAYER_COMPOSITE_MAX; step++) {
-    uint32_t li;
-    if (layer0_last)
-      li = (step + 1u) % ZM_LAYER_COMPOSITE_MAX; /* 1,2,...,15,0 */
-    else
-      li = step;
+  static uint32_t row32[LAYER_MAX_W]; /* 4 字节/像素层的原始行 */
+  int fb_w = (int)LAYER_W, fb_h = (int)LAYER_H;
+  if (fb_w <= 0 || fb_h <= 0)
+    return;
+  /* 帧缓冲的裁剪矩形（RE：desc[5..8]，由 UpdateEx 从 rect 填入） */
+  int cx0 = rx > 0 ? rx : 0;
+  int cy0 = ry > 0 ? ry : 0;
+  int cx1 = rx + rw;
+  int cy1 = ry + rh;
+  if (cx1 > fb_w)
+    cx1 = fb_w;
+  if (cy1 > fb_h)
+    cy1 = fb_h;
+  if (cx0 >= cx1 || cy0 >= cy1)
+    return;
+  for (uint32_t step = 0; step < count; step++) {
+    uint32_t li = list[step];
+    if (li > 0xFu)
+      continue; /* RE：idx > 0xF 跳过 */
     zm_layer_t L;
-    if (zm_layer_get(g_uc, DISPLAY, li, &L) != 0)
-      continue; /* 该层不存在 */
-    if (L.fmt != 1)
-      continue; /* 只合成 16bit(RGB565) 层 */
+    if (zm_layer_get(uc, DISPLAY, li, &L) != 0)
+      continue; /* 该层不存在 / 无像素缓冲 */
+    /* 按 ZMCF 决定每像素字节数（RE：.rodata:0x5B500 = {1,2,4,4,4}）。
+     * 以前这里写死 `if (L.fmt != 1) continue;`，一旦层 0 的 fmt 因屏幕色深
+     * 变化而不再是 1（16bpp→1、24bpp→2、32bpp→4，见 zm_display_base_depth），
+     * 层 0 会被**静默跳过**，画面直接少一层且不报错。 */
+    int bpp = zm_cf_bpp(L.fmt);
+    if (bpp != 2 && bpp != 4) {
+      static uint32_t warned = 0;
+      if (warned < 4) {
+        log_warn("[合成] 层%u 的 ZMCF=%u（%d 字节/像素）暂不支持，跳过", li,
+                 L.fmt, bpp);
+        warned++;
+      }
+      continue;
+    }
     int pitch = (int)L.w;
     int lay_h = (int)L.h;
     if (pitch <= 0 || lay_h <= 0)
       continue;
-    /* RE：ZMAEE_Blt 里目标位置 = 层.x - 帧缓冲.x，我们帧缓冲原点恒为 0 */
-    int dx = (int)L.x;
-    int dy = (int)L.y;
-    if (dx < 0)
-      dx = 0;
-    if (dy < 0)
-      dy = 0;
-    if (dx >= rw || dy >= rh)
-      continue;
-    int lw = (pitch < rw - dx) ? pitch : rw - dx;
-    int lh = (lay_h < rh - dy) ? lay_h : rh - dy;
+    /* 层矩形 ∩ 帧缓冲裁剪矩形（RE：Blt 里的双边裁剪） */
+    int lx1 = (int)L.x + pitch, ly1 = (int)L.y + lay_h;
+    int x0 = ((int)L.x > cx0) ? (int)L.x : cx0;
+    int y0 = ((int)L.y > cy0) ? (int)L.y : cy0;
+    int x1 = (lx1 < cx1) ? lx1 : cx1;
+    int y1 = (ly1 < cy1) ? ly1 : cy1;
+    int lw = x1 - x0, lh = y1 - y0;
     if (lw <= 0 || lh <= 0)
       continue;
-    /* 本层透明 key：RE：+0x2C 非 0 才启用，颜色在 +0x30（转 RGB565）
-     *
-     * 【实测补充】层 0（基础层）的 +0x2C 实测为 0，但 applet 明确用它那套
-     * 全局透明色（品红 0xF81F）来"清空"层 0 —— 实测层 0 有 100% 是品红。
-     * 若按"未启用"整行直写，层 0 会把整屏刷成品红。
-     * 所以这里回退到 applet 通过 SetTransColor 设过的全局透明色。 */
-    uint16_t tc;
-    int use_tc;
-    if (L.tenable != 0) {
-      tc = to_rgb565(L.tcolor);
-      use_tc = 1;
-    } else if (g_trans_color2) {
-      tc = to_rgb565(g_trans_color2); /* 回退：全局透明色（品红） */
-      use_tc = 1;
-    } else {
-      tc = 0xFFFFu;
-      use_tc = 0;
-    }
-    if (g_no_skip)
-      use_tc = 0; /* 诊断：整行直写，不做透明跳过 */
-    for (int y = 0; y < lh; y++) {
-      if (uc_mem_read(g_uc, L.buf + (uint32_t)y * (uint32_t)pitch * 2u, row,
-                      (size_t)lw * 2u) != UC_ERR_OK)
-        break;
-      uint32_t fb_off = (uint32_t)(y + dy) * (uint32_t)LAYER_W * 2u +
-                        (uint32_t)dx * 2u;
-      if (uc_mem_read(g_uc, FRAMEBUF + fb_off, frow, (size_t)lw * 2u) !=
-          UC_ERR_OK)
-        break;
+    int soff_x = x0 - (int)L.x; /* 层内源列偏移 */
+    int soff_y = y0 - (int)L.y; /* 层内源行偏移 */
+    int use_tc = (L.tenable != 0);
+    uint16_t tc = use_tc ? to_rgb565(L.tcolor) : 0;
+    for (int i = 0; i < lh; i++) {
+      uint32_t rowoff = L.buf +
+                        (uint32_t)(soff_y + i) * (uint32_t)pitch * (uint32_t)bpp +
+                        (uint32_t)soff_x * (uint32_t)bpp;
+      if (bpp == 2) {
+        if (uc_mem_read(uc, rowoff, row, (size_t)lw * 2u) != UC_ERR_OK)
+          break;
+      } else {
+        /* 4 字节/像素：整行读回后统一降到 RGB565 再合并，这样透明色比较与
+         * 2 字节路径共用同一套语义。注意这条路径目前没有 applet 覆盖
+         * （我们只跑 16bpp），属"按布局直译"，待有 32bpp 的 applet 再校准。 */
+        if (uc_mem_read(uc, rowoff, row32, (size_t)lw * 4u) != UC_ERR_OK)
+          break;
+        for (int x = 0; x < lw; x++)
+          row[x] = to_rgb565(row32[x]);
+      }
+      uint32_t fb_off = (uint32_t)(y0 + i) * (uint32_t)fb_w * 2u +
+                        (uint32_t)x0 * 2u;
       if (use_tc) {
+        /* mask：透明像素不动 → 保留下层 / 上一帧的内容（RE：Mask16To16） */
+        if (uc_mem_read(uc, FRAMEBUF + fb_off, frow, (size_t)lw * 2u) !=
+            UC_ERR_OK)
+          break;
         for (int x = 0; x < lw; x++)
           if (row[x] != tc)
-            frow[x] = row[x]; /* 透明处保留帧缓冲原有内容（= 透出下层） */
+            frow[x] = row[x];
+        uc_mem_write(uc, FRAMEBUF + fb_off, frow, (size_t)lw * 2u);
       } else {
-        for (int x = 0; x < lw; x++)
-          frow[x] = row[x];
+        /* copy：整行直写，不透明（RE：Copy16To16） */
+        uc_mem_write(uc, FRAMEBUF + fb_off, row, (size_t)lw * 2u);
       }
-      uc_mem_write(g_uc, FRAMEBUF + fb_off, frow, (size_t)lw * 2u);
     }
   }
+}
+
+/* ---- "applet 说了算"的合成参数 ----
+ * UpdateEx 每次调用都记下它的 rect 与层列表。宿主兜底 present 用最近一次
+ * 记录（本 applet 实测恒为 rect={0,0,240,320}、list={0}），而不是自己猜。
+ * 以前的"层 0 最后叠加"（ZM_LAYER_ORDER）启发式就是这条记录的手工近似。 */
+#define ZM_LAYER_LIST_MAX 4
+static uint32_t g_comp_list[ZM_LAYER_LIST_MAX];
+static uint32_t g_comp_count = 0;
+static int g_comp_x = 0, g_comp_y = 0, g_comp_w = 0, g_comp_h = 0;
+static bool g_comp_valid = false;
+
+/* 固件 ZMAEE_IDisplay_Update 的默认层列表在 .rodata:0x5B5D8（4 项），
+ * 内容尚未取到；而这条路径本 applet 从不调用（槽位统计 +0x28 = 0 次），
+ * 故暂以 {0,1,2,3} 占位 —— 待取到该表后替换为真实值。 */
+static const uint32_t ZM_UPDATE_DEFAULT_LIST[4] = {0, 1, 2, 3};
+
+/* 宿主兜底合成：applet 自绘且不调 Update（实测它调的是 UpdateEx），
+ * 所以事件循环每 16ms 主动合成一次；参数优先取最近一次 UpdateEx 的记录。 */
+static void fb_composite_default(void) {
+  if (!g_uc)
+    return;
+  if (g_comp_valid)
+    fb_composite(g_uc, g_comp_x, g_comp_y, g_comp_w, g_comp_h, g_comp_list,
+                 g_comp_count);
+  else
+    fb_composite(g_uc, 0, 0, (int)LAYER_W, (int)LAYER_H, ZM_UPDATE_DEFAULT_LIST,
+                 4);
 }
 
 /* 把 guest 帧缓冲（RGB565）转成宿主帧缓冲显示。
@@ -653,17 +723,6 @@ static int fb_merge_layer(void) {
     stat_inited = true;
     g_colorstat = getenv("ZM_COLORSTAT") && getenv("ZM_COLORSTAT")[0] == '1';
     probe_on = (getenv("ZM_PROBE") && getenv("ZM_PROBE")[0] == '1') ? 1 : 0;
-    const char *e = getenv("ZM_TRANS_KEY");
-    if (e && e[0])
-      g_merge_key = (uint32_t)strtoul(e, NULL, 16);
-    /* 终于把这个开关接上（以前只有声明、从没读环境变量，等于关不掉） */
-    {
-      const char *m = getenv("ZM_FB_MASK0");
-      g_fb_mask0 = (m && m[0] == '1');
-      g_fb_mask0_inited = true;
-      if (g_fb_mask0)
-        log_info("[诊断] ZM_FB_MASK0=1：恢复「黑色当透明跳过」的旧行为");
-    }
     memset(hist, 0, sizeof(hist));
     memset(mhist, 0, sizeof(mhist));
   }
@@ -671,55 +730,10 @@ static int fb_merge_layer(void) {
   int w = g_fb_w < LAYER_W ? g_fb_w : LAYER_W;
   int h = g_fb_h < LAYER_H ? g_fb_h : LAYER_H;
 
-  /* 观测：applet 有没有自己往客户机帧缓冲里写？
-   * 我们在上次合成后把帧缓冲整块存下来，这次合成**之前**再比对一遍；
-   * 差异像素就是 applet 自己（绕过 trap）写进去的。
-   * 若这个数接近 0，说明背景完全靠我们合成的结果留存 —— 也就解释了
-   * 为什么精灵移走后旧位置擦不掉。 */
-  {
-    static uint16_t prev_fb[LAYER_MAX_W * LAYER_MAX_H];
-    static int have_prev = 0;
-    static int applet_wrote = 0;
-    if (probe_on) {
-      if (have_prev) {
-        uint16_t cur[LAYER_MAX_W];
-        applet_wrote = 0;
-        for (int y = 0; y < h; y++) {
-          if (uc_mem_read(g_uc, FRAMEBUF + (uint32_t)y * LAYER_W * 2u, cur,
-                          (size_t)w * 2u) != UC_ERR_OK)
-            break;
-          for (int x = 0; x < w; x++)
-            if (cur[x] != prev_fb[(size_t)y * LAYER_W + x])
-              applet_wrote++;
-        }
-      }
-    }
-
-    /* 宿主驱动的那一步：层 → 帧缓冲（固件里由 IDisplay_Update 完成） */
-    fb_composite_layers(w, h);
-
-    if (probe_on) {
-      for (int y = 0; y < h; y++)
-        uc_mem_read(g_uc, FRAMEBUF + (uint32_t)y * LAYER_W * 2u,
-                    &prev_fb[(size_t)y * LAYER_W], (size_t)w * 2u);
-      have_prev = 1;
-      if ((frames % 60) == 0)
-        log_info("  [探针]applet 自行写入帧缓冲的像素: %d/帧（0=背景完全靠合成留存）",
-                 applet_wrote);
-    }
-  }
-
-  uint16_t tc = g_trans_color2 ? to_rgb565(g_trans_color2) : 0;
-  int use_tc = (g_trans_color2 != 0);
-  if (!g_no_skip_inited) {
-    g_no_skip_inited = true;
-    const char *e = getenv("ZM_NO_SKIP");
-    g_no_skip = (e && e[0] == '1');
-    if (g_no_skip)
-      log_info("[诊断] ZM_NO_SKIP=1：合成不做透明跳过（层整行直写）");
-  }
-  if (g_no_skip)
-    use_tc = 0;
+  /* 注意：这里**不再**做任何合成。层 → 帧缓冲由 fb_composite 负责，调用点是
+   * UpdateEx / Update / Refresh（applet 驱动）与事件循环的兜底 tick。
+   * 本函数只剩"帧缓冲 → 宿主 g_fb"的边界转换（guest RGB565 → ARGB8888，
+   * 供 SDL 上传），不做透明跳过、不猜顺序。 */
 
   uint16_t row[LAYER_MAX_W];
   int painted = 0;
@@ -741,15 +755,6 @@ static int fb_merge_layer(void) {
           nmag++;
           mhist[c]++;
         }
-      }
-      if (use_tc && c == tc) {
-        /* 帧缓冲里仍是透明色 → 该处没有任何层覆盖，保留上一帧 */
-        g_skipped++;
-        continue;
-      }
-      if (g_fb_mask0 && c == g_merge_key) {
-        g_skipped++;
-        continue;
       }
       unsigned r = ((c >> 11) & 0x1F) * 255 / 31;
       unsigned g = ((c >> 5) & 0x3F) * 255 / 63;
@@ -781,7 +786,7 @@ static int fb_merge_layer(void) {
     }
     log_info("  [探针]近黑像素 %d bbox=[%d,%d]-[%d,%d]  暗灰 %d", nblack, bx0,
              by0, bx1, by1, ngray);
-    /* 品红家族 top-3：确认 applet 画的透明底是不是精确 0xF81F */
+    /* 品红家族 top-3：applet 的透明底通常就是这一族颜色 */
     if (nmag > 0) {
       for (int k = 0; k < 3; k++) {
         uint32_t best = 0, bestc = 0;
@@ -792,12 +797,11 @@ static int fb_merge_layer(void) {
           }
         if (best == 0)
           break;
-        log_info("  [探针]品红家族 #%d: 0x%04X × %u (命中 key 0x%04X ? %s)", k + 1,
-                 bestc, best, tc, (bestc == tc) ? "是" : "否 ← 漏掉");
+        log_info("  [探针]品红家族 #%d: 0x%04X × %u", k + 1, bestc, best);
         mhist[bestc] = 0;
       }
     }
-    log_info("  [探针]品红家族像素 %d/帧（其中精确等于 key 的会被跳过）", nmag / 60);
+    log_info("  [探针]品红家族像素 %d/帧", nmag / 60);
     /* 基础层（applet 用 GetBaseLayerBuffer 拿到的缓冲）里有没有内容？
      * 有 → applet 确实把背景画在基础层；空 → 它没用这个缓冲。 */
     {
@@ -908,8 +912,6 @@ static int fb_merge_layer(void) {
     log_info("  帧缓冲: 0x0000=%u 0x0001=%u 0xF81F=%u 0xFFFF=%u 总计=%u",
              hist[0x0000], hist[0x0001], hist[0xF81F], hist[0xFFFF],
              (uint32_t)((size_t)w * h * 60));
-    log_info("  跳过(保留上一帧) %u 像素/帧", g_skipped / 60);
-    g_skipped = 0;
     for (int k = 0; k < 6; k++) {
       uint32_t best = 0, bestc = 0;
       for (unsigned i = 0; i < 65536u; i++)
@@ -1127,13 +1129,15 @@ bool zm_display_event_loop(void (*on_click)(uint32_t x, uint32_t y),
     if (zm_timer_poll(SDL_GetTicks()))
       return true; /* 定时器回调已挂上跳板 → 让模拟器执行 cb */
 
-    /* 每轮呈现一次帧缓冲。
+    /* 每轮兜底合成并呈现一次。
      *
-     * 必须做：00000506 这类 applet 自带 GDI（ZMAEE_GDI_BitBlt_Ext 等），
-     * 定时器回调里**直接写层像素缓冲**，不走 IDisplay 的绘制 trap，也
-     * 几乎不调 Update/commit（实测 20 秒内 IDisplay 只有 LoadBitmap 有
-     * 调用量）。因此若不在这里主动 present，画面永远停在初始黑屏。
-     * 本轮开始时上一轮的回调已经跑完，缓冲里就是刚画好的一帧。 */
+     * 为什么需要：00000506 这类 applet 自带 GDI（ZMAEE_GDI_BitBlt_Ext 等），
+     * 在定时器回调里**直接写层像素缓冲**，不走 IDisplay 的绘制 trap；它确实
+     * 会调 UpdateEx（实测 170 次/8 秒），但两次调用之间有 ~47ms，中间若不
+     * 主动合成，画面会在两次 UpdateEx 之间停滞。
+     * 这里的合成参数（rect + 层列表）取自**最近一次 UpdateEx 的记录**，
+     * 所以与 applet 自己的合成结果一致，不会来回闪。 */
+    fb_composite_default();
     fb_present();
     SDL_Delay(16);
   }
@@ -1169,55 +1173,98 @@ uint32_t zm_display_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
   return 0;
 }
 
+/* ---- 屏幕色深 / 基础层深度（RE 已定案）----
+ *
+ * 真机链路：
+ *   nativeAEEInit        → g_aee.screenDepth（= .bss:0x6480C）
+ *   ZMAEE_IDisplay_Init  → 显示上下文 ctx+0x38（= .bss:0x64BE4）
+ *   ZMAEE_IDisplay_GetBaseLayerDepth()（0002671C）：
+ *       d = *(ctx+0x38);
+ *       return ((unsigned)(d - 24) > 8) ? 1 : tbl_5B3E4[d - 24];
+ *   表 .rodata:0x5B3E4（9 项）= {2,1,1,1,1,1,1,1,4}
+ *   → 16bpp→1(RGB565)、24bpp→2、32bpp→4、其余→1
+ *
+ * 这个返回值被 ZMAEE_IDisplay_New 直接写进"层 0 载荷 +0x00"，而那一格正是
+ * CreateLayer 的 fmt(a4∈[1,4]) —— 所以它就是 ZMCF 色格式枚举。
+ * ZMCF → 每像素字节数见 zm_layer.h 的 ZM_CF_BPP（.rodata:0x5B500）。 */
+#define ZM_SCREEN_DEPTH 16 /* 我们模拟的 g_aee.screenDepth */
+static const uint32_t s_depth2zmcf[9] = {2, 1, 1, 1, 1, 1, 1, 1, 4};
+
+int zm_display_screen_depth(void) { return ZM_SCREEN_DEPTH; }
+
+uint32_t zm_display_base_depth(void) {
+  unsigned r = (unsigned)(ZM_SCREEN_DEPTH - 24);
+  if (r > 8u)
+    return 1u;
+  return s_depth2zmcf[r];
+}
+
 /* IDisplay 虚表 +0x18：RE 为 `ZMAEE_IDisplay_GetBaseLayerBuffer()`
- *   → 无参，返回全局的基础层缓冲指针 unk_64B60（配套还有
- *     `ZMAEE_IDisplay_GetBaseLayerDepth()` → unk_64B94，默认深度 1=RGB565）。
+ *   → 无参，返回显示上下文 ctx+0x04（.bss:0x64BB0）里的基础层缓冲指针。
  *
  * 【为什么这个很重要】
- * 层数组里 **层 0 是"基础层"**（RE 的 `ZMAEE_IDisplay_FreeAllLayer` 从 i=1
- * 开始循环、永远不释放层 0 就是铁证）。背景应当画在基础层里常驻，精灵画在
- * 层 1..15、每帧清空重画 —— 合成时基础层打底，旧精灵自然被背景覆盖。
+ * 层数组里 **层 0 是"基础层"**（RE 的铁证：`CreateLayer` 的 `(idx-1) > 0xE`
+ * 拒绝 idx=0、`FreeAllLayer` 从 i=1 起循环永不释放层 0、`ZMAEE_IDisplay_New`
+ * 内联构造层 0）。背景画在基础层里常驻，精灵画在层 1..15、每帧清空重画 ——
+ * 合成时基础层打底，旧精灵自然被背景覆盖。
  *
- * 我们以前把 +0x18 当"功能未知"的空 stub（返回 0），applet 拿到的缓冲区
- * 指针是 0 → 背景无处可画 → 只能靠宿主帧缓冲"捡漏"留存 → 精灵移走后旧位置
- * 擦不掉（拖影）。 */
-#define BASE_LAYER_BYTES ((uint32_t)LAYER_W * (uint32_t)LAYER_H * 2u)
+ * 我们以前把 +0x18 当空 stub（返回 0），applet 拿到的缓冲指针是 0 → 背景
+ * 无处可画 → 只能靠宿主帧缓冲"捡漏"留存 → 精灵移走后旧位置擦不掉（拖影）。
+ *
+ * 分配方式：真机在 ZMAEE_IDisplay_Init 里 `malloc(w*h*bpp)` 一次、终身不释放
+ * （bpp = 色深==16 ? 2 : 4），随后 `memset(ptr, -1, size)` **整块 0xFF**。
+ * 我们照做，但必须从像素池**尾部预留** —— 以前走 zm_pix_pool_alloc（会回绕
+ * 复用的 bump 池），上千次 LoadBitmap 之后必然回绕把基础层冲掉。 */
 static uint32_t g_base_layer = 0; /* 基础层缓冲的客户机地址（供诊断使用） */
+
 uint32_t zm_display_GetBaseLayerBuffer(uc_engine *uc) {
-  static bool inited = false;
-  uint32_t base = g_base_layer;
-  if (!inited) {
-    inited = true;
-    base = zm_pix_pool_alloc(BASE_LAYER_BYTES);
-    g_base_layer = base;
-    if (base) {
-      static uint8_t zb[4096];
-      for (uint32_t off = 0; off < BASE_LAYER_BYTES; off += sizeof(zb)) {
-        uint32_t n = BASE_LAYER_BYTES - off;
-        if (n > sizeof(zb))
-          n = sizeof(zb);
-        uc_mem_write(uc, base + off, zb, n);
-      }
-      log_info("[基础层] GetBaseLayerBuffer -> 0x%X (%dx%d RGB565, %u 字节)",
-               base, LAYER_W, LAYER_H, BASE_LAYER_BYTES);
-    } else {
-      log_error("[基础层] 像素池不足（需 %u 字节），基础层不可用",
-                BASE_LAYER_BYTES);
+  if (g_base_layer)
+    return g_base_layer;
+  int bpp = zm_cf_bpp(zm_display_base_depth());
+  if (bpp <= 0)
+    bpp = 2;
+  uint32_t bytes = (uint32_t)LAYER_W * (uint32_t)LAYER_H * (uint32_t)bpp;
+  uint32_t base = zm_pix_pool_reserve_tail(bytes);
+  if (!base) {
+    log_error("[基础层] 像素池尾部预留不足（需 %u 字节），基础层不可用", bytes);
+    return 0;
+  }
+  g_base_layer = base;
+  /* RE：Init 里 memset(ptr, -1, size) —— 初始为全 0xFF（RGB565 纯白），
+   * 不是黑。 */
+  {
+    static uint8_t ff[4096];
+    static bool ff_inited = false;
+    if (!ff_inited) {
+      memset(ff, 0xFF, sizeof(ff));
+      ff_inited = true;
+    }
+    for (uint32_t off = 0; off < bytes; off += sizeof(ff)) {
+      uint32_t n = bytes - off;
+      if (n > sizeof(ff))
+        n = sizeof(ff);
+      uc_mem_write(uc, base + off, ff, n);
     }
   }
+  log_info("[基础层] GetBaseLayerBuffer -> 0x%X (%dx%d ZMCF=%u = %d 字节/像素, "
+           "共 %u 字节, 池尾预留)",
+           base, LAYER_W, LAYER_H, zm_display_base_depth(), bpp, bytes);
   return base;
 }
 
 /* 基础层缓冲地址（0 = 未分配）。供 fb_merge_layer 的探针检查其内容。 */
 uint32_t zm_display_base_layer_addr(void) { return g_base_layer; }
 
-/* +0x1C0 附近：RE 为 `ZMAEE_IDisplay_GetBaseLayerDepth()`（无参，默认 1） */
+/* RE 为 `ZMAEE_IDisplay_GetBaseLayerDepth()`（0002671C，无参）。
+ * 真机读的是显示上下文 ctx+0x38（= g_aee.screenDepth），不是 IDisplay 对象
+ * 里的字段；我们把这个全局用 ZM_SCREEN_DEPTH 常量顶替（见上方说明）。 */
 uint32_t zm_display_GetBaseLayerDepth(uc_engine *uc) {
   (void)uc;
   static uint32_t n = 0;
   if (n++ < 4)
-    log_info("IDisplay.GetBaseLayerDepth -> 1 (%u 次)", n);
-  return 1; /* RE：默认返回 1；unk_64B94 未落入 [24,32] 时也返回 1 */
+    log_info("IDisplay.GetBaseLayerDepth -> %u（屏幕色深 %d，第 %u 次）",
+             zm_display_base_depth(), ZM_SCREEN_DEPTH, n);
+  return zm_display_base_depth();
 }
 
 uint32_t zm_display_AddRef(uc_engine *uc, uint32_t r0) {
@@ -1236,27 +1283,19 @@ uint32_t zm_display_GetMaxLayerCount(uc_engine *uc, uint32_t r0) {
   /*
    * applet 用这个值决定"我最多建几层"。
    *
-   * 【2026-09 重要修正】以前恒返回 1（单层），导致 applet 只建一层、
-   * 把背景和精灵全塞进同一层 —— 于是：
-   *   - 层里 83.7% 是透明色（背景根本不在层里，只靠帧缓冲留存）
-   *   - 精灵移走后旧位置擦不掉 → **残影**
-   * 层数组本身支持 idx ∈ [0,15]（CreateLayerExt 校验 a2<=0xF），
-   * 所以返回 1 是自缚手脚。真机值待定，用 ZM_MAX_LAYER 逐个试。
-   */
-  static int maxl = -1;
-  if (maxl < 0) {
-    const char *e = getenv("ZM_MAX_LAYER");
-    maxl = (e && e[0]) ? atoi(e) : 16;
-    if (maxl < 1)
-      maxl = 1;
-    if (maxl > 16)
-      maxl = 16;
-    log_info("IDisplay.GetMaxLayerCount -> %d（ZM_MAX_LAYER 可覆盖）", maxl);
-  }
+   * 【已定案：16】以前恒返回 1（单层），导致 applet 只建一层、把背景和精灵
+   * 全塞进同一层 —— 于是层里 83.7% 是透明色、精灵移走后旧位置擦不掉。
+   *
+   * 硬证据来自 ZMAEE_IDisplay_New（000282EC）的尾部：
+   *     [IDisplay+0x364] = &IDisplay[0x368]
+   * 而 IDisplay 的头部 36 字节 + 16 个层项 × 52 字节 = 868 = 0x364 ——
+   * 层数组恰好结束在这个地址，所以对象里就是 **16 个层槽**。
+   * 另有 CreateLayer 的 `(idx-1) > 0xE`、CreateLayerExt 的 `idx <= 0xF` 佐证。
+   * 故不再需要 ZM_MAX_LAYER 逐个试。 */
   static uint32_t ncall = 0;
   if (ncall++ < 8)
-    log_info("IDisplay.GetMaxLayerCount(第 %u 次) -> %d", ncall, maxl);
-  return (uint32_t)maxl;
+    log_info("IDisplay.GetMaxLayerCount(第 %u 次) -> 16", ncall);
+  return 16u;
 }
 uint32_t zm_display_CreateLayer(uc_engine *uc, uint32_t off, uint32_t r0,
                                 uint32_t r1, uint32_t r2, uint32_t r3) {
@@ -1284,10 +1323,60 @@ uint32_t zm_display_SetLayerPosition(uc_engine *uc, uint32_t off, uint32_t r0,
                                      uint32_t r1, uint32_t r2, uint32_t r3) {
   return zm_display_stub(uc, off, r0, r1, r2, r3);
 }
-uint32_t zm_display_Update(uc_engine *uc, uint32_t r0) {
-  (void)r0;
-  fb_commit(); /* 提交帧缓冲 */
+/* UpdateEx 的真实实现（校验 + rect 裁剪 + 按 applet 给的列表合成）。
+ * 供 Update（薄封装）与虚表槽共用。rect 参数按值传入，避免再写一趟客户机内存。 */
+static uint32_t update_ex_impl(uc_engine *uc, uint32_t display, int32_t x, int32_t y,
+                               int32_t w, int32_t h, const uint32_t *list,
+                               uint32_t count) {
+  /* 裁剪范围 = display+0x30/+0x34，也就是**层 0 载荷的 w/h**
+   * （RE：ZMAEE_IDisplay_New 把屏宽/屏高写进层 0 的 +0x0C/+0x10）。 */
+  int32_t sw = (int32_t)uc_read32(uc, display + 0x30);
+  int32_t sh = (int32_t)uc_read32(uc, display + 0x34);
+  if (sw <= 0)
+    sw = (int32_t)LAYER_W;
+  if (sh <= 0)
+    sh = (int32_t)LAYER_H;
+  if (x < 0) {
+    w += x;
+    x = 0;
+  }
+  if (x + w > sw)
+    w = sw - x;
+  if (y < 0) {
+    h += y;
+    y = 0;
+  }
+  if (y + h > sh)
+    h = sh - y;
+  if (w <= 0 || h <= 0)
+    return 0; /* RE：裁没了 → 成功但空操作 */
+
+  /* 记下"applet 说了算"的参数，宿主兜底 tick 用它，而不是自己猜顺序 */
+  g_comp_valid = true;
+  g_comp_count = count < ZM_LAYER_LIST_MAX ? count : ZM_LAYER_LIST_MAX;
+  if (g_comp_count)
+    memcpy(g_comp_list, list, (size_t)g_comp_count * 4u);
+  g_comp_x = (int)x;
+  g_comp_y = (int)y;
+  g_comp_w = (int)w;
+  g_comp_h = (int)h;
+
+  fb_composite(uc, (int)x, (int)y, (int)w, (int)h, list, count);
+  /* 真机：UnLockFrameBuffer 内部会 AndroidAEE_Update 上屏 */
+  fb_present();
   return 0;
+}
+
+/* +0x28：ZMAEE_IDisplay_Update(display, x, y, w, h)（RE 00029D88）
+ * 就是个薄封装：把 (x,y,w,h) 组成局部 rect，然后
+ *   UpdateEx(display, &rect, 4, unk_5B5D8)
+ * 全部校验都在 UpdateEx 里，本函数没有任何判断。
+ * 以前我们只接 r0（display），x/y/w/h 三个参数直接丢了。 */
+uint32_t zm_display_Update(uc_engine *uc, uint32_t display, uint32_t x, uint32_t y,
+                           uint32_t w, uint32_t h) {
+  zm_display_slot_tick(0x28U);
+  return update_ex_impl(uc, display, (int32_t)x, (int32_t)y, (int32_t)w,
+                        (int32_t)h, ZM_UPDATE_DEFAULT_LIST, 4u);
 }
 uint32_t zm_display_GetActiveLayer(uc_engine *uc, uint32_t r0) {
   /* RE：就是 `ldr r0, [r0, #8]`（与 SetActiveLayer 写入的同一字段）。
@@ -1340,42 +1429,14 @@ uint32_t zm_display_GetFontWidth(uc_engine *uc, uint32_t r0, uint32_t r1) {
 uint32_t zm_display_SetActiveLayer(uc_engine *uc, uint32_t display,
                                    uint32_t idx) {
   zm_display_slot_tick(0x20U);
-  /* 层 0 = **基础层**。真机上它由 IDisplay_New/Init 预建，像素缓冲直接取全局
-   * `ZMAEE_IDisplay_GetBaseLayerBuffer()`（= unk_64B60）。证据链：
-   *   - `FreeAllLayer` 从 i=1 循环、永不释放层 0
-   *   - `CreateLayer` 的 `(idx-1) > 0xE` 无符号比较会拒绝 idx=0
-   *   - 实测 applet 每帧 SetActiveLayer(0) / (1) 交替，而 (0) 恒返回 -4
-   * 我们没建层 0 → 画进层 0 的背景全部落空 → 层里只剩精灵 → 帧缓冲靠上一帧
-   * 累积 → 精灵移走后旧位置擦不掉（拖影）。这里按需补建。 */
-  /* 对照开关 ZM_NO_BASELAYER=1：不预建层 0，恢复"层 0 恒不存在"的旧行为。
-   * 用来做 A/B —— 把两次运行的层图对比，就能看清"鱼到底被画进了哪个层"。 */
-  static int no_base = -1;
-  if (no_base < 0) {
-    const char *e = getenv("ZM_NO_BASELAYER");
-    no_base = (e && e[0] == '1') ? 1 : 0;
-    if (no_base)
-      log_info("[诊断] ZM_NO_BASELAYER=1：不建层 0（旧行为）");
-  }
-  if (!no_base && idx == 0 && display != 0 &&
-      uc_read32(uc, zm_layer_payload(display, 0) + 0x24) == 0) {
-    uint32_t buf = zm_display_GetBaseLayerBuffer(uc);
-    if (buf) {
-      uint32_t P = zm_layer_payload(display, 0);
-      uc_write32(uc, P + 0x00, 1u);          /* 色深 1 = RGB565 */
-      uc_write32(uc, P + 0x04, 0u);          /* x */
-      uc_write32(uc, P + 0x08, 0u);          /* y */
-      uc_write32(uc, P + 0x0C, (uint32_t)LAYER_W); /* 宽（兼 pitch） */
-      uc_write32(uc, P + 0x10, (uint32_t)LAYER_H); /* 高 */
-      uc_write32(uc, P + 0x14, 0u);          /* 裁剪 x */
-      uc_write32(uc, P + 0x18, 0u);          /* 裁剪 y */
-      uc_write32(uc, P + 0x1C, (uint32_t)LAYER_W); /* 宽副本 */
-      uc_write32(uc, P + 0x20, (uint32_t)LAYER_H); /* 高副本 */
-      uc_write32(uc, P + 0x24, buf);         /* 像素缓冲 */
-      log_info("[基础层] 预建层 0: %dx%d RGB565 buf=0x%X", LAYER_W, LAYER_H,
-               buf);
-    }
-  }
+  /* 层 0（基础层）**不在这里补建**。它由 zm_layer_init_base() 在模拟器启动时
+   * 按 RE 的 ZMAEE_IDisplay_New 语义一次建好（载荷 +0x00 = GetBaseLayerDepth()、
+   * +0x24 = GetBaseLayerBuffer()）。本函数只做纯粹的"设活动层"。
+   * applet 每帧 SetActiveLayer(0)/(1) 交替是正常行为，两层都必须真实存在，
+   * 否则它会拿到 -4 退回"全画进层 1"的老路（层不清 → 残影）。 */
   uint32_t ret = zm_layer_SetActiveLayer(uc, display, idx);
+  zm_seq_push(1, idx, ret);
+  fb_refresh_draw_target(); /* 绘制目标随活动层改变 */
   /* 注意：applet 每帧在层 0/1 之间来回切，所以这里**不能**按"索引变化"打日志，
    * 否则每帧两行。只在启动前几次 + 之后按固定间隔汇总。 */
   static uint32_t n = 0;
@@ -1388,71 +1449,57 @@ uint32_t zm_display_SetActiveLayer(uc_engine *uc, uint32_t display,
   return ret;
 }
 
-/* +0x2C：fillRect(rect_ptr,...)。
- * 注意：applet 在绘制末尾调用 fillRect(全屏rect, 1, &0)，语义不明
- * （疑似 invalidate / 带透明度混合，颜色=0 透明）。为避免用黑色覆盖
- * 整张画面，这里保持空实现。 */
+/* +0x2C：ZMAEE_IDisplay_UpdateEx(display, rect, count, layerIdList)
+ * RE：00029C84。校验顺序与错误码照抄：
+ *   display==0 → -4；count>4 → -4；layerList==0 → -4；rect==0 → -4；
+ *   *(display+0x0C) != 0 → -1   （该字段是"帧缓冲已锁定"标志）
+ * rect = **{x, y, w, h}**（不是 l,t,r,b —— 实测 applet 传 {0,0,240,320}），
+ * 并裁剪到 display+0x30/+0x34（= 层 0 的 w/h = 屏幕尺寸）。
+ * 合成顺序 = layerList 的顺序；idx > 0xF 与无缓冲层跳过。
+ * 本函数以前只接一个参数（当成 fillRect）且只做观测，count 与层列表全丢。 */
 uint32_t zm_display_UpdateEx(uc_engine *uc, uint32_t display, uint32_t rect_ptr,
                              uint32_t count, uint32_t list_ptr) {
-  /* 真机虚表 +0x2C = ZMAEE_IDisplay_UpdateEx(display, rect, count, layerIdList)
-   *
-   * RE：把 layerIdList 里列出的层，按列表顺序依次合成到"锁定的帧缓冲"
-   * （LockFrameBuffer 返回的屏幕位图）的 rect 区域内。
-   * 也就是说 —— **合成哪些层、按什么顺序，是 applet 传进来的参数决定的**，
-   * 不是我们该猜的。
-   *
-   * 以前这里只接了一个参数（当成 fillRect(rect_ptr)），count 和层列表全丢了。
-   * 本函数现在只做观测：把每次调用的 rect / 层数 / 层列表打出来。
-   * 实际合成仍由 fb_present → fb_composite_layers 完成。 */
   zm_display_slot_tick(0x2Cu);
-  (void)display;
+  if (display == 0)
+    return (uint32_t)-4;
+  if (count > 4u)
+    return (uint32_t)-4;
+  if (list_ptr == 0)
+    return (uint32_t)-4;
+  if (rect_ptr == 0)
+    return (uint32_t)-4;
+  if (uc_read32(uc, display + 0x0C) != 0)
+    return (uint32_t)-1;
+
+  int32_t x = (int32_t)uc_read32(uc, rect_ptr);
+  int32_t y = (int32_t)uc_read32(uc, rect_ptr + 4);
+  int32_t w = (int32_t)uc_read32(uc, rect_ptr + 8);
+  int32_t h = (int32_t)uc_read32(uc, rect_ptr + 12);
+
+  uint32_t lst[ZM_LAYER_LIST_MAX] = {0};
+  if (count)
+    uc_mem_read(uc, list_ptr, lst, (size_t)count * 4u);
+
+  /* 只记录"形态发生变化"的调用 —— 全部 170 次都打会把日志淹掉，
+   * 而我们要的是"这个 applet 一共用过几种 (rect,count,list) 组合"。 */
   static uint32_t n = 0;
-  static uint32_t seq_hist[256]; /* 以"层号序列"做键（<=4 层，每层 4bit） */
-  static uint32_t seq_total = 0;
+  static uint32_t sig_prev = 0xFFFFFFFFu;
+  static uint32_t sig_cnt = 0;
   n++;
-  /* 统计每次调用实际合成的是哪些层、按什么顺序 —— 这就是叠加顺序的权威来源 */
-  {
-    uint32_t lst[8] = {0};
-    if (list_ptr && count > 0 && count <= 8)
-      uc_mem_read(uc, list_ptr, lst, (size_t)count * 4u);
-    uint32_t key = 0;
-    for (uint32_t i = 0; i < count && i < 4u; i++)
-      key = (key << 4) | (lst[i] & 0xFu);
-    key = (key << 4) | (count & 0xFu); /* 低 4 位存层数 */
-    seq_hist[key & 0xFFu]++;
-    if ((++seq_total % 300u) == 0u) {
-      log_info("[UpdateEx] 累计 %u 次，层号序列分布（低位=层数，高位从第 1 层起）：",
-               seq_total);
-      for (uint32_t k = 0; k < 256u; k++)
-        if (seq_hist[k])
-          log_info("   0x%02X : %u 次", k, seq_hist[k]);
-    }
+  uint32_t sig = ((uint32_t)x & 0xFFFu) ^ (((uint32_t)y & 0xFFFu) << 12) ^
+                 (((uint32_t)w & 0xFFFu) << 8) ^ (((uint32_t)h & 0xFFFu) << 20) ^
+                 (count << 4) ^ (lst[0] & 0xF) ^ ((lst[1] & 0xF) << 1) ^
+                 ((lst[2] & 0xF) << 2) ^ ((lst[3] & 0xF) << 3);
+  if (sig != sig_prev) {
+    sig_prev = sig;
+    sig_cnt++;
+    log_info("[UpdateEx #%u/%u] rect={%d,%d,%d,%d} count=%u 列表={%u,%u,%u,%u}（第 %u 种形态）",
+             n, sig_cnt, (int)x, (int)y, (int)w, (int)h, count, lst[0], lst[1],
+             lst[2], lst[3], sig_cnt);
+    zm_seq_push(3, count, lst[0]);
+    zm_seq_dump();
   }
-  if (n <= 8) {
-    uint32_t r[4] = {0};
-    if (rect_ptr)
-      uc_mem_read(uc, rect_ptr, r, sizeof(r));
-    uint32_t lst[8] = {0};
-    if (list_ptr && count > 0 && count <= 8)
-      uc_mem_read(uc, list_ptr, lst, (size_t)count * 4u);
-    /* 先把原始寄存器打出来 —— 参数位置不能靠猜 */
-    uint32_t m1 = 0, m2 = 0;
-    uc_mem_read(uc, rect_ptr + 16u, &m1, 4);
-    if (list_ptr)
-      uc_mem_read(uc, list_ptr, &m2, 4);
-    log_info("[UpdateEx #%u] 原始: r0(display)=0x%X r1=0x%X r2=0x%X r3=0x%X | "
-             "rect[0..3]={%d,%d,%d,%d} rect[4]=0x%X mem[r3]=0x%X",
-             n, display, rect_ptr, count, list_ptr, (int)r[0], (int)r[1], (int)r[2],
-             (int)r[3], m1, m2);
-    char buf[160];
-    int off = snprintf(buf, sizeof(buf), "[UpdateEx #%u] rect={%d,%d,%d,%d} count=%u 层列表=",
-                       n, (int)r[0], (int)r[1], (int)r[2], (int)r[3], count);
-    for (uint32_t i = 0; i < count && i < 8u && off > 0 &&
-                         off < (int)sizeof(buf) - 8; i++)
-      off += snprintf(buf + off, sizeof(buf) - (size_t)off, "%u ", lst[i]);
-    log_info("%s（列表顺序 = 合成顺序，后者叠加在前者之上）", buf);
-  }
-  return 0;
+  return update_ex_impl(uc, display, x, y, w, h, lst, count);
 }
 
 /* +0x40：SelectFont(this, fontIndex)
@@ -1695,6 +1742,7 @@ uint32_t zm_display_FillRect(uc_engine *uc, uint32_t x, uint32_t y, uint32_t w,
   zm_display_slot_tick(0x70U);
   int h = (int)uc_read32(uc, sp);
   uint32_t color = uc_read32(uc, sp + 4);
+  zm_seq_push(2, color, (uint32_t)h);
   static uint32_t n = 0;
   if ((n++ % 200) == 0)
     log_info("IDisplay.FillRect(%d,%d,%d,%d, 0x%08X)（第 %u 次）", (int)x, (int)y,
@@ -1736,20 +1784,15 @@ uint32_t zm_display_SetTransColor(uc_engine *uc, uint32_t r0, uint32_t r1,
    * buf=0x7A8000），于是层 1 的 +0x2C 永远是 0 → zb_composite_layers 里
    * use_tc=0 → 整行直写，透明画不出来、旧像素擦不掉。
    */
-  if (!g_trans_forced)
-    g_trans_color = r1;
-  g_trans_color2 = r2;
-
   uint32_t active = uc_read32(uc, DISPLAY + 8);
   if (active > 0xF)
     active = 0;
   uint32_t P = zm_layer_payload(DISPLAY, active);
-  uc_write32(uc, P + 0x2C, r1); /* 启用标志 */
-  uc_write32(uc, P + 0x30, r2); /* 透明色（ARGB，取值时转 RGB565） */
+  uc_write32(uc, P + 0x2C, r1); /* 启用标志：非 0 → 合成走 mask */
+  uc_write32(uc, P + 0x30, r2); /* 透明色（ARGB，合成时转 RGB565） */
   log_info("IDisplay.SetTransColor(启用=0x%08X, 色=0x%08X) -> 层%u (+0x2C/+0x30) -> "
-           "RGB565 key=0x%04X%s",
-           r1, r2, active, to_rgb565(r2),
-           g_trans_forced ? " （已被 ZM_TRANS_KEY 覆盖，忽略）" : "");
+           "RGB565 key=0x%04X",
+           r1, r2, active, to_rgb565(r2));
   return 0;
 }
 uint32_t zm_display_SetOpacity(uc_engine *uc, uint32_t off, uint32_t r0,
@@ -1808,6 +1851,7 @@ uint32_t zm_display_DrawImage(uc_engine *uc, uint32_t off, uint32_t r0,
   (void)uc;
   (void)off;
   (void)r0;
+  fb_refresh_draw_target();
   int w = 0, h = 0;
   const uint8_t *rgba = NULL;
   if (zm_image_get_pixels(r3, &w, &h, &rgba)) {
@@ -1876,6 +1920,7 @@ uint32_t zm_display_DrawBitmap(uc_engine *uc, uint32_t off, uint32_t r0,
                                uint32_t r1, uint32_t r2, uint32_t r3) {
   (void)off;
   (void)r0;
+  fb_refresh_draw_target();
   /* rect（可选）：{left, top, right, bottom}，用于把源图裁剪后画到 (x,y) */
   if (blit_surface_region(uc, r3, (int)r1, (int)r2, getArg(uc, 4), 0))
     return 1;
@@ -1893,6 +1938,7 @@ uint32_t zm_display_DrawBitmapEx(uc_engine *uc, uint32_t off, uint32_t r0,
                                  uint32_t r1, uint32_t r2, uint32_t r3) {
   (void)off;
   (void)r0;
+  fb_refresh_draw_target();
   int mode = (int)getArg(uc, 5);
   if (blit_surface_region(uc, r3, (int)r1, (int)r2, getArg(uc, 4), mode))
     return 1;
@@ -2092,6 +2138,7 @@ uint32_t zm_display_BitBlt(uc_engine *uc, uint32_t off, uint32_t r0,
                            uint32_t r1, uint32_t r2, uint32_t r3) {
   (void)off;
   (void)r0;
+  fb_refresh_draw_target();
   uint32_t rect = getArg(uc, 4);
   int mode = (int)getArg(uc, 5);
   int flags = (int)getArg(uc, 6);
@@ -2136,34 +2183,71 @@ uint32_t zm_display_Flatten(uc_engine *uc, uint32_t off, uint32_t r0,
 uint32_t zm_display_StretchBlt(uc_engine *uc, uint32_t off, uint32_t r0,
                                uint32_t r1, uint32_t r2, uint32_t r3) {
   /* RE：ZMAEE_IDisplay_StretchBlt(display, a2, a3, a4, a5)
-   *   → ZMAEE_StretchBlt(&display[13*display[2] + 9], a2, a3, a4, a5)
-   * 目标 = 活动层载荷；a1[9] = 层像素缓冲，a1[5..8] = 裁剪区。
-   * a2/a3/a4 是调用方在栈上构造的描述结构。
-   * 本函数目前是空实现 —— applet 实测会调用它，等于绘制被丢弃。
-   * 先把三个参数结构 dump 出来，确认它画的是什么。 */
+   *   → ZMAEE_StretchBlt(&display[52*活动层 + 36], a2, a3, a4, a5)
+   * 目标 = **活动层**载荷；a1[9] = 层像素缓冲、a1[5..8] = 该层裁剪区。
+   * 实测：本 applet 调 73 次，调用时活动层 = 0（输出层），
+   *       a3 = 源位图描述符 {w, h, ZMCF, 透明色, 0,0,0, 像素指针}（与
+   *       sub_285D8 里的 srcDesc 同型）。
+   * a2 / a4 的字段语义仍未定 —— 本函数是纯观测探针，不做任何绘制。
+   *
+   * 探针要做三件事：
+   *   1) 前 8 次把 a2/a3/a4 各 16 个 dword、目标层全部字段、a5 打全；
+   *   2) 统计 a3 的 (宽,高) 分布 —— 若出现 240x320 之类的整层尺寸，
+   *      就说明它是"层 1 → 层 0"的整层搬运器；
+   *   3) 把所有已加载图像记录的 {宽,高,名字} 打一次，便于把 a3 对上具体资源。
+   * 配合日志里已有的 `IImage::Decode -> IBitmap@… pix@0x…` 行，
+   * 可以用 a3[7]（像素指针）反查 a3 到底是哪张图。 */
+  zm_display_slot_tick(0xB4U);
+  uint32_t act = uc_read32(uc, r0 + 8);
+  uint32_t P = r0 + 52u * act + 36u;
+  uint32_t a5 = getArg(uc, 4);
   static uint32_t n = 0;
   n++;
-  if (n <= 6) {
-    uint32_t act = uc_read32(uc, r0 + 8);
-    uint32_t P = r0 + 52u * act + 36u;
-    log_info("StretchBlt #%u display=0x%X 活动层=%u 层载荷=0x%X "
-             "层[fmt=0x%X w=0x%X h=0x%X buf=0x%X] a2=0x%X a3=0x%X a4=0x%X",
-             n, r0, act, P, uc_read32(uc, P), uc_read32(uc, P + 0x0C),
-             uc_read32(uc, P + 0x10), uc_read32(uc, P + 0x24), r1, r2, r3);
+  if (n <= 8) {
+    log_info("StretchBlt #%u display=0x%X 活动层=%u 层载荷=0x%X a2=0x%X a3=0x%X "
+             "a4=0x%X a5=0x%X",
+             n, r0, act, P, r1, r2, r3, a5);
+    log_info("  目标层: fmt=%u x=%d y=%d w=%u h=%u 裁剪=(%u,%u,%u,%u) buf=0x%X "
+             "+0x28=%d +0x2A=%d +0x2C=%u +0x30=0x%08X",
+             uc_read32(uc, P + 0x00), (int)uc_read32(uc, P + 0x04),
+             (int)uc_read32(uc, P + 0x08), uc_read32(uc, P + 0x0C),
+             uc_read32(uc, P + 0x10), uc_read32(uc, P + 0x14),
+             uc_read32(uc, P + 0x18), uc_read32(uc, P + 0x1C),
+             uc_read32(uc, P + 0x20), uc_read32(uc, P + 0x24),
+             (int)(int16_t)uc_read32(uc, P + 0x28),
+             (int)(int16_t)uc_read32(uc, P + 0x2A), uc_read32(uc, P + 0x2C),
+             uc_read32(uc, P + 0x30));
     const char *nm[3] = {"a2", "a3", "a4"};
     uint32_t pa[3] = {r1, r2, r3};
     for (int i = 0; i < 3; i++) {
-      uint32_t raw[10] = {0};
+      uint32_t raw[16] = {0};
       if (uc_mem_read(uc, pa[i], raw, sizeof(raw)) != UC_ERR_OK)
         continue;
-      log_info("  StretchBlt %s@0x%X =", nm[i], pa[i]);
-      log_info("     [0..3] 0x%08X 0x%08X 0x%08X 0x%08X", raw[0], raw[1], raw[2],
-               raw[3]);
-      log_info("     [4..7] 0x%08X 0x%08X 0x%08X 0x%08X", raw[4], raw[5], raw[6],
-               raw[7]);
-      log_info("     [8..9] 0x%08X 0x%08X", raw[8], raw[9]);
+      log_info("  %s@0x%X =", nm[i], pa[i]);
+      for (int k = 0; k < 16; k += 4)
+        log_info("     [%02d..%02d] 0x%08X 0x%08X 0x%08X 0x%08X", k, k + 3,
+                 raw[k], raw[k + 1], raw[k + 2], raw[k + 3]);
     }
-
+    /* 已加载图像记录：把 a3 的 (宽,高) 对上去（只打一次） */
+    if (n == 1)
+      zm_image_dump_pool();
+  }
+  /* a3 的尺寸分布（换一个尺寸就报一次） */
+  {
+    uint32_t sw = uc_read32(uc, r2 + 0x00), sh = uc_read32(uc, r2 + 0x04);
+    uint32_t sf = uc_read32(uc, r2 + 0x08), sp = uc_read32(uc, r2 + 0x1C);
+    static uint32_t last_key = 0xFFFFFFFFu, seen = 0;
+    uint32_t key = (sw << 16) | (sh & 0xFFFFu);
+    seen++;
+    zm_seq_push(4, sw, sh);
+    if (key != last_key || seen == 1) {
+      last_key = key;
+      log_info("[StretchBlt 探针] 第 %u 次：源 %ux%u ZMCF=%u 透明色=0x%08X "
+               "像素指针=0x%X（整层搬运? %s）",
+               n, sw, sh, sf, uc_read32(uc, r2 + 0x0C), sp,
+               (sw == (uint32_t)LAYER_W && sh == (uint32_t)LAYER_H) ? "是 ←"
+                                                                    : "否");
+    }
   }
   return zm_display_stub(uc, off, r0, r1, r2, r3);
 }

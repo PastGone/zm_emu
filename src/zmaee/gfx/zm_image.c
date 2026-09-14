@@ -59,15 +59,31 @@ static zm_img_rec *rec_of(uint32_t obj) {
 /* 解码像素池：循环复用。IImage 解码出的像素必须落在客户机内存，
  * applet 自带 GDI 是按 IBitmap 的 +36 像素指针直接读的。 */
 static uint32_t s_pix_next = 0;
+/* bump 指针的上限。默认是整个池；被 zm_pix_pool_reserve_tail 从尾部预留
+ * 常驻缓冲后会相应压低，从而保证回绕复用不会踩到常驻缓冲。 */
+static uint32_t s_pix_limit = PIX_POOL_SIZE;
+
 uint32_t zm_pix_pool_alloc(uint32_t bytes) {
   bytes = (bytes + 3u) & ~3u;
-  if (!bytes || bytes > PIX_POOL_SIZE)
+  if (!bytes || bytes > s_pix_limit)
     return 0;
-  if (s_pix_next + bytes > PIX_POOL_SIZE)
+  if (s_pix_next + bytes > s_pix_limit)
     s_pix_next = 0; /* 回绕复用 */
   uint32_t p = PIX_POOL + s_pix_next;
   s_pix_next += bytes;
   return p;
+}
+
+uint32_t zm_pix_pool_reserve_tail(uint32_t bytes) {
+  bytes = (bytes + 3u) & ~3u;
+  if (!bytes || bytes > s_pix_limit)
+    return 0;
+  uint32_t base = PIX_POOL + (s_pix_limit - bytes);
+  s_pix_limit -= bytes;
+  /* 防御：万一调用时机晚于某些分配，把它们一起作废，避免越界 */
+  if (s_pix_next > s_pix_limit)
+    s_pix_next = 0;
+  return base;
 }
 
 static zm_img_rec *pixel_rec(uint32_t obj) {
@@ -83,6 +99,38 @@ static void rec_free_pixels(zm_img_rec *r) {
     r->rgba = NULL;
   }
   r->w = r->h = 0;
+}
+
+void zm_image_dump_pool(void) {
+  int n_img = 0, n_bmp = 0;
+  for (int i = 0; i < IMAGE_SLOT_COUNT; i++)
+    if (g_img[i].used)
+      n_img++;
+  for (int i = 0; i < BITMAP_SLOT_COUNT; i++)
+    if (g_bmp[i].used)
+      n_bmp++;
+  log_info("  [图像池] IImage 在用 %d 个：", n_img);
+  for (int i = 0; i < IMAGE_SLOT_COUNT; i++) {
+    if (!g_img[i].used)
+      continue;
+    log_info("     槽%-3d %-5s %4dx%-4d ref=%d obj=0x%X \"%s\"", i,
+             g_img[i].kind == REC_ENTRY
+                 ? "entry"
+                 : (g_img[i].kind == REC_SURF ? "surf" : "?"),
+             g_img[i].w, g_img[i].h, g_img[i].refcnt, img_addr(i),
+             g_img[i].name);
+  }
+  log_info("  [图像池] IBitmap 在用 %d 个：", n_bmp);
+  for (int i = 0; i < BITMAP_SLOT_COUNT; i++) {
+    if (!g_bmp[i].used)
+      continue;
+    log_info("     槽%-3d %-5s %4dx%-4d ref=%d obj=0x%X \"%s\"", i,
+             g_bmp[i].kind == REC_ENTRY
+                 ? "entry"
+                 : (g_bmp[i].kind == REC_SURF ? "surf" : "?"),
+             g_bmp[i].w, g_bmp[i].h, g_bmp[i].refcnt, bmp_addr(i),
+             g_bmp[i].name);
+  }
 }
 
 void zm_image_reset(void) {

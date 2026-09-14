@@ -13,6 +13,11 @@
 #define LAYER_PAYLOAD_OFF 36u
 #define LAYER_STRIDE 52u
 
+/* ZMCF → 每像素字节数。RE 已确认：.rodata:0x5B500 = {1,2,4,4,4}
+ * （CreateLayer 用 dword_5B500[a4] 算分配字节数；CreateLayerExt 同款）。 */
+const int ZM_CF_BPP[5] = {1, 2, 4, 4, 4};
+
+
 uint32_t zm_layer_payload(uint32_t display, uint32_t idx) {
   return display + LAYER_PAYLOAD_OFF + LAYER_STRIDE * idx;
 }
@@ -81,7 +86,7 @@ uint32_t zm_layer_CreateLayer(uc_engine *uc, uint32_t display, uint32_t idx,
   if (w <= 0 || h <= 0)
     return (uint32_t)-4;
 
-  uint32_t bpp = (fmt == 1) ? 2u : 4u;
+  uint32_t bpp = (uint32_t)zm_cf_bpp(fmt); /* RE：dword_5B500[fmt] */
   uint32_t bytes = (uint32_t)w * (uint32_t)h * bpp;
   uint32_t buf = zm_pix_pool_alloc(bytes);
   if (!buf)
@@ -117,30 +122,9 @@ uint32_t zm_layer_GetLayerInfo(uc_engine *uc, uint32_t display, uint32_t idx,
     return (uint32_t)-4;
   uint32_t P = zm_layer_payload(display, idx);
 
-  /* 层 0 = 基础层（RE：FreeAllLayer 从 i=1 起、从不释放层 0）。
-   * 它应常驻指向基础层缓冲；若首次查询时尚未建立，在此惰性填好，
-   * 否则 applet 会把 GetLayerInfo(0) 失败当作致命错误而 abort。
-   * 仅当 idx==0 时才触发，层 1..15 仍由 CreateLayer 显式建立，互不影响。 */
-  if (idx == 0 && uc_read32(uc, P + 0x24) == 0) {
-    uint32_t base = zm_display_GetBaseLayerBuffer(uc);
-    if (base) {
-      uint32_t fmt = 1, x0 = 0, y0 = 0, w = LAYER_W, h = LAYER_H;
-      uint8_t pl[LAYER_STRIDE];
-      memset(pl, 0, sizeof(pl));
-      memcpy(pl + 0x00, &fmt, 4);
-      memcpy(pl + 0x04, &x0, 4);
-      memcpy(pl + 0x08, &y0, 4);
-      memcpy(pl + 0x0C, &w, 4);
-      memcpy(pl + 0x10, &h, 4);
-      memcpy(pl + 0x1C, &w, 4);
-      memcpy(pl + 0x20, &h, 4);
-      memcpy(pl + 0x24, &base, 4);
-      uc_mem_write(uc, P, pl, sizeof(pl));
-      log_info("GetLayerInfo(层=0) 惰性建立基础层 buf=0x%X (%dx%d RGB565)", base,
-               w, h);
-    }
-  }
-
+  /* 注意：层 0（基础层）**不再在这里惰性补建**。它由 zm_layer_init_base()
+   * 在模拟器启动时按 RE 的 ZMAEE_IDisplay_New 语义一次建好 —— 惰性补建是
+   * 层 0 还没实现的年代的权宜做法，会让"层不存在"的错误被悄悄掩盖。 */
   if (uc_read32(uc, P + 0x24) == 0) {
     static uint32_t nf = 0;
     if (nf++ < 4)
@@ -168,4 +152,44 @@ uint32_t zm_layer_SetActiveLayer(uc_engine *uc, uint32_t display, uint32_t idx) 
     return (uint32_t)-4;
   uc_write32(uc, display + 8, idx);
   return 0;
+}
+
+int zm_layer_init_base(uc_engine *uc, uint32_t display) {
+  if (!uc || display == 0)
+    return 0;
+  uint32_t P = zm_layer_payload(display, 0);
+  if (uc_read32(uc, P + 0x24) != 0) {
+    log_info("层 0（基础层）已存在，跳过建立");
+    return 1;
+  }
+  uint32_t buf = zm_display_GetBaseLayerBuffer(uc);
+  if (!buf) {
+    log_error("层 0 建立失败：基础层缓冲不可用");
+    return 0;
+  }
+  /* RE：New 把 GetBaseLayerDepth() 的返回值写进层 0 载荷 +0x00 */
+  uint32_t fmt = zm_display_base_depth();
+  uint32_t w = (uint32_t)LAYER_W, h = (uint32_t)LAYER_H, z = 0;
+  uint8_t pl[LAYER_STRIDE];
+  memset(pl, 0, sizeof(pl));
+  memcpy(pl + 0x00, &fmt, 4); /* fmt / ZMCF */
+  memcpy(pl + 0x04, &z, 4);   /* x */
+  memcpy(pl + 0x08, &z, 4);   /* y */
+  memcpy(pl + 0x0C, &w, 4);   /* 宽（兼 pitch） */
+  memcpy(pl + 0x10, &h, 4);   /* 高 */
+  memcpy(pl + 0x14, &z, 4);   /* 裁剪 x */
+  memcpy(pl + 0x18, &z, 4);   /* 裁剪 y */
+  memcpy(pl + 0x1C, &w, 4);   /* 宽副本 */
+  memcpy(pl + 0x20, &h, 4);   /* 高副本 */
+  memcpy(pl + 0x24, &buf, 4); /* 像素缓冲 */
+  if (uc_mem_write(uc, P, pl, sizeof(pl)) != UC_ERR_OK) {
+    log_error("层 0 建立失败：写载荷失败");
+    return 0;
+  }
+  /* RE：New 同时把缓冲镜像到 IDisplay+0x10、把 IDisplay+0x04 置 1 */
+  uc_write32(uc, display + 0x10, buf);
+  uc_write32(uc, display + 0x04, 1u);
+  log_info("层 0（基础层）建立：%dx%d ZMCF=%u(%d 字节/像素) buf=0x%X 全白初始化",
+           LAYER_W, LAYER_H, fmt, zm_cf_bpp(fmt), buf);
+  return 1;
 }
