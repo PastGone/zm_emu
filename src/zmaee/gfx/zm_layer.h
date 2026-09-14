@@ -30,8 +30,38 @@
 /* 第 idx 层项载荷的绝对地址 */
 uint32_t zm_layer_payload(uint32_t display, uint32_t idx);
 
+/* ZMCF（层载荷 +0x00 / CreateLayer 的 a4 / 基础层深度）→ 每像素字节数。
+ *
+ * RE 已确认：.rodata:0x5B500 = {1, 2, 4, 4, 4}，由
+ * ZMAEE_IDisplay_ZMCF2BytsPerPixel 索引；CreateLayerExt 里同款换算为
+ * "a4==1 → 2*w*h，a4∈{2,3,4} → 4*w*h"。
+ * 即：ZMCF 1 = RGB565(2 字节)，2/3/4 = 32bit(4 字节)。 */
+extern const int ZM_CF_BPP[5];
+
+/* 按 ZMCF 取每像素字节数（越界返回 0） */
+static inline int zm_cf_bpp(uint32_t fmt) {
+  return (fmt <= 4u) ? ZM_CF_BPP[fmt] : 0;
+}
+
+/* 按 RE 的 ZMAEE_IDisplay_New 语义建立"层 0"（基础层）。
+ *
+ * RE（000282EC ZMAEE_IDisplay_New）里层 0 是**内联构造**的，不走 CreateLayer
+ * （CreateLayer 的 `(idx-1) > 0xE` 直接拒绝 idx=0），字段映射为：
+ *   +0x00 = GetBaseLayerDepth()（屏幕色深对应的 ZMCF）
+ *   +0x04 = 0            +0x08 = 0
+ *   +0x0C = 屏宽         +0x10 = 屏高
+ *   +0x14 = 0            +0x18 = 0          （裁剪原点）
+ *   +0x1C = 屏宽副本     +0x20 = 屏高副本
+ *   +0x24 = GetBaseLayerBuffer()（真机经 IDisplay+0x10 中转）
+ * 另外 New 会把同一缓冲镜像到 IDisplay+0x10、把 IDisplay+0x04 置 1。
+ * 层 0 终驻、永不被 FreeAllLayer 释放（RE 从 i=1 起循环）。
+ * 已建立（载荷 +0x24 非 0）时直接返回 1，不重复写。
+ * 返回 1 成功、0 失败。 */
+int zm_layer_init_base(uc_engine *uc, uint32_t display);
+
 typedef struct {
-  uint32_t fmt;  /* +0x00 色深 */
+  uint32_t fmt;  /* +0x00 ZMCF 色格式枚举（1=RGB565，2/3/4=32bit）；
+                    基础层的这一格 = GetBaseLayerDepth() 的返回值 */
   uint32_t x, y; /* +0x04 / +0x08 */
   uint32_t w;    /* +0x0C 宽（兼 pitch） */
   uint32_t h;    /* +0x10 高 */

@@ -149,7 +149,11 @@ uint32_t zm_shell_GetDeviceInfo(uc_engine *uc, uint32_t out_ptr) {
   uc_write32(uc, out_ptr + 4 * 8, 1); /* [8] bTouchScreen */
 
   /* 语义待 RE 的字段（保持 memset 的 0，不臆造）：
-   *   [4] color_depth —— 需 nativeColorDepthToString 确定枚举
+   *   [4] color_depth —— RE 已查到 nativeAEEGetDeviceInfo 会调用
+   *       ZMAEE_IDisplay_GetBaseLayerDepth（0002671C；CODE XREF 里明确标了
+   *       ZMAEE_IShell_GetDeviceInfo+46），说明色深与显示子系统同源；但
+   *       返回值还要过一层 nativeColorDepthToString 才落到这一格，该函数的
+   *       映射（1/2/4 → 什么枚举）尚未确定，故暂不写。
    *   [5] dwLang      —— 需 nativeLanguageToString 确定枚举
    *   [6] cap / [7] bKbd / [9] nMaxRam / 各字符串字段 */
   log_debug("GetDeviceInfo -> %ux%u (bTouchScreen=1)", LAYER_W, LAYER_H);

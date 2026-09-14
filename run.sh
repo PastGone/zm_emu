@@ -52,13 +52,6 @@ usage() {
   probe     层占比探针：每 60 帧报"层0/层1 里透明色 vs 实际内容"的占比
   dump      把每一层的缓冲存成 PNG（每 60 帧一张）到 $OUT/
   shot      跨帧截图存到 $OUT/（每 30 个 present 一张）
-  ab        一键跑 A/B 对照：
-              A 新行为（建层 0 + 层 0 最后叠加）  -> $OUT/A_l*.png
-              B 旧行为（不建层 0，ZM_NO_BASELAYER）-> $OUT/B_l*.png
-            跑完看"鱼出现在哪个文件里"
-  old       旧行为（不建层 0），用来复现"有鱼有残影"
-  orderold  旧合成顺序（层 0 先叠加）
-  noskip    合成时不做透明跳过（诊断残影来源，画面会变品红）
   help      显示这份说明
 
 环境变量:
@@ -66,8 +59,14 @@ usage() {
   ZM_OUT=/tmp/zm       输出目录
 
 说明:
-  play/old/orderold 默认 ZM_LOG=off —— 画面验证时务必用它，
+  play 默认 ZM_LOG=off —— 画面验证时务必用它，
   否则全量日志会明显拖慢（实测 8 秒能刷 34 万行、log.txt 写 23MB）。
+
+注: 原先的 ab/old/orderold/noskip 场景依赖 ZM_NO_BASELAYER / ZM_LAYER_ORDER /
+    ZM_NO_SKIP 这些"历史开关"，它们现已随 RE 落地而全部移除：
+      - 层 0 按 ZMAEE_IDisplay_New 语义正式建立（zm_layer_init_base）
+      - 合成顺序由 applet 的 UpdateEx layerList 决定，不再由宿主猜
+      - 透明只有一条判据：层载荷 +0x2C 非 0 才 mask（见 fb_composite）
 EOF
 }
 
@@ -79,34 +78,6 @@ case "${1:-play}" in
   probe)    run probe     ZM_LOG=info ZM_PROBE=1 ;;
   dump)     run dump      ZM_LOG=info ZM_PROBE=1 ZM_DUMP_LAYER="$OUT/L" ;;
   shot)     run shot      ZM_LOG=off ZM_SCREENSHOT="$OUT/S" ZM_SHOT_EVERY=30 ZM_SHOT_MAX=30 ;;
-  old)      run old       ZM_LOG=off ZM_NO_BASELAYER=1 ;;
-  orderold) run orderold  ZM_LOG=off ZM_LAYER_ORDER=0 ;;
-  noskip)   run noskip    ZM_LOG=info ZM_NO_SKIP=1 ;;
-
-  ab)
-    TMO=""
-    [ -n "${ZM_TIMEOUT:-}" ] && TMO="timeout $ZM_TIMEOUT"
-    echo "═══ A 组：新行为（建层 0 + 层 0 最后叠加）═══"
-    rm -f "$OUT"/A_l*.png
-    # shellcheck disable=SC2086
-    env ZM_APPLET="$APPLET" ZM_LOG=off ZM_PROBE=1 ZM_DUMP_LAYER="$OUT/A" \
-        $TMO "$BIN" >/dev/null 2>&1
-    echo "已生成：$(ls "$OUT"/A_l*.png 2>/dev/null | wc -l) 张层图"
-    echo
-    echo "═══ B 组：旧行为（不建层 0）═══"
-    rm -f "$OUT"/B_l*.png
-    # shellcheck disable=SC2086
-    env ZM_APPLET="$APPLET" ZM_LOG=off ZM_PROBE=1 ZM_DUMP_LAYER="$OUT/B" \
-        ZM_NO_BASELAYER=1 $TMO "$BIN" >/dev/null 2>&1
-    echo "已生成：$(ls "$OUT"/B_l*.png 2>/dev/null | wc -l) 张层图"
-    echo
-    echo "═══ 请对比 ═══"
-    echo "  A（新）: $OUT/A_l0_*.png  $OUT/A_l1_*.png"
-    echo "  B（旧）: $OUT/B_l1_*.png"
-    echo "  要回答的：鱼出现在哪个文件里？"
-    echo
-    echo "（提示：想跑到有鱼的那一屏，建议不设 ZM_TIMEOUT，自己点进去后再关窗）"
-    ;;
 
   help|-h|--help) usage ;;
   *) echo "未知场景: $1"; echo; usage; exit 1 ;;

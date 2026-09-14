@@ -57,8 +57,17 @@ uint32_t zm_display_CreateLayer(uc_engine *uc, uint32_t off, uint32_t r0,
  * 缓冲指针（真机是全局 unk_64B60），背景应当画在这里。 */
 uint32_t zm_display_GetBaseLayerBuffer(uc_engine *uc);
 
-/* RE 的 ZMAEE_IDisplay_GetBaseLayerDepth()（无参，默认 1=RGB565）。 */
+/* RE 的 ZMAEE_IDisplay_GetBaseLayerDepth()：读屏幕色深（真机 ctx+0x38 =
+ * g_aee.screenDepth），不在 [24,32] 返回 1，否则查 9 项表（.rodata:0x5B3E4
+ * = {2,1,1,1,1,1,1,1,4}）→ 16bpp→1、24bpp→2、32bpp→4。 */
 uint32_t zm_display_GetBaseLayerDepth(uc_engine *uc);
+
+/* 上面那个函数的宿主等价物（不碰 uc），供 zm_layer_init_base 等使用。 */
+uint32_t zm_display_base_depth(void);
+
+/* 本模拟器上报/模拟的屏幕色深（位）。真机对应 g_aee.screenDepth，由
+ * nativeAEEInit 从设备配置灌入；我们固定 16，即 g_aee 里那一格的值。 */
+int zm_display_screen_depth(void);
 
 /* 基础层缓冲地址（0 = 未分配），仅供诊断探针使用。 */
 uint32_t zm_display_base_layer_addr(void);
@@ -70,7 +79,10 @@ uint32_t zm_display_GetLayerInfo(uc_engine *uc, uint32_t off, uint32_t r0,
                                  uint32_t r1, uint32_t r2, uint32_t r3);
 uint32_t zm_display_SetLayerPosition(uc_engine *uc, uint32_t off, uint32_t r0,
                                      uint32_t r1, uint32_t r2, uint32_t r3);
-uint32_t zm_display_Update(uc_engine *uc, uint32_t r0);
+/* +0x28 Update(display, x, y, w, h)：RE 00029D88 的薄封装，内部调
+ * UpdateEx(display, {x,y,w,h}, 4, <默认层列表>)。以前只取 r0，xywh 被丢掉。 */
+uint32_t zm_display_Update(uc_engine *uc, uint32_t display, uint32_t x, uint32_t y,
+                           uint32_t w, uint32_t h);
 uint32_t zm_display_GetActiveLayer(uc_engine *uc, uint32_t r0);
 uint32_t zm_display_UnlockScreen(uc_engine *uc, uint32_t r0);
 uint32_t zm_display_RegisterCustomFont(uc_engine *uc, uint32_t off, uint32_t r0,
