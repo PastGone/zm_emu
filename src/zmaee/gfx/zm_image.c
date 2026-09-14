@@ -773,16 +773,25 @@ static int gdi_read_palette(uc_engine *uc, uint32_t pal_obj, int *trans_idx,
  *
  *   fmt 1 = RGB565   （2 字节；GDI_Ext 走 mask16/copy16）
  *   fmt 2 = RGB888   （3 字节；mask24/copy24）
- *   fmt 3 = 32bpp    （4 字节；mask32/copy32，0x00RRGGBB）
- *   fmt 4 = P32      （4 字节，带 alpha；maskP32/copyP32）
+ *   fmt 3 = 32bpp    （4 字节；copy32，**0xAARRGGBB**，靠 alpha 定透明）
+ *   fmt 4 = P32      （4 字节，**0xAARRGGBB**；copyP32，同样靠 alpha 定透明）
  *
  * 实测验证：背景 surface {240,320,1,0} 的数据是 0x22D1/0x22D0（RGB565 深蓝灰），
  * 精灵 surface {49,26,3,0xF81F} 的数据是 0x00292828（32bpp 深灰）——
  * 与上述映射完全吻合。**注意 fmt 1 不是 8bpp 索引色**，早期按索引色处理
  * 会把 RGB565 的高低字节拆成两个像素，画面呈细密噪点。
  *
+ * 32bpp（fmt 3/4）的字节序：文件里是 B,G,R,A，小端读成 dword 正好是
+ * 0xAARRGGBB —— 与固件 Copy32To16 的通道拆分（R=v[23:19]）完全一致，
+ * 所以**不需要交换 R/B**（曾怀疑过，已用 number1.zmspx tex0 验证：
+ *  bytes 00 F6 FF FF → 固件算出 565 = 0xFFA0 = 金黄，正确）。
+ *
  * surf[0xC] 在这里按"透明色"解释（精灵实测 0xF81F = RGB565 洋红）：
- * 比较时按当前格式截断。返回 0 表示透明（跳过），-1 读失败。 */
+ * 比较时按当前格式截断 —— 对 32bpp 源这个比较实际不命中（源靠 alpha），
+ * 保留只为兼容 fmt 1/2 的 Mask 语义。
+ *
+ * 返回 0 表示透明（跳过），-1 读失败。
+ * 注意：32bpp 的返回值**保留 alpha**（不再抹成 0xFF），混合由调用方处理。 */
 static int gdi_read_pixel(uc_engine *uc, uint32_t addr, int fmt, uint32_t ck,
                           int *out_argb) {
   if (fmt == 1) { /* RGB565 */
@@ -807,17 +816,44 @@ static int gdi_read_pixel(uc_engine *uc, uint32_t addr, int fmt, uint32_t ck,
     *out_argb = (int)(0xFF000000u | v);
     return 1;
   }
-  /* fmt 3 = 32bpp（0x00RRGGBB）；fmt 4 = P32（含 alpha，0xAARRGGBB） */
+  /* fmt 3 = 32bpp；fmt 4 = P32 —— 两者都是 0xAARRGGBB（alpha 在**最高字节**）
+   *
+   * RE：固件 ZMAEE_Copy32To16 / ZMAEE_CopyP32To16
+   *     （安卓 libaee.so.c:48334 / :48472，与 `.text` 版逐条同构）：
+   *
+   *       a5 = v >> 27;                     ← alpha 就是**高 5 位**
+   *       a5 == 31 → 直接写 RGB565（不透明）
+   *       a5 == 0  → 整像素不写（透明）
+   *       1..30    → 与目标像素做 565 空间混合：dst + ((src - dst) * a5) >> 5
+   *       通道拆分：R = v[23:19]，G = v[15:10]，B = v[7:3]
+   *
+   *     两个函数都**不改 RGB 通道顺序**（源就是 ARGB8888），只有 alpha 语义。
+   *     applet 自带的 sub_61B4 / sub_6248 是这两个函数的逐字内联副本。
+   *
+   * 【2026-09 修正】旧实现写下 `0xFF000000 | (v & 0xFFFFFF)`，等于把 alpha
+   * 抹成不透明。实测本 applet 全部 type=3 纹理里 alpha=0 的像素占 31.2%
+   * （32007/102476），它们被整片画成不透明 → 画面上出现白/灰色方块
+   * （例：index_menu.zmspx tex6 49x26，403/1274 像素 alpha=0，RGB 为
+   *  282929/ffffff 的"废色"，只有靠 alpha 才能判透明）。
+   * 现在保留 alpha 原样返回，a5 的判定与混合交给调用方（它需要目的像素）。 */
   uint32_t v = 0;
   if (uc_mem_read(uc, addr, &v, 4) != UC_ERR_OK)
     return -1;
   if ((v & 0xFFFFFFu) == (ck & 0xFFFFFFu))
     return 0;
-  if (fmt == 4 && (v >> 24))
-    *out_argb = (int)v;
-  else
-    *out_argb = (int)(0xFF000000u | (v & 0xFFFFFFu));
+  if ((v >> 27) == 0)
+    return 0; /* a5 == 0 → 全透明（固件语义：整像素不写） */
+  *out_argb = (int)v;
   return 1;
+}
+
+/* 固件 ZMAEE_Copy32To16 的混合（在 0..255 尺度上做等价换算）：
+ * dst + ((src - dst) * a5) / 31，a5 ∈ [1,30]。 */
+static inline unsigned gdi_blend5(unsigned d, unsigned s, unsigned a5) {
+  int delta = (int)s - (int)d;
+  int step = (delta * (int)a5 + (delta < 0 ? -15 : 15)) / 31;
+  int r = (int)d + step;
+  return (unsigned)(r < 0 ? 0 : (r > 255 ? 255 : r));
 }
 
 int zm_image_blit_gdi_surface(uc_engine *uc, uint32_t surf, int dx, int dy,
@@ -909,7 +945,27 @@ int zm_image_blit_gdi_surface(uc_engine *uc, uint32_t surf, int dx, int dy,
       case 7: ddx = sh - 1 - y; ddy = sw - 1 - x; break;
       default: break;
       }
-      zm_fb_write(dx + ddx, dy + ddy, (uint32_t)argb);
+      int ox = dx + ddx, oy = dy + ddy;
+      /* 32bpp 源的 alpha 语义（见 gdi_read_pixel 的 RE 说明）：
+       *   高 5 位 = alpha；0 已被 gdi_read_pixel 挡掉，
+       *   31 = 不透明（直接写），1..30 → 与目标像素按比例混合后写。
+       * 混合基准取宿主帧缓冲（与 fb_blit_rgba 的 PNG 路径同一套做法）；
+       * 固件是在 RGB565 空间对**层**混合，换算到 888 后差异 ≤1 个 5bit 步进。
+       * fmt 1/2 的返回像素 alpha 恒为 0xFF → a5 = 31，行为与以前完全一致。 */
+      unsigned a5 = ((unsigned)argb >> 27) & 0x1Fu;
+      uint32_t out = (uint32_t)argb & 0x00FFFFFFu;
+      if (a5 < 31u) {
+        int fw = 0, fh = 0;
+        uint32_t *fb = zm_fb_buffer(&fw, &fh);
+        if (fb && (unsigned)ox < (unsigned)fw && (unsigned)oy < (unsigned)fh) {
+          uint32_t d = fb[(size_t)oy * (size_t)fw + (size_t)ox];
+          unsigned r = gdi_blend5((d >> 16) & 0xFFu, (out >> 16) & 0xFFu, a5);
+          unsigned g = gdi_blend5((d >> 8) & 0xFFu, (out >> 8) & 0xFFu, a5);
+          unsigned b = gdi_blend5(d & 0xFFu, out & 0xFFu, a5);
+          out = (r << 16) | (g << 8) | b;
+        }
+      }
+      zm_fb_write(ox, oy, 0xFF000000u | out);
     }
   }
   return 1;
