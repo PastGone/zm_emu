@@ -1,6 +1,7 @@
 #include "./event.h"
 #include "./log/log.h"
-#include "./tool/uc_helper.h" /* uc_read32：调试用实例字段 dump */
+#include "./tool/uc_helper.h"       /* uc_read32：调试用实例字段 dump */
+#include "./zmaee/audio/zm_audio.h" /* zm_audio_note_user_input：首次点击通知 */
 #include "unicorn/arm.h"
 #include <stdbool.h>
 
@@ -27,9 +28,8 @@ void dispatch_applet_event(uint32_t evt, uint32_t x, uint32_t y) {
     static const struct {
       uint32_t off;
       const char *name;
-    } flds[] = {{0x10, "flag"},   {0x18, "a18"},   {0x34, "a34"},
-                {0x3C, "a3C"},    {0x74, "a74"},   {0x80, "a80"},
-                {0xA8, "row"},    {0xAC, "col"}};
+    } flds[] = {{0x10, "flag"}, {0x18, "a18"}, {0x34, "a34"}, {0x3C, "a3C"},
+                {0x74, "a74"},  {0x80, "a80"}, {0xA8, "row"}, {0xAC, "col"}};
     char buf[256];
     int p = 0;
     for (unsigned i = 0; i < sizeof(flds) / sizeof(flds[0]); i++)
@@ -40,7 +40,8 @@ void dispatch_applet_event(uint32_t evt, uint32_t x, uint32_t y) {
 
     /* payload+0x180 是固件注入的"根对象指针"槽（见 emu.h ROOT_SLOT_OFF），
      * 而 sub_18B2C 会执行 `*(*(0x180))` 直接 BX 过去 —— 即它期望
-     * *(ROOT_TABLE_ADDR) 是一个**可调用地址**（trap 或代码），不是对象/虚表。 */
+     * *(ROOT_TABLE_ADDR) 是一个**可调用地址**（trap 或代码），不是对象/虚表。
+     */
     uint32_t slot = uc_read32(g_uc, BLOB_BASE + ROOT_SLOT_OFF);
     uint32_t fn = slot ? uc_read32(g_uc, slot) : 0;
     log_debug("payload[0x180]=0x%X  *(0x180)=0x%X  *(*0x180)=0x%X", BLOB_BASE,
@@ -72,6 +73,9 @@ void dispatch_applet_event(uint32_t evt, uint32_t x, uint32_t y) {
 void on_touch_click(uint32_t x, uint32_t y) {
   log_info("触摸事件: (%u, %u) -> handler=0x%X instance=0x%X", x, y, g_handler,
            g_instance);
+  // /* 通知音频侧"用户已经操作过了"：解除"进去默认关"的静音锁定，
+  //  * 此后按 applet 自己的开关状态出声（见 zm_audio.c sound_allowed）。 */
+  zm_audio_note_user_input();
   /* 派发 case 9 (penDown)：记录按下点到 INSTANCE[25..26] */
   dispatch_applet_event(9, x, y);
   /* 排队 case 10 (penUp)：等 handler 执行完 case 9 后，下一轮事件循环再派发 */

@@ -7,11 +7,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../../emu.h"            /* g_uc（完成回调跳板） */
+#include "../../emu_root_traps.h" /* TR_enter_event_loop（回调返回落点） */
 #include "../../log/log.h"
 #include "../../tool/uc_helper.h"
 #include "../fs/zm_file_mgr.h"
-#include "../../emu.h"            /* g_uc（完成回调跳板） */
-#include "../../emu_root_traps.h" /* TR_enter_event_loop（回调返回落点） */
 #include <stdbool.h>
 #include <unicorn/arm.h> /* UC_ARM_REG_*（完成回调跳板） */
 
@@ -41,9 +41,31 @@ static int g_media_on = 1;
 /* 上一次 playMusic 的 loop 标志：BGM 需要"重新起播"时要用 */
 static int g_music_loop = 1;
 
+/* 该 applet 用过 ISetting[+0x18]（= 它有自己的声音开关）*/
+static int g_app_switch_seen = 0;
+/* 用户是否已经点过（触摸过一次）。 */
+static int g_user_input_seen = 0;
+
+/* ---- "进去默认关" 规则 ----
+ * 00000506 一启动就发 ISetting[+0x18](1)（声音开）并起 BGM，可它的设置页显示
+ * 的却是"关"，用户期望的是：**进去静音，点一下开关才出声**。所以对"用过
+ * ISetting[+0x18] 的 applet"，在用户第一次触摸之前一律不算数（强制静音）；
+ * 用户点过之后，才按 app 自己发的开/关（ISetting / pauseMusic / stop /
+ * playMusic）走。这样进去是关、切换开关才打开，两边都能生效。
+ * 没用过这个开关的 applet 不受影响（照常出声）。 */
+static int sound_allowed(void) {
+  if (!g_sound_on)
+    return 0; /* ZM_SOUND=0：总闸静音 */
+  if (g_sound_force)
+    return 1; /* ZM_SOUND_FORCE=1：无视 app 开关 */
+  if (g_app_switch_seen && !g_user_input_seen)
+    return 0; /* 进去默认关 */
+  return g_media_on;
+}
+
 /* 按 ZM_SOUND 总闸 + app 开关算出实际音量（音量层） */
 static void apply_volume(void) {
-  int on = (g_sound_on && (g_media_on || g_sound_force)) ? MIX_MAX_VOLUME : 0;
+  int on = sound_allowed() ? MIX_MAX_VOLUME : 0;
   Mix_VolumeMusic(on);
   Mix_Volume(-1, on);
 }
@@ -67,14 +89,32 @@ static void ensure_bgm_playing(const char *why) {
   }
 }
 
-/* app 开关=关 → 把 BGM 暂停（ZM_SOUND_FORCE 时不理会） */
+/* 当前"应当静音"（含"进去默认关"未解除的情况）→ 把 BGM 暂停 */
 static void pause_bgm_if_muted(const char *why) {
-  if (g_sound_force)
+  if (sound_allowed())
     return;
-  if (!g_media_on && g_music && Mix_PlayingMusic() && !Mix_PausedMusic()) {
+  if (g_music && Mix_PlayingMusic() && !Mix_PausedMusic()) {
     Mix_PauseMusic();
-    log_info("BGM(%s): app 开关=关 → 暂停", why);
+    log_info("BGM(%s): 应静音（%s）→ 暂停", why,
+             (g_app_switch_seen && !g_user_input_seen)
+                 ? "进去默认关，尚未点开关"
+                 : "app 开关=关");
   }
+}
+
+/* 用户首次触摸 → 解除"进去默认关"，并按 app 当前开关状态重新评估一次 */
+void zm_audio_note_user_input(void) {
+  if (g_user_input_seen)
+    return;
+  g_user_input_seen = 1;
+  log_info("音频: 收到首次用户点击（用过 ISetting 开关=%d, app 开关=%d）→ "
+           "此后按 app 的开关状态发声",
+           g_app_switch_seen, g_media_on);
+  apply_volume();
+  if (sound_allowed())
+    ensure_bgm_playing("首次点击");
+  else
+    pause_bgm_if_muted("首次点击");
 }
 
 /* ---------- 完成回调跳板（RE：loc_32E80 case 16/64 = playMusic）----------
@@ -97,7 +137,7 @@ static media_pending_cb_t s_pending_cb[4];
 static int s_pending_cb_n = 0;
 
 static void queue_completion_cb(uint32_t cb, uint32_t ctx, uint32_t a1,
-                               uint32_t a2) {
+                                uint32_t a2) {
   if (!cb)
     return;
   if (s_pending_cb_n >= (int)(sizeof(s_pending_cb) / sizeof(s_pending_cb[0]))) {
@@ -192,10 +232,12 @@ int zm_audio_init(void) {
     }
     apply_volume();
     if (g_sound_on)
-      log_info("zm_audio_init: SDL_mixer 就绪，音频输出**开启**（默认；"
-               "出声与否由 applet 自己的声音开关决定：pauseMusic/resumeMusic）");
+      log_info(
+          "zm_audio_init: SDL_mixer 就绪，音频输出**开启**（默认；"
+          "出声与否由 applet 自己的声音开关决定：pauseMusic/resumeMusic）");
     else
-      log_info("zm_audio_init: SDL_mixer 就绪，音频输出被 ZM_SOUND 强制**静音**");
+      log_info(
+          "zm_audio_init: SDL_mixer 就绪，音频输出被 ZM_SOUND 强制**静音**");
   }
   return 0;
 }
@@ -210,8 +252,8 @@ void zm_audio_shutdown(void) {
 uint32_t zm_media_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
                        uint32_t r2, uint32_t r3) {
   (void)uc;
-  log_info("media stub[0x%X] r0=0x%X r1=0x%X r2=0x%X r3=0x%X", off, r0, r1,
-           r2, r3);
+  log_info("media stub[0x%X] r0=0x%X r1=0x%X r2=0x%X r3=0x%X", off, r0, r1, r2,
+           r3);
   return 0;
 }
 
@@ -255,7 +297,9 @@ static int play_from_mem(const uint8_t *data, uint32_t len, int loop) {
     release_music();
     return -1;
   }
-  /* 音量跟随 app 开关；开关=关 → 新曲直接起播为暂停（不会漏声） */
+  /* playMusic = app 明确要出声 → 记为"开"；音量跟随开关，
+   * 若当前应当静音（app 开关=关 / 进去还没点过开关）则起播即暂停。 */
+  g_media_on = 1;
   apply_volume();
   pause_bgm_if_muted("playMusic");
   return 0;
@@ -279,8 +323,8 @@ static int looks_like_filename(const uint8_t *p, uint32_t len) {
   return has_dot;
 }
 
-uint32_t zm_media_command(uc_engine *uc, uint32_t r0, uint32_t r1,
-                          uint32_t r2, uint32_t r3, uint32_t sp) {
+uint32_t zm_media_command(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
+                          uint32_t r3, uint32_t sp) {
   (void)r0;
   /* 掌萌 zmapp AEE 媒体层：+0x10（loc_32E80）实为命令分发器，
    * 原型 int loc_32E80(void *self, int cmd, void *arg1, void *arg2, ...)；
@@ -290,22 +334,24 @@ uint32_t zm_media_command(uc_engine *uc, uint32_t r0, uint32_t r1,
    *   sub_904C(this, 曲目索引, R2) → sub_26CC(media, 名字, R2, this)
    *   → sub_2630(media, 名字, 长度, cmd=0x10, R2, this)
    * 把 R2 与 this 分别压到 sp[0]/sp[1]，最后才 BLX 到本分发器。
-   * 以前我们完全不读栈，等于把它们丢掉 —— 目前照实记录，语义待固件反编译确认。 */
+   * 以前我们完全不读栈，等于把它们丢掉 —— 目前照实记录，语义待固件反编译确认。
+   */
   uint16_t cmd = (uint16_t)(r1 & 0xFFFF);
-  /* 栈上实参的语义（RE：固件分发器 loc_32E80，`: .data:0x640F4` 即 IMedia 槽 +0x10）：
-   *   sp[0] = **loop 标志**：各 play 分支里做 `(sp[0] != 0)` 布尔化后，作为
-   *           Java 侧 playMusic / playMidSound / playRealSound 的最后一个 int
-   *           （Android 侧据此决定是否循环；汇编是 `SUBS R3,#1 / SBCS`）；
-   *   sp[1] = **完成回调**（music 存 media+0x10，音效存 media+8）；
-   *   sp[2] = **回调上下文**（music 存 media+0x14）。
-   * 另外 case 16/64（playMusic）在起播前：若 isMusicPlaying 且旧回调非 0，
-   * 会先调 `旧回调(旧ctx, 0x7FFF, 0)` 通知"上一首被打断"。 */
+  /* 栈上实参的语义（RE：固件分发器 loc_32E80，`: .data:0x640F4` 即 IMedia 槽
+   * +0x10）： sp[0] = **loop 标志**：各 play 分支里做 `(sp[0] != 0)`
+   * 布尔化后，作为 Java 侧 playMusic / playMidSound / playRealSound 的最后一个
+   * int （Android 侧据此决定是否循环；汇编是 `SUBS R3,#1 / SBCS`）； sp[1] =
+   * **完成回调**（music 存 media+0x10，音效存 media+8）； sp[2] =
+   * **回调上下文**（music 存 media+0x14）。 另外 case
+   * 16/64（playMusic）在起播前：若 isMusicPlaying 且旧回调非 0， 会先调
+   * `旧回调(旧ctx, 0x7FFF, 0)` 通知"上一首被打断"。 */
   uint32_t sp0_loop = sp ? uc_read32(uc, sp) : 0;
   uint32_t sp1_cb = sp ? uc_read32(uc, sp + 4) : 0;
   uint32_t sp2_ctx = sp ? uc_read32(uc, sp + 8) : 0;
   int loop = (sp0_loop != 0);
-  log_info("IMedia cmd 分发器: cmd=0x%X  r2=0x%X  r3=0x%X  loop=%d cb=0x%X ctx=0x%X",
-           cmd, r2, r3, loop, sp1_cb, sp2_ctx);
+  log_info(
+      "IMedia cmd 分发器: cmd=0x%X  r2=0x%X  r3=0x%X  loop=%d cb=0x%X ctx=0x%X",
+      cmd, r2, r3, loop, sp1_cb, sp2_ctx);
 
   /* 真机同位置做的两件事（RE：loc_32E80 case 16/64 与 case 1/2/68）：
    *   1) playMusic：若正在播放且 media+0x10 存有旧回调 → 先通知它"被打断"；
@@ -380,8 +426,8 @@ uint32_t zm_media_command(uc_engine *uc, uint32_t r0, uint32_t r1,
     uint8_t *raw = malloc(r3);
     if (raw) {
       if (uc_mem_read(uc, r2, raw, r3) == UC_ERR_OK) {
-        int is_mp3 = (r3 >= 3 && raw[0] == 'I' && raw[1] == 'D' &&
-                      raw[2] == '3');
+        int is_mp3 =
+            (r3 >= 3 && raw[0] == 'I' && raw[1] == 'D' && raw[2] == '3');
         log_info("IMedia cmd 0x%X: 裸音频流 len=%u mp3=%d loop=%d", cmd, r3,
                  is_mp3, loop);
         play_from_mem(raw, r3, loop);
@@ -397,15 +443,28 @@ uint32_t zm_media_command(uc_engine *uc, uint32_t r0, uint32_t r1,
 
 /* IMedia.stop（+0x14）：stopAllRealSound */
 uint32_t zm_media_stop(uc_engine *uc) {
-  (void)uc;
-  /* +0x14 = AEEJNIBridge.stopAllRealSound()V（RE 见 emu_media_traps.h）。
-   * 真机语义是"停掉所有正在响的音效"；BGM 该怎么办由 app 开关决定（收敛里处理），
-   * 所以这里：停掉所有音效通道，**不释放** g_music（保留曲目，才能再起播），
-   * 然后按开关收敛一次。 */
   uint32_t lr = 0;
   uc_reg_read(uc, UC_ARM_REG_LR, &lr);
+  /* +0x14 = AEEJNIBridge.stopAllRealSound()V（RE 见 emu_media_traps.h）。
+   *
+   * 00000506 把它当"关声音"用：它的关声音包装是
+   *   sub_96AC(state) → state[0x60] → sub_25F4：obj = [w+4];
+   *                    若 obj 与 [w+0xC] 都非 0 → obj->vt[+0x14]()   ←
+   * 就是本函数 所以这里除了停掉全部音效通道，**也要把 BGM
+   * 停掉**，否则就是用户实测的 "开关拨过去、音效没了，BGM 还在循环"。停用
+   * pause（不 halt、不释放）， 曲目保留 —— 之后 playMusic/resumeMusic/ISetting
+   * 都能把它再拉起来。 */
   Mix_HaltChannel(-1);
-  log_info("IMedia.stop/stopAllRealSound() lr=0x%X: 音效通道已停（BGM 不动）", lr);
+  if (g_music && Mix_PlayingMusic() && !Mix_PausedMusic()) {
+    Mix_PauseMusic();
+    log_info("IMedia.stop/stopAllRealSound() lr=0x%X: 音效通道已停 + BGM 已暂停"
+             "（曲目保留，可再起）",
+             lr);
+  } else {
+    log_info("IMedia.stop/stopAllRealSound() lr=0x%X: 音效通道已停"
+             "（BGM 本来就没在播）",
+             lr);
+  }
   return 0;
 }
 
@@ -442,6 +501,8 @@ uint32_t zm_media_resume_music(uc_engine *uc) {
   uint32_t lr = 0;
   uc_reg_read(uc, UC_ARM_REG_LR, &lr);
   log_info("IMedia.resumeMusic() lr=0x%X → 恢复 BGM", lr);
+  g_media_on = 1; /* resumeMusic = app 明确要出声 → 记为"开" */
+  apply_volume();
   ensure_bgm_playing("resumeMusic");
   return 0;
 }
@@ -463,6 +524,7 @@ uint32_t zm_media_resume_music(uc_engine *uc) {
 void zm_audio_set_sound_flag(uint32_t raw) {
   /* 固件字面语义：putBundleInt(bundle, "on", r1) → 非 0 = 开 */
   int on = (raw != 0);
+  g_app_switch_seen = 1; /* 它有自己的声音开关 → 启用"进去默认关"规则 */
   if (g_sound_force) {
     log_info("ISetting[0x18]=%u（原意=%s）被 ZM_SOUND_FORCE=1 覆盖 → 保持出声",
              raw, on ? "开" : "关");
@@ -471,10 +533,11 @@ void zm_audio_set_sound_flag(uint32_t raw) {
     g_media_on = on;
   }
   apply_volume();
-  if (g_media_on)
+  if (sound_allowed())
     ensure_bgm_playing("ISetting[0x18]");
   else
     pause_bgm_if_muted("ISetting[0x18]");
-  log_info("ISetting[0x18]=%u → 声音%s（实际音量=%d, ZM_SOUND=%d）", raw,
-           g_media_on ? "开" : "关", Mix_VolumeMusic(-1), g_sound_on);
+  log_info("ISetting[0x18]=%u → 声音%s（实际音量=%d, ZM_SOUND=%d, 已点过=%d）",
+           raw, on ? "开" : "关", Mix_VolumeMusic(-1), g_sound_on,
+           g_user_input_seen);
 }
