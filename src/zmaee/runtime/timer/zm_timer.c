@@ -48,7 +48,14 @@ uint32_t zm_timer_SetTimer(uc_engine *uc, uint32_t dur_ms, uint32_t cb,
   if (s_timer_count > 15)
     return (uint32_t)-1; /* RE：count>15 → -1 */
   zm_timer_t *e = &s_timers[s_timer_count++];
-  e->id = s_timer_next_id++;
+  /* 【2026-09 实测修正】ID 从 1 开始，不用 0：
+   *   00000001 的定时器回调 sub_68D8 会把 SetTimer 的返回值直接存进对象字段
+   *   （0x6904: STR R0,[R4,#0x10]），之后该类的 getter（类表+0x20 → 0xD054
+   *   的 LDR R0,[R0,#0x10]）把这个值当对象/句柄用。
+   *   以前第一个 ID = 0 → 存进去就是 NULL → 被当 this → 崩在 pc=0x1EDC。
+   *   真机上 ID 计数器早已被 AEE/壳层推进过，所以不会拿到 0；这里从 1 起步，
+   *   语义等价（ID 只需唯一非 0）。 */
+  e->id = ++s_timer_next_id;
   e->owner = owner;
   e->expire = zm_root_get_tick(uc) + dur_ms;
   e->a5 = a5;

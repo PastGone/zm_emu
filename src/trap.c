@@ -294,12 +294,30 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
         return;
       }
 
-      uint32_t INSTANCE = applet_calloc(uc, 1, size);
+      /* 【按 AEE 规程构造实例】（res/安卓喜洋洋/libaee.so.c.txt:
+       *  ZMAEE_IShell_RunApplet @00035414）：
+       *    v10(&v17, v16);                 // 调 applet 的 zmaee_main 拿 size 与 3 个字
+       *    v11 = malloc(v17 + 32);         // 上下文块 = applet 报的 size + 32
+       *    ctx[0..2] = v16[0..2];          // 回填那 3 个字
+       *    *(ctx + 16) = v11;              // +16 = self（指向块首）
+       *    strncpy(ctx + 20, path, 0x40);  // +20 = 模块路径串（扩展名改成 .app）
+       *    *a3 = ctx;  *a4 = ctx + 16;     // 交给 applet 的"实例"= ctx + 16
+       * 我们以前只按 size 分配、实例指针给的是块首、且没写 self。
+       * 注意 ctx+20 == 实例+4，所以下面写文件名的偏移本来就是对的。 */
+      uint32_t blk = applet_calloc(uc, 1, size + 32);
+      uint32_t INSTANCE = blk + 16;
+      uc_write32(uc, blk + 0, uc_read32(uc, API_SLOT + 0));
+      uc_write32(uc, blk + 4, uc_read32(uc, API_SLOT + 4));
+      uc_write32(uc, blk + 8, uc_read32(uc, API_SLOT + 8));
+      uc_write32(uc, INSTANCE, blk); /* +16 = self */
+      /* 【已试过并撤回】把 CBK_OBJ+0x48 指向 INSTANCE+0x68 的猜测：
+       * 实测 applet 的上下文对象是**堆对象**（一轮 0x1A0080、另一轮 0x1A0260），
+       * 不是相对 INSTANCE 的固定偏移 → 该猜测被推翻，勿重复尝试。 */
       /* 把 applet 短名写入 instance+4：applet 用它在运行时构造
        * "<name>.zmr" 等资源文件名。写入前做边界校验。 */
       const char *filename = get_filename_from_fullpath(g_app_pathname);
       size_t fn_len = strlen(filename) + 1;
-      if (4 + fn_len <= (size_t)size)
+      if (4 + fn_len <= (size_t)size + 32u)
         uc_mem_write(uc, INSTANCE + 4, filename, fn_len);
       else
         log_warn("filename (len=%zu) 超出实例大小 %u，跳过写入", fn_len, size);
@@ -312,6 +330,11 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
       stage = 1;
       log_info("派发 EV_CREATE(evt=0) -> handler=0x%X", g_handler);
       dispatch_applet_event(0 /* EV_CREATE */, 0, 0);
+      log_info("EV_CREATE 之后：访问 [CBK_OBJ+0x48] = 0x%X（我们初始化的是 0x%X）",
+               uc_read32(uc, CBK_OBJ + 0x48), CBK_CTX);
+
+      /* [CBK_OBJ+0x48] 的纠正放在 zm_shell_CreateInstance 里做（见该函数）：
+       * applet 的上下文对象是在 EV_CREATE 之后由 sub_319C 建的，扫描时机太早。 */
       return;
     }
 
@@ -371,13 +394,13 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     uint32_t a_size = r0;
     uint32_t a_ctx = r1;
     ret = applet_malloc(uc, r0);
-    if (g_disasm)
-      log_debug("malloc(size=%u r0, ctx=0x%X r1) lr=0x%X -> 0x%X", a_size, a_ctx,
-                lr, ret);
+    /* 总是打（debug 级）：排查"同一地址是否被发了两次 / 是否 free 后复用" */
+    log_debug("malloc(size=%u ctx=0x%X) lr=0x%X -> 0x%X", a_size, a_ctx, lr,
+              ret);
     break;
   }
   case TR_root_free:
-    log_debug("这里的话是 free(r0=%d)", r0);
+    log_debug("free(0x%X) lr=0x%X", r0, lr);
     applet_free(uc, r0);
     ret = 0;
     break; /* free(r0=ptr) */
@@ -646,6 +669,18 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break;
   case TR_fileMgr_x38: /* RE sub_29E00 */
     ret = zm_fileMgr_stub(uc, 0x38, r0, r1, r2, r3);
+    break;
+  case TR_fileMgr_x3C:
+    /* 00000001 实测：sub_68D8 @0x68F4 读 [vt+0x3C] 后 BLX，
+     *   R0 = IFileMgr 对象，R1 = UI 对象+0xC，R2 = &sub_68D8（回调），R3 = 0；
+     *   返回值被写进 UI 对象 +0x10（类表+0x20 → 0xD054 的 LDR R0,[R0,#0x10]
+     *   之后把它当 this 用）。此前这格不在表里（枚举只到 0x38），读表外 →
+     *   返回 0 → NULL 当 this → 崩在 pc=0x1EDC。
+     * 语义待从参数/回调确认（像"异步取数据 + 完成回调"），先接线：打参数 +
+     * 走既有 stub（返回 0），先保证不再读到表外的随机值。 */
+    log_debug("[FileMgr+0x3C] r0=0x%X r1=0x%X r2=0x%X r3=0x%X lr=0x%X", r0, r1,
+              r2, r3, lr);
+    ret = zm_fileMgr_stub(uc, 0x3C, r0, r1, r2, r3);
     break;
   case TR_file_close:
     ret = zm_file_close(uc, r0);
@@ -1201,7 +1236,16 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break;
   }
 
-  log_debug("applet 调用外部的返回值是 r0等于0x%X", ret);
+  /* 带上槽号：排查"某个返回值被 applet 存进对象、之后当指针用"的场景时，
+   * 只打 r0 的值分不清是哪个槽返回的。这里只改调试输出，不改任何行为。 */
+  if (trap_address >= TRAMP_BASE && trap_address < TRAMP_BASE + TRAMP_SIZE)
+    log_debug("applet 调用外部[槽+0x%X] 返回 r0=0x%X (入参 r0=0x%X r1=0x%X "
+              "r2=0x%X r3=0x%X lr=0x%X)",
+              trap_address - TRAMP_BASE, ret, r0, r1, r2, r3, lr);
+  else
+    log_debug("applet 调用外部(0x%X) 返回 r0=0x%X (入参 r0=0x%X r1=0x%X "
+              "r2=0x%X r3=0x%X lr=0x%X)",
+              trap_address, ret, r0, r1, r2, r3, lr);
 
   uc_reg_write(uc, UC_ARM_REG_R0, &ret);
 
