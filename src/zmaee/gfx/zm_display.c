@@ -2127,6 +2127,86 @@ uint32_t zm_display_DrawImage(uc_engine *uc, uint32_t off, uint32_t r0,
  * 因此这里恒传 mode=0（无镜像）。真机在 a6=0 时走 copy 家族（只跳 alpha==0，
  * 不抠 tc）；我们统一走"alpha==0 与洋红 key 都跳"的更严版本，肉眼无差，
  * 属有意的简化。00000506 的关卡列表实测走的是 +0x98，0x94 在这几屏没被调用。 */
+/* 把一个 **IBitmap 对象**转成 RGBA。
+ * 布局依据（Android AEE 参考 ZMAEE_IBitmap_GetInfo：
+ *   `zmaee_memcpy(a2, a1 + 8, 0x20)` —— 信息块从对象 +8 起、共 0x20 字节）：
+ *   +8  宽        +12 高        +16 格式(ZMCF)  +20 透明色
+ *   +0x24(=36) 像素指针        （+28 调色板指针、+32/+40 调色板大小）
+ * 与我们 LoadBitmap / CreateBitmap 写入的字段完全一致。
+ * 成功时 *out 为 malloc 的 w*h*4 RGBA 缓冲，调用方负责 free。 */
+static int bitmap_obj_to_rgba(uc_engine *uc, uint32_t obj, int *w, int *h,
+                              uint8_t **out) {
+  /* 只认我们自己造的 IBitmap（LoadBitmap / CreateBitmap 都落在 BITMAP_POOL）。
+   * 否则会把 IImage / surface 等别的对象当成位图字段误读，画出满屏黑块 ——
+   * 实测 00000506 因此有 13k+ 像素被涂成纯黑（A/B 逐像素对比得出）。 */
+  if (!((obj >= BITMAP_POOL &&
+         obj < BITMAP_POOL + BITMAP_SLOT_COUNT * BITMAP_SLOT_SIZE) ||
+        obj == BITMAP))
+    return 0;
+  int bw = (int)uc_read32(uc, obj + 8);
+  int bh = (int)uc_read32(uc, obj + 12);
+  int fmt = (int)uc_read32(uc, obj + 16);
+  uint32_t trans = uc_read32(uc, obj + 20);
+  uint32_t px = uc_read32(uc, obj + 36);
+  /* ZMCF2BytsPerPixel：0→1(索引) 1→2(RGB565) 2/3/4→4 */
+  static const int bpp_tab[5] = {1, 2, 4, 4, 4};
+  if (bw <= 0 || bh <= 0 || bw > 4096 || bh > 4096 || !px || fmt < 0 || fmt > 4)
+    return 0;
+  int bpp = bpp_tab[fmt];
+  if (bpp == 1)
+    return 0; /* 索引色需要调色板，暂不处理（未见 applet 用 fmt=0 绘制） */
+  size_t n = (size_t)bw * (size_t)bh;
+  uint8_t *raw = (uint8_t *)malloc(n * (size_t)bpp);
+  uint8_t *rgba = (uint8_t *)malloc(n * 4u);
+  if (!raw || !rgba) {
+    free(raw);
+    free(rgba);
+    return 0;
+  }
+  if (uc_mem_read(uc, px, raw, n * (size_t)bpp) != UC_ERR_OK) {
+    free(raw);
+    free(rgba);
+    return 0;
+  }
+  for (size_t i = 0; i < n; i++) {
+    uint32_t v;
+    uint8_t r, g, b, a = 255;
+    if (bpp == 2) {
+      v = (uint32_t)raw[i * 2] | ((uint32_t)raw[i * 2 + 1] << 8);
+      r = (uint8_t)(((v >> 11) & 0x1Fu) * 255u / 31u);
+      g = (uint8_t)(((v >> 5) & 0x3Fu) * 255u / 63u);
+      b = (uint8_t)((v & 0x1Fu) * 255u / 31u);
+    } else {
+      v = (uint32_t)raw[i * 4] | ((uint32_t)raw[i * 4 + 1] << 8) |
+          ((uint32_t)raw[i * 4 + 2] << 16) | ((uint32_t)raw[i * 4 + 3] << 24);
+      /* 内存里是 [B][G][R][A]（即字 0xAARRGGBB）：progress_bar 的进度高光
+       * 按此序解出是黄色、反序解出是青色，取此序。 */
+      r = (uint8_t)((v >> 16) & 0xFF);
+      g = (uint8_t)((v >> 8) & 0xFF);
+      b = (uint8_t)(v & 0xFF);
+      /* fmt=3/4 是真 32 位带 alpha（stage_over 的数据就是 0xXX000000 ——
+       * 一张"变暗遮罩"，只在第 4 字节存 alpha）。fmt=2 是 24 位，不透明。 */
+      if (fmt >= 3)
+        a = (uint8_t)((v >> 24) & 0xFF);
+    }
+    rgba[i * 4 + 0] = r;
+    rgba[i * 4 + 1] = g;
+    rgba[i * 4 + 2] = b;
+    /* 色键：参考 GDI_BitBlt 用 trans 的**符号**决定是否做掩码
+     * （trans < 0 即 0xFFFFFFFF = 不设色键）；比较按该格式的有效位宽，
+     * 命中则 alpha=0（我方 blit 会跳过 alpha=0 的像素）。 */
+    uint32_t mask = (bpp == 2) ? 0xFFFFu : (fmt == 2 ? 0xFFFFFFu : 0xFFFFFFFFu);
+    int is_key =
+        ((int32_t)trans >= 0) && ((uint32_t)(trans & mask) == (v & mask));
+    rgba[i * 4 + 3] = is_key ? 0 : a;
+  }
+  free(raw);
+  *w = bw;
+  *h = bh;
+  *out = rgba;
+  return 1;
+}
+
 /* 把某个 surface 对象的指定矩形画到 (dx,dy)：
  * surface 可以是 IImage / IBitmap（都在 zm_image 池里）；
  * rect_ptr = {left, top, right, bottom}（客户机内存），0 表示整图；
@@ -2135,6 +2215,7 @@ static int blit_surface_region(uc_engine *uc, uint32_t obj, int dx, int dy,
                                uint32_t rect_ptr, int mode) {
   int w = 0, h = 0;
   const uint8_t *rgba = NULL;
+  uint8_t *owned = NULL; /* 由 IBitmap 现转出来的 RGBA，退出前要释放 */
   if (!zm_image_get_pixels(obj, &w, &h, &rgba)) {
     /* 有些对象自身不持像素，而是 +8 处挂着一个 surface（见 sub_27C：
      * 负载 +8 = Decode 结果记录里的 surface）。这里跟随 +8 再试一次。 */
@@ -2142,6 +2223,13 @@ static int blit_surface_region(uc_engine *uc, uint32_t obj, int dx, int dy,
     if (uc_mem_read(uc, obj + 8, &sub_surf, 4) == UC_ERR_OK && sub_surf &&
         sub_surf != obj && zm_image_get_pixels(sub_surf, &w, &h, &rgba)) {
       obj = sub_surf;
+    } else if (bitmap_obj_to_rgba(uc, obj, &w, &h, &owned)) {
+      /* IBitmap 对象（我们 LoadBitmap / CreateBitmap 造的那种）：
+       * 字段与 ZMAEE_IBitmap_GetInfo 一致（memcpy(dst, obj+8, 0x20)）——
+       * +8 宽、+12 高、+16 格式、+20 透明色、+36 像素。以前这里直接
+       * return 0，于是 applet 的主绘制全部落空（实测 645 次 DrawBitmap
+       * 全打"无像素数据（stub）"→ 白屏）。 */
+      rgba = owned;
     } else {
       return 0;
     }
@@ -2203,18 +2291,24 @@ static int blit_surface_region(uc_engine *uc, uint32_t obj, int dx, int dy,
   }
   if (sx == 0 && sy == 0 && sw == w && sh == h) {
     fb_blit_rgba_mode(dx, dy, w, h, rgba, mode);
+    free(owned);
     return 1;
   }
-  if (sx < 0 || sy < 0 || sx + sw > w || sy + sh > h || sw <= 0 || sh <= 0)
+  if (sx < 0 || sy < 0 || sx + sw > w || sy + sh > h || sw <= 0 || sh <= 0) {
+    free(owned);
     return 0;
+  }
   uint8_t *sub = malloc((size_t)sw * sh * 4u);
-  if (!sub)
+  if (!sub) {
+    free(owned);
     return 0;
+  }
   for (int y = 0; y < sh; y++)
     memcpy(sub + (size_t)y * sw * 4u, rgba + ((size_t)(sy + y) * w + sx) * 4u,
            (size_t)sw * 4u);
   fb_blit_rgba_mode(dx, dy, sw, sh, sub, mode);
   free(sub);
+  free(owned);
   return 1;
 }
 
