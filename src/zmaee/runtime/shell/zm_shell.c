@@ -1,4 +1,5 @@
 #include "zm_shell.h"
+#include "zm_dll.h" /* ZMAEE DLL 预留模块：侦察结果与将来实现路线（见文件头） */
 
 #include "../../../emu.h" /* g_instance（GetApplet 返回当前实例） */
 #include "../../../log/log.h"
@@ -176,19 +177,26 @@ uint32_t zm_shell_GetApplet(uc_engine *uc, uint32_t index) {
 /* 定时器（+0x3C/+0x40/+0x44 及派发 sub_34394）已拆至 ../timer/zm_timer.c */
 
 /* +0x58 LoadDLL（RE sub_35230）：stub，返回 DLL_OBJ */
+/* +0x58 LoadDLL。
+ * 目前是**假实现**：不读 DLL 文件，直接返回一个空的 DLL_OBJ（+0x08 init /
+ * +0x0C config / +0x10 entry 三个槽都只记日志）。
+ *
+ * 真实现该做什么、目标 DLL（zmsys001.dll = 计费模块）的容器格式、固件
+ * sub_35230 的加载流程、以及阻塞点，全部记在 zm_dll.h（预留模块）里。 */
 uint32_t zm_shell_LoadDLL(uc_engine *uc, uint32_t name_ptr, uint32_t name_len,
                           uint32_t out_ptr) {
   char name[64];
   uint32_t n = name_len < sizeof(name) - 1 ? name_len : sizeof(name) - 1;
   read_cstr(uc, name_ptr, name, n + 1);
   name[n] = '\0';
-  log_info("IShell.LoadDLL(\"%s\", len=%u) -> DLL_OBJ (stub)", name, name_len);
+  log_info("IShell.LoadDLL(\"%s\", len=%u) -> DLL_OBJ (stub，真实现见 zm_dll.h)",
+           name, name_len);
   if (out_ptr)
     uc_write32(uc, out_ptr, DLL_OBJ);
   return DLL_OBJ; /* 非 0 表成功 */
 }
 
-/* +0x5C UnloadDLL（RE sub_346D8）：stub */
+/* +0x5C UnloadDLL（RE sub_346D8）：stub（真实现见 zm_dll.h） */
 uint32_t zm_shell_UnloadDLL(uc_engine *uc, uint32_t handle) {
   (void)uc;
   log_info("IShell.UnloadDLL(0x%X) stub", handle);

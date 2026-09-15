@@ -35,7 +35,14 @@ enum ZM_TAPI_VT {
   ZM_Tapi_x50 = 0x50U
 };
 
-/* DLL 对象虚表槽位（基址 DLL_OBJ_VT_ADDR） */
+/* DLL 对象虚表槽位（基址 DLL_OBJ_VT_ADDR）
+ *
+ * 这是我们**自己造**的假对象（真对象由 DLL 的导出表决定，见 zm_dll.h §4）。
+ * 已知目标 DLL = zmsys001.dll（计费），其导出为：
+ *   zmaeecharge_Init / UiEvent / Repaint / Billreq_Entry / Cardreq_Entry /
+ *   Release / RegSmsfilter
+ * 与我们这三个槽的对应关系**尚未确认**（真加载时才会知道每个槽落到哪个导出）。
+ * 全部的侦察结果、容器格式、加载流程、实现路线：见 zm_dll.h。 */
 enum ZM_DLL_OBJ_VT {
   /* +0x04 = Release：00000506 付费流程实测（点购买后 35 次走这里）。
    * 调用点 sub_19A84（紧挨着 "zmsys001.dll" 串）：
