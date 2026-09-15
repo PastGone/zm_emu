@@ -222,6 +222,67 @@ uint32_t zm_fileMgr_TestFile(uc_engine *uc, uint32_t r0, uint32_t name_ptr) {
   return ok ? 0 : (uint32_t)-1;
 }
 
+/* +0x0C = IFileMgr::GetInfo（RE sub_2A550，参考 ZMAEE 实现）：
+ *   int GetInfo(mgr, const char *name, info_out *out)
+ *   参数空 → -4；整个 out 结构先 memset 成 0（0x4C 字节）；
+ *   目录 → out[0]=2，普通文件 → out[0]=0；
+ *   out+4 = 大小(高32)   out+8 = 大小(低32)   out+12 = 文件名（basename）
+ *   文件不存在 → -1；成功 → 0
+ *
+ * 为什么必须实现：00000001 装载 res\sprite\*.zmspx 时先调本槽拿长度，
+ * 再用它当 IFile::Read 的长度。以前这里是返回 0 的桩 —— 长度被填 0，
+ * Read 读 0 字节（真机 ZMAEE_IFile_Read 对 n=0 同样是返回 0、不拷贝），
+ * 于是资源内容一个字节都没进缓冲，后续 sub_15684 解析 zms2 头失败返回 0，
+ * 列表项的自表指针变成 0，最终在 sub_15964 里读 [0+0x18] 越界
+ * → 崩溃 err=6 pc=0x15994。 */
+uint32_t zm_fileMgr_GetInfo(uc_engine *uc, uint32_t r0, uint32_t name_ptr,
+                            uint32_t out_ptr) {
+  if (r0 == 0 || name_ptr == 0 || out_ptr == 0)
+    return (uint32_t)-4;
+
+  /* 与真机一致：先把整个 0x4C 结构清零 */
+  {
+    static const uint8_t z0[0x4C] = {0};
+    uc_mem_write(uc, out_ptr, z0, sizeof(z0));
+  }
+
+  char name[256];
+  /* ★ 必须用 read_filename（字串），不是 read_filename_obj（带对象头的那种）
+   * —— 这里 applet 传的是 sprintf 出来的纯 C 串，用 obj 版会吃掉首字符
+   * （实测 "xiao_hua_normal.zmspx" 变成 "iao_hua_normal.zmspx" → 找不到
+   * → 大小 0 → Read 读 0 字节 → 资源没装载 → 崩）。 */
+  read_filename(uc, name_ptr, name, sizeof(name));
+  char utf[256];
+  if (has_high_byte(name) && gbk_to_utf8(name, utf, sizeof(utf)) > 0)
+    snprintf(name, sizeof(name), "%s", utf);
+
+  /* 取大小：走与 open/read_file 同一套路径解析（数据目录 / app_list 回退） */
+  uint8_t *buf = NULL;
+  size_t len = 0;
+  if (zm_fs_read_file(name, &buf, &len) != 0 || !buf) {
+    log_info("fileMgr.GetInfo(\"%s\") -> -1 (找不到, out=0x%X)", name, out_ptr);
+    return (uint32_t)-1; /* 不存在 */
+  }
+  free(buf);
+
+  uint32_t cls = 0; /* 0 = 普通文件 */
+  uc_mem_write(uc, out_ptr + 0, &cls, 4);
+  uint32_t hi = 0, lo = (uint32_t)len;
+  uc_mem_write(uc, out_ptr + 4, &hi, 4);
+  uc_mem_write(uc, out_ptr + 8, &lo, 4);
+
+  /* basename（真机 strcpy(a3+12, 最后一个 '/' 之后)） */
+  const char *base = name;
+  for (const char *p = name; *p; p++)
+    if (*p == '/' || *p == '\\')
+      base = p + 1;
+  uc_mem_write(uc, out_ptr + 12, base, strlen(base) + 1);
+
+  log_info("fileMgr.GetInfo(\"%s\") -> 0 (大小=%u, out=0x%X)", name,
+           (unsigned)len, out_ptr);
+  return 0;
+}
+
 /* +0x30 存储区支持查询（RE sub_29E40）。
  * 返回 ASCII 盘符代码：67='C'（内置盘）、69='E'、84='T'（SD）。
  * a2>=2 时固件走完整 JNI 链（RE：AndroidAEE_CallIntMethod →

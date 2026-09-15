@@ -19,6 +19,7 @@
 #include "./zmaee/fs/zm_file.h"
 #include "./zmaee/gfx/zm_display.h" /* ZMAEE IDisplay / IBitmap + SDL 渲染后端 */
 #include "./zmaee/gfx/zm_image.h"   /* ZMAEE IImage（资源加载链） */
+#include "emu_bitmap_traps.h" /* ZMAEE IBitmap 原生虚表槽位（BITMAP_VT_ADDR） */
 #include "./zmaee/runtime/shell/zm_shell.h"
 #include "./zmaee/runtime/timer/zm_timer.h" /* IShell 定时器子系统 */
 #include "event.h"
@@ -634,8 +635,8 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
       ret = zm_fileMgr_open_file(uc, r1); // 这地方为什么是r1呀
     }
     break;
-  case TR_fileMgr_x0C: /* RE sub_2A550 */
-    ret = zm_fileMgr_stub(uc, 0x0C, r0, r1, r2, r3);
+  case TR_fileMgr_x0C: /* RE sub_2A550 = IFileMgr::GetInfo(mgr, name, out) */
+    ret = zm_fileMgr_GetInfo(uc, r0, r1, r2);
     break;
   case TR_fileMgr_x10: /* RE sub_2A4E0 */
     ret = zm_fileMgr_stub(uc, 0x10, r0, r1, r2, r3);
@@ -1219,6 +1220,37 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     ret = zm_root_math(uc, ZM_MATH_TAN, r0, r1);
     break;
   default:
+    /* ---- ZMAEE IBitmap 原生虚表（BITMAP_VT_ADDR = SHIM_VT_BASE + 0x1700，
+     * 7 槽：0x1700~0x1718）----
+     * 这张表此前完全没接线：00000001 调 +0x10(GetInfo) 上千次，全部落到这里
+     * 打"非法的外部调用"错误日志并返回 0 —— 既刷爆日志（进游戏后每帧上千条，
+     * 界面卡死）又让 applet 一直拿到错的位图信息。
+     * （这里按**槽位数值**分支而不是加 case：直接加 case 会与既有 case 常量
+     * 重复，说明这些跳板值已被别处占用，待后续统一整理。） */
+    if (trap_address >= TRAMP_BASE + 0x1700 &&
+        trap_address < TRAMP_BASE + 0x1720) {
+      uint32_t off = trap_address - (TRAMP_BASE + 0x1700);
+      if (off == 0x10) { /* GetInfo(this, out)：RE memcpy(out, obj+8, 0x20) */
+        if (!r0 || !r1) {
+          ret = (uint32_t)-4;
+        } else {
+          uint8_t info[0x20];
+          if (uc_mem_read(uc, r0 + 8, info, sizeof(info)) != UC_ERR_OK)
+            ret = (uint32_t)-4;
+          else {
+            uc_mem_write(uc, r1, info, sizeof(info));
+            ret = 0;
+          }
+        }
+      } else if (off == 0x08) { /* SetTransColor(this, color) → 对象 +0x20 */
+        if (r0)
+          uc_mem_write(uc, r0 + 20, &r1, sizeof(r1));
+        ret = 0;
+      } else {
+        ret = 0; /* AddRef / Release / 三个未知槽：真机亦返回 0 */
+      }
+      break;
+    }
     /* ROOT_TABLE_ADDR 槽位尚未接线。打印调用现场寄存器，便于按参数签名反推该槽
      * 对应的 libc 函数（ROOT_TABLE_ADDR 在安卓变体里是普通全局函数指针表，
      * 无 g_aee_root_vtbl 符号可查）。 */
