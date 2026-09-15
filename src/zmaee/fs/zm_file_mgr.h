@@ -25,6 +25,10 @@ uint32_t zm_fileMgr_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
  * 存在 0 / 不存在 -1 / 参数空 -4。包内与 assets.zip 路径暂不支持。 */
 uint32_t zm_fileMgr_TestFile(uc_engine *uc, uint32_t r0, uint32_t name_ptr);
 
+/* +0x0C = IFileMgr::GetInfo(mgr, name, out)，见 .c 里的实现注释。 */
+uint32_t zm_fileMgr_GetInfo(uc_engine *uc, uint32_t r0, uint32_t name_ptr,
+                            uint32_t out_ptr);
+
 /* +0x30 存储区支持查询（RE sub_29E40）：
  * a1(this)==0 → 0；a2==0 → 67('C' 内置盘)；a2==1 → 69('E')；
  * a2>=2 → SD 卡挂载则 84('T') 否则 0（模拟器恒视为已挂载）。 */

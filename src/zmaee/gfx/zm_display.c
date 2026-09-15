@@ -515,8 +515,21 @@ static void fb_blit_rgba_mode(int x, int y, int w, int h, const uint8_t *rgba,
                               int mode) {
   if (!g_fb || !rgba || w <= 0 || h <= 0)
     return;
+  /* 与缩放版同理：客户机层缓冲按行攒段批量回写，避免每像素一次
+   * uc_mem_write（这是 DrawBitmap 热路径，00000001 每帧上千像素）。 */
+  int span = w > h ? w : h;
+  uint16_t *row16 = (uint16_t *)malloc((size_t)span * sizeof(uint16_t));
   for (int sy = 0; sy < h; sy++) {
-    for (int sx = 0; sx < w; sx++) {
+    int run_x = 0, run_n = 0, run_y = -1;
+    for (int sx = 0; sx <= w; sx++) { /* 多跑一格用于收尾 flush */
+      if (sx == w) {
+        if (run_n > 0 && g_uc && g_draw_buf)
+          uc_mem_write(g_uc,
+                       g_draw_buf +
+                           ((uint32_t)run_y * g_draw_w + (uint32_t)run_x) * 2u,
+                       row16, (size_t)run_n * 2u);
+        break;
+      }
       int dx = sx, dy = sy;
       switch (mode & 7) {
       case 1: dx = w - 1 - sx; break;                              /* (-X,Y) */
@@ -536,19 +549,39 @@ static void fb_blit_rgba_mode(int x, int y, int w, int h, const uint8_t *rgba,
       if (p[0] == 0xF8 && p[1] == 0x18 && p[2] == 0xF8)
         continue;
       int ox = x + dx, oy = y + dy;
+      uint32_t argb;
       if (!a || a == 0xFF) {
-        fb_px(ox, oy, 0xFF000000u | ((unsigned)p[0] << 16) |
-                          ((unsigned)p[1] << 8) | p[2]);
-        continue;
+        argb = 0xFF000000u | ((unsigned)p[0] << 16) | ((unsigned)p[1] << 8) |
+               p[2];
+      } else {
+        uint32_t d = fb_get(ox, oy);
+        unsigned dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
+        unsigned r = (p[0] * a + dr * (255 - a)) / 255;
+        unsigned g = (p[1] * a + dg * (255 - a)) / 255;
+        unsigned b = (p[2] * a + db * (255 - a)) / 255;
+        argb = 0xFF000000u | (r << 16) | (g << 8) | b;
       }
-      uint32_t d = fb_get(ox, oy);
-      unsigned dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
-      unsigned r = (p[0] * a + dr * (255 - a)) / 255;
-      unsigned g = (p[1] * a + dg * (255 - a)) / 255;
-      unsigned b = (p[2] * a + db * (255 - a)) / 255;
-      fb_px(ox, oy, 0xFF000000u | (r << 16) | (g << 8) | b);
+      if ((unsigned)ox < (unsigned)g_fb_w && (unsigned)oy < (unsigned)g_fb_h)
+        g_fb[(size_t)oy * (size_t)g_fb_w + (size_t)ox] = argb;
+      if (!row16 || !g_uc || !g_draw_buf ||
+          (unsigned)ox >= (unsigned)g_draw_w ||
+          (unsigned)oy >= (unsigned)g_draw_h)
+        continue;
+      if (run_n && (oy != run_y || ox != run_x + run_n)) {
+        uc_mem_write(g_uc,
+                     g_draw_buf +
+                         ((uint32_t)run_y * g_draw_w + (uint32_t)run_x) * 2u,
+                     row16, (size_t)run_n * 2u);
+        run_n = 0;
+      }
+      if (run_n == 0) {
+        run_y = oy;
+        run_x = ox;
+      }
+      row16[run_n++] = to_rgb565(argb);
     }
   }
+  free(row16);
 }
 
 /* 缩放版 blit：把 src(sw×sh) **最近邻**缩放到目标矩形 (x,y,dw,dh)，供
@@ -560,8 +593,23 @@ static void fb_blit_rgba_scaled_mode(int x, int y, int dw, int dh,
                                      int mode, int cx, int cy, int cw, int ch) {
   if (!g_fb || !src || dw <= 0 || dh <= 0 || sw <= 0 || sh <= 0)
     return;
+  /* 客户机层缓冲的回写**按行攒段**：fb_px() 是每像素一次 uc_mem_write(2 字节)，
+   * 本函数是每帧上千像素的热路径（StretchBlt 九宫格/精灵），逐个写会把模拟器
+   * 拖到个位数帧率。这里把同一行里连续的像素攒进 row16，一段一次写回。 */
+  int span = dw > dh ? dw : dh;
+  uint16_t *row16 = (uint16_t *)malloc((size_t)span * sizeof(uint16_t));
+  if (!row16)
+    return;
   for (int oy = 0; oy < dh; oy++) {
-    for (int ox = 0; ox < dw; ox++) {
+    int run_x = 0, run_n = 0, run_y = -1;
+    for (int ox = 0; ox <= dw; ox++) { /* 多跑一格用于收尾 flush */
+      if (ox == dw) {
+        if (run_n > 0)
+          uc_mem_write(g_uc, g_draw_buf + ((uint32_t)run_y * g_draw_w +
+                                           (uint32_t)run_x) * 2u,
+                       row16, (size_t)run_n * 2u);
+        break;
+      }
       /* 目标坐标 → 源方向坐标（含镜像/转置），再折算到源像素 */
       int ux, uy;
       switch (mode & 7) {
@@ -588,19 +636,41 @@ static void fb_blit_rgba_scaled_mode(int x, int y, int dw, int dh,
         continue;
       if (p[0] == 0xF8 && p[1] == 0x18 && p[2] == 0xF8)
         continue;
+      uint32_t argb;
       if (a == 0xFF) {
-        fb_px(tx, ty, 0xFF000000u | ((unsigned)p[0] << 16) |
-                          ((unsigned)p[1] << 8) | p[2]);
-        continue;
+        argb = 0xFF000000u | ((unsigned)p[0] << 16) | ((unsigned)p[1] << 8) |
+               p[2];
+      } else {
+        uint32_t d = fb_get(tx, ty);
+        unsigned dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
+        unsigned r = (p[0] * a + dr * (255 - a)) / 255;
+        unsigned g = (p[1] * a + dg * (255 - a)) / 255;
+        unsigned b = (p[2] * a + db * (255 - a)) / 255;
+        argb = 0xFF000000u | (r << 16) | (g << 8) | b;
       }
-      uint32_t d = fb_get(tx, ty);
-      unsigned dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
-      unsigned r = (p[0] * a + dr * (255 - a)) / 255;
-      unsigned g = (p[1] * a + dg * (255 - a)) / 255;
-      unsigned b = (p[2] * a + db * (255 - a)) / 255;
-      fb_px(tx, ty, 0xFF000000u | (r << 16) | (g << 8) | b);
+      /* 宿主帧缓冲：直接写（fb_px 会顺带做一次客户机写，这里要自己攒） */
+      if ((unsigned)tx < (unsigned)g_fb_w && (unsigned)ty < (unsigned)g_fb_h)
+        g_fb[(size_t)ty * (size_t)g_fb_w + (size_t)tx] = argb;
+      /* 客户机层缓冲：同行连续像素攒成一段，段尾一次写回 */
+      int on_layer = g_uc && g_draw_buf &&
+                     (unsigned)tx < (unsigned)g_draw_w &&
+                     (unsigned)ty < (unsigned)g_draw_h;
+      if (!on_layer)
+        continue;
+      if (run_n && (ty != run_y || tx != run_x + run_n)) {
+        uc_mem_write(g_uc, g_draw_buf + ((uint32_t)run_y * g_draw_w +
+                                         (uint32_t)run_x) * 2u,
+                     row16, (size_t)run_n * 2u);
+        run_n = 0;
+      }
+      if (run_n == 0) {
+        run_y = ty;
+        run_x = tx;
+      }
+      row16[run_n++] = to_rgb565(argb);
     }
   }
+  free(row16);
 }
 
 static void fb_blit_rgba(int x, int y, int w, int h, const uint8_t *rgba) {
