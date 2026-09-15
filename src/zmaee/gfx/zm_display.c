@@ -551,6 +551,58 @@ static void fb_blit_rgba_mode(int x, int y, int w, int h, const uint8_t *rgba,
   }
 }
 
+/* 缩放版 blit：把 src(sw×sh) **最近邻**缩放到目标矩形 (x,y,dw,dh)，供
+ * StretchBlt 使用；mode 的镜像/转置语义与 fb_blit_rgba_mode 一致。
+ * clip：层裁剪区 (cx,cy,cw,ch)，cw<=0 或 ch<=0 表示不裁剪。
+ * alpha=0 与固件洋红(248,24,248) 跳过，半透明按 fb_blit_rgba_mode 同款混合。 */
+static void fb_blit_rgba_scaled_mode(int x, int y, int dw, int dh,
+                                     const uint8_t *src, int sw, int sh,
+                                     int mode, int cx, int cy, int cw, int ch) {
+  if (!g_fb || !src || dw <= 0 || dh <= 0 || sw <= 0 || sh <= 0)
+    return;
+  for (int oy = 0; oy < dh; oy++) {
+    for (int ox = 0; ox < dw; ox++) {
+      /* 目标坐标 → 源方向坐标（含镜像/转置），再折算到源像素 */
+      int ux, uy;
+      switch (mode & 7) {
+      case 1: ux = dw - 1 - ox; uy = oy; break;             /* (-X,Y) */
+      case 2: ux = dh - 1 - oy; uy = dw - 1 - ox; break;    /* (-Y,-X) */
+      case 3: ux = ox; uy = dh - 1 - oy; break;             /* (X,-Y) */
+      case 4: ux = oy; uy = ox; break;                      /* (Y,X) */
+      case 5: ux = oy; uy = dw - 1 - ox; break;             /* (-Y,X) */
+      case 6: ux = dw - 1 - ox; uy = dh - 1 - oy; break;    /* (-X,-Y) */
+      case 7: ux = dh - 1 - oy; uy = dw - 1 - ox; break;    /* (Y,-X) */
+      default: ux = ox; uy = oy; break;
+      }
+      int sx = (int)(((int64_t)ux * sw) / dw);
+      int sy = (int)(((int64_t)uy * sh) / dh);
+      if ((unsigned)sx >= (unsigned)sw || (unsigned)sy >= (unsigned)sh)
+        continue;
+      int tx = x + ox, ty = y + oy;
+      if (cw > 0 && ch > 0 &&
+          (tx < cx || ty < cy || tx >= cx + cw || ty >= cy + ch))
+        continue;
+      const uint8_t *p = src + ((size_t)sy * (size_t)sw + (size_t)sx) * 4u;
+      unsigned a = p[3];
+      if (a == 0)
+        continue;
+      if (p[0] == 0xF8 && p[1] == 0x18 && p[2] == 0xF8)
+        continue;
+      if (a == 0xFF) {
+        fb_px(tx, ty, 0xFF000000u | ((unsigned)p[0] << 16) |
+                          ((unsigned)p[1] << 8) | p[2]);
+        continue;
+      }
+      uint32_t d = fb_get(tx, ty);
+      unsigned dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
+      unsigned r = (p[0] * a + dr * (255 - a)) / 255;
+      unsigned g = (p[1] * a + dg * (255 - a)) / 255;
+      unsigned b = (p[2] * a + db * (255 - a)) / 255;
+      fb_px(tx, ty, 0xFF000000u | (r << 16) | (g << 8) | b);
+    }
+  }
+}
+
 static void fb_blit_rgba(int x, int y, int w, int h, const uint8_t *rgba) {
   fb_blit_rgba_mode(x, y, w, h, rgba, 0);
 }
@@ -2127,12 +2179,106 @@ uint32_t zm_display_DrawImage(uc_engine *uc, uint32_t off, uint32_t r0,
  * 因此这里恒传 mode=0（无镜像）。真机在 a6=0 时走 copy 家族（只跳 alpha==0，
  * 不抠 tc）；我们统一走"alpha==0 与洋红 key 都跳"的更严版本，肉眼无差，
  * 属有意的简化。00000506 的关卡列表实测走的是 +0x98，0x94 在这几屏没被调用。 */
-/* 把一个 **IBitmap 对象**转成 RGBA。
+/* 把一个 IBitmap **信息块**（32 字节）里的矩形 [sl,st)-[sr,sb) 转成 RGBA。
+ *
  * 布局依据（Android AEE 参考 ZMAEE_IBitmap_GetInfo：
- *   `zmaee_memcpy(a2, a1 + 8, 0x20)` —— 信息块从对象 +8 起、共 0x20 字节）：
- *   +8  宽        +12 高        +16 格式(ZMCF)  +20 透明色
- *   +0x24(=36) 像素指针        （+28 调色板指针、+32/+40 调色板大小）
- * 与我们 LoadBitmap / CreateBitmap 写入的字段完全一致。
+ *   `zmaee_memcpy(a2, a1 + 8, 0x20)` —— 信息块从对象 +8 起、共 0x20 字节，
+ * 所以信息块内的偏移 = 对象偏移 - 8）：
+ *   info+0x00 宽   info+0x04 高   info+0x08 格式(ZMCF)  info+0x0C 透明色
+ *   info+0x10 调色板指针  info+0x14 调色板字节数  info+0x1C 像素指针
+ * 与我们 LoadBitmap / CreateBitmap 写入的字段完全一致（绝对偏移 +8/+12/
+ * +16/+20/+36）。
+ *
+ * 源矩形非法（或传 0）时退回整图。成功时 *out 为 malloc 的
+ * (sr-sl)*(sb-st)*4 RGBA 缓冲，调用方负责 free。 */
+static int bitmap_info_to_rgba(uc_engine *uc, uint32_t info, int sl, int st,
+                               int sr, int sb, int enable_key, int *w, int *h,
+                               uint8_t **out) {
+  int bw = (int)uc_read32(uc, info + 0x00);
+  int bh = (int)uc_read32(uc, info + 0x04);
+  int fmt = (int)uc_read32(uc, info + 0x08);
+  uint32_t trans = uc_read32(uc, info + 0x0C);
+  uint32_t px = uc_read32(uc, info + 0x1C);
+  /* ZMCF2BytsPerPixel：0→1(索引) 1→2(RGB565) 2/3/4→4（参考 .rodata:0x5B500） */
+  static const int bpp_tab[5] = {1, 2, 4, 4, 4};
+  if (bw <= 0 || bh <= 0 || bw > 4096 || bh > 4096 || !px || fmt < 0 || fmt > 4)
+    return 0;
+  int bpp = bpp_tab[fmt];
+  if (bpp == 1)
+    return 0; /* 索引色需要调色板，暂不处理（未见 applet 用 fmt=0 绘制） */
+  if (sl < 0 || st < 0 || sr > bw || sb > bh || sr - sl <= 0 || sb - st <= 0) {
+    /* 兜底会**静默**改成整图 —— 曾经因此把"参数语义读错"掩盖成"每段都画整图"
+     * （00000001 九宫格按钮）。所以这里必须留一条日志。
+     * 注意：DrawBitmap/DrawImage 传进来的这个矩形其实是**目标空间的裁剪区**
+     * （参考 GDI_BitBlt 的第 5 参 a5），比位图大是正常的 —— 那种情况下这里会
+     * 刷屏，属预期，不是错误。 */
+    log_debug("IBitmap 子矩形 {%d,%d,%d,%d} 对 %dx%d 越界/为空，退回整图",
+              sl, st, sr, sb, bw, bh);
+    sl = 0;
+    st = 0;
+    sr = bw;
+    sb = bh;
+  }
+  int ow = sr - sl, oh = sb - st;
+  uint8_t *row = (uint8_t *)malloc((size_t)ow * (size_t)bpp);
+  uint8_t *rgba = (uint8_t *)malloc((size_t)ow * (size_t)oh * 4u);
+  if (!row || !rgba) {
+    free(row);
+    free(rgba);
+    return 0;
+  }
+  for (int y = 0; y < oh; y++) {
+    uint32_t gy = (uint32_t)(st + y);
+    if (uc_mem_read(uc, px + ((size_t)gy * (size_t)bw + (size_t)sl) *
+                              (size_t)bpp,
+                    row, (size_t)ow * (size_t)bpp) != UC_ERR_OK) {
+      free(row);
+      free(rgba);
+      return 0;
+    }
+    for (int x = 0; x < ow; x++) {
+      uint32_t v;
+      uint8_t r, g, b, a = 255;
+      if (bpp == 2) {
+        v = (uint32_t)row[x * 2] | ((uint32_t)row[x * 2 + 1] << 8);
+        r = (uint8_t)(((v >> 11) & 0x1Fu) * 255u / 31u);
+        g = (uint8_t)(((v >> 5) & 0x3Fu) * 255u / 63u);
+        b = (uint8_t)((v & 0x1Fu) * 255u / 31u);
+      } else {
+        v = (uint32_t)row[x * 4] | ((uint32_t)row[x * 4 + 1] << 8) |
+            ((uint32_t)row[x * 4 + 2] << 16) | ((uint32_t)row[x * 4 + 3] << 24);
+        /* 内存里是 [B][G][R][A]（即字 0xAARRGGBB）：progress_bar 的进度高光
+         * 按此序解出是黄色、反序解出是青色，取此序。 */
+        r = (uint8_t)((v >> 16) & 0xFF);
+        g = (uint8_t)((v >> 8) & 0xFF);
+        b = (uint8_t)(v & 0xFF);
+        /* fmt=3/4 是真 32 位带 alpha（stage_over 的数据就是 0xXX000000 ——
+         * 一张"变暗遮罩"，只在第 4 字节存 alpha）。fmt=2 是 24 位，不透明。 */
+        if (fmt >= 3)
+          a = (uint8_t)((v >> 24) & 0xFF);
+      }
+      uint8_t *o = rgba + ((size_t)y * (size_t)ow + (size_t)x) * 4u;
+      o[0] = r;
+      o[1] = g;
+      o[2] = b;
+      /* 色键：参考 GDI_BitBlt 用 trans 的**符号**决定是否做掩码
+       * （trans < 0 即 0xFFFFFFFF = 不设色键）；比较按该格式的有效位宽，
+       * 命中则 alpha=0（我方 blit 会跳过 alpha=0 的像素）。 */
+      uint32_t mask =
+          (bpp == 2) ? 0xFFFFu : (fmt == 2 ? 0xFFFFFFu : 0xFFFFFFFFu);
+      int is_key = enable_key && ((int32_t)trans >= 0) &&
+                   ((uint32_t)(trans & mask) == (v & mask));
+      o[3] = is_key ? 0 : a;
+    }
+  }
+  free(row);
+  *w = ow;
+  *h = oh;
+  *out = rgba;
+  return 1;
+}
+
+/* 把一个 **IBitmap 对象**（信息块就在对象 +8，见上）整图转成 RGBA。
  * 成功时 *out 为 malloc 的 w*h*4 RGBA 缓冲，调用方负责 free。 */
 static int bitmap_obj_to_rgba(uc_engine *uc, uint32_t obj, int *w, int *h,
                               uint8_t **out) {
@@ -2143,68 +2289,7 @@ static int bitmap_obj_to_rgba(uc_engine *uc, uint32_t obj, int *w, int *h,
          obj < BITMAP_POOL + BITMAP_SLOT_COUNT * BITMAP_SLOT_SIZE) ||
         obj == BITMAP))
     return 0;
-  int bw = (int)uc_read32(uc, obj + 8);
-  int bh = (int)uc_read32(uc, obj + 12);
-  int fmt = (int)uc_read32(uc, obj + 16);
-  uint32_t trans = uc_read32(uc, obj + 20);
-  uint32_t px = uc_read32(uc, obj + 36);
-  /* ZMCF2BytsPerPixel：0→1(索引) 1→2(RGB565) 2/3/4→4 */
-  static const int bpp_tab[5] = {1, 2, 4, 4, 4};
-  if (bw <= 0 || bh <= 0 || bw > 4096 || bh > 4096 || !px || fmt < 0 || fmt > 4)
-    return 0;
-  int bpp = bpp_tab[fmt];
-  if (bpp == 1)
-    return 0; /* 索引色需要调色板，暂不处理（未见 applet 用 fmt=0 绘制） */
-  size_t n = (size_t)bw * (size_t)bh;
-  uint8_t *raw = (uint8_t *)malloc(n * (size_t)bpp);
-  uint8_t *rgba = (uint8_t *)malloc(n * 4u);
-  if (!raw || !rgba) {
-    free(raw);
-    free(rgba);
-    return 0;
-  }
-  if (uc_mem_read(uc, px, raw, n * (size_t)bpp) != UC_ERR_OK) {
-    free(raw);
-    free(rgba);
-    return 0;
-  }
-  for (size_t i = 0; i < n; i++) {
-    uint32_t v;
-    uint8_t r, g, b, a = 255;
-    if (bpp == 2) {
-      v = (uint32_t)raw[i * 2] | ((uint32_t)raw[i * 2 + 1] << 8);
-      r = (uint8_t)(((v >> 11) & 0x1Fu) * 255u / 31u);
-      g = (uint8_t)(((v >> 5) & 0x3Fu) * 255u / 63u);
-      b = (uint8_t)((v & 0x1Fu) * 255u / 31u);
-    } else {
-      v = (uint32_t)raw[i * 4] | ((uint32_t)raw[i * 4 + 1] << 8) |
-          ((uint32_t)raw[i * 4 + 2] << 16) | ((uint32_t)raw[i * 4 + 3] << 24);
-      /* 内存里是 [B][G][R][A]（即字 0xAARRGGBB）：progress_bar 的进度高光
-       * 按此序解出是黄色、反序解出是青色，取此序。 */
-      r = (uint8_t)((v >> 16) & 0xFF);
-      g = (uint8_t)((v >> 8) & 0xFF);
-      b = (uint8_t)(v & 0xFF);
-      /* fmt=3/4 是真 32 位带 alpha（stage_over 的数据就是 0xXX000000 ——
-       * 一张"变暗遮罩"，只在第 4 字节存 alpha）。fmt=2 是 24 位，不透明。 */
-      if (fmt >= 3)
-        a = (uint8_t)((v >> 24) & 0xFF);
-    }
-    rgba[i * 4 + 0] = r;
-    rgba[i * 4 + 1] = g;
-    rgba[i * 4 + 2] = b;
-    /* 色键：参考 GDI_BitBlt 用 trans 的**符号**决定是否做掩码
-     * （trans < 0 即 0xFFFFFFFF = 不设色键）；比较按该格式的有效位宽，
-     * 命中则 alpha=0（我方 blit 会跳过 alpha=0 的像素）。 */
-    uint32_t mask = (bpp == 2) ? 0xFFFFu : (fmt == 2 ? 0xFFFFFFu : 0xFFFFFFFFu);
-    int is_key =
-        ((int32_t)trans >= 0) && ((uint32_t)(trans & mask) == (v & mask));
-    rgba[i * 4 + 3] = is_key ? 0 : a;
-  }
-  free(raw);
-  *w = bw;
-  *h = bh;
-  *out = rgba;
-  return 1;
+  return bitmap_info_to_rgba(uc, obj + 8, 0, 0, 0, 0, 1, w, h, out);
 }
 
 /* 把某个 surface 对象的指定矩形画到 (dx,dy)：
@@ -2601,73 +2686,67 @@ uint32_t zm_display_Flatten(uc_engine *uc, uint32_t off, uint32_t r0,
 uint32_t zm_display_StretchBlt(uc_engine *uc, uint32_t off, uint32_t r0,
                                uint32_t r1, uint32_t r2, uint32_t r3) {
   /* RE：ZMAEE_IDisplay_StretchBlt(display, a2, a3, a4, a5)
-   *   → ZMAEE_StretchBlt(&display[52*活动层 + 36], a2, a3, a4, a5)
-   * 目标 = **活动层**载荷；a1[9] = 层像素缓冲、a1[5..8] = 该层裁剪区。
-   * 实测：本 applet 调 73 次，调用时活动层 = 0（输出层），
-   *       a3 = 源位图描述符 {w, h, ZMCF, 透明色, 0,0,0, 像素指针}（与
-   *       sub_285D8 里的 srcDesc 同型）。
-   * a2 / a4 的字段语义仍未定 —— 本函数是纯观测探针，不做任何绘制。
+   *   if (a2 && display && a4 && a3) → ZMAEE_StretchBlt(&display[52*活动层+36],
+   *                                                      a2, a3, a4, a5)
+   * 目标 = **活动层**载荷（+0x24 = 层像素缓冲、+0x14..+0x20 = 该层裁剪区）。
    *
-   * 探针要做三件事：
-   *   1) 前 8 次把 a2/a3/a4 各 16 个 dword、目标层全部字段、a5 打全；
-   *   2) 统计 a3 的 (宽,高) 分布 —— 若出现 240x320 之类的整层尺寸，
-   *      就说明它是"层 1 → 层 0"的整层搬运器；
-   *   3) 把所有已加载图像记录的 {宽,高,名字} 打一次，便于把 a3 对上具体资源。
-   * 配合日志里已有的 `IImage::Decode -> IBitmap@… pix@0x…` 行，
-   * 可以用 a3[7]（像素指针）反查 a3 到底是哪张图。 */
+   * 参数形状由参考里的调用点坐实（ZMAEE_IDisplay_DrawImageExt 用完
+   * IBitmap_GetInfo 后直接调本函数）：
+   *   a2 = 目标矩形 {x, y, w, h}（第 5 参 a4/a5 会被夹到源宽高）
+   *   a3 = 源位图信息块（IBitmap info：w,h,ZMCF,色键,…,像素指针）
+   *   a4 = 源区 {left, top, **宽, 高**}  ← 不是 {l,t,r,b}！
+   *       证据 1（参考函数体）：`v16 = a4[2]` 当"源宽"参与比例计算、
+   *         `*a4 * 目标宽` 当"源左×目标宽"；`a4[3]` 当"源高"。
+   *       证据 2（00000001 实测九宫格按钮）：三段源区依次
+   *         {0,31,22,31} / {22,31,35,31} / {56,31,22,31} —— 左/中/右
+   *         在源图 78 宽上正好首尾相接（22+35+22≈78），高度都是 31
+   *         （源图 78x62 的下半张）。若按 {l,t,r,b} 读，中间段会变成
+   *         `sb-st = 31-31 = 0` 非法 → 退回整图 → 三段各自画出完整的
+   *         转角外框（之前就是这样画错的）。
+   *   a5 = **启用色键**开关（RE：51692 `v28 = a5 & (~a3[3] >> 31)`；
+   *        镜像/旋转方向不在这里，而是由 byte_5B658 从两端格式推）
+   * 语义 = 把源矩形里的内容（缩放）画到活动层的目标矩形，受层裁剪区约束。
+   * 以前这里是纯观测探针（不做任何绘制），applet 的缩放贴图全部落空。 */
   zm_display_slot_tick(0xB4U);
-  uint32_t act = uc_read32(uc, r0 + 8);
-  uint32_t P = r0 + 52u * act + 36u;
-  uint32_t a5 = getArg(uc, 4);
+  (void)off;
+  if (!r0 || !r1 || !r2 || !r3)
+    return 0; /* RE：任一为 0 直接原样返回 */
+  fb_refresh_draw_target();
+  int dx = (int)uc_read32(uc, r1 + 0);
+  int dy = (int)uc_read32(uc, r1 + 4);
+  int dw = (int)uc_read32(uc, r1 + 8);
+  int dh = (int)uc_read32(uc, r1 + 12);
+  int sl = (int)uc_read32(uc, r3 + 0);
+  int st = (int)uc_read32(uc, r3 + 4);
+  int sw_arg = (int)uc_read32(uc, r3 + 8);
+  int sh_arg = (int)uc_read32(uc, r3 + 12);
+  /* a5 = **启用色键**开关，不是模式号！
+   * RE（参考 51692）：`v28 = a5 & (~a3[3] >> 31);` —— a3[3] 就是源信息的
+   * 透明色字段，`~trans >> 31` = "trans 非负"，与 GDI_BitBlt 的 mask 开关
+   * （`v8 = a6 & (~*(a4+12) >> 31)`）同款。
+   * 以前把它当 mode 交给镜像表 → 左右端头被镜像 → 按钮外框画反。
+   * 方向/镜像由 byte_5B658 从**两端格式**推（0=Copy,1=Mir,2=Mir90,3=Mir270），
+   * 本路径（同格式 1:1 缩放）恒为 Copy，故这里固定 mode=0。 */
+  int mask_on = (int)getArg(uc, 4);
+  if (dw <= 0 || dh <= 0)
+    return 0;
+  int sw = 0, sh = 0;
+  uint8_t *rgba = NULL;
+  if (!bitmap_info_to_rgba(uc, r2, sl, st, sl + sw_arg, st + sh_arg,
+                           mask_on != 0, &sw, &sh, &rgba))
+    return 0;
+  uint32_t P = r0 + 52u * (uint32_t)uc_read32(uc, r0 + 8) + 36u;
+  int cx = (int)uc_read32(uc, P + 0x14), cy = (int)uc_read32(uc, P + 0x18);
+  int cw = (int)uc_read32(uc, P + 0x1C), ch = (int)uc_read32(uc, P + 0x20);
+  fb_blit_rgba_scaled_mode(dx, dy, dw, dh, rgba, sw, sh, 0, cx, cy, cw, ch);
   static uint32_t n = 0;
-  n++;
-  if (n <= 8) {
-    log_info("StretchBlt #%u display=0x%X 活动层=%u 层载荷=0x%X a2=0x%X a3=0x%X "
-             "a4=0x%X a5=0x%X",
-             n, r0, act, P, r1, r2, r3, a5);
-    log_info("  目标层: fmt=%u x=%d y=%d w=%u h=%u 裁剪=(%u,%u,%u,%u) buf=0x%X "
-             "+0x28=%d +0x2A=%d +0x2C=%u +0x30=0x%08X",
-             uc_read32(uc, P + 0x00), (int)uc_read32(uc, P + 0x04),
-             (int)uc_read32(uc, P + 0x08), uc_read32(uc, P + 0x0C),
-             uc_read32(uc, P + 0x10), uc_read32(uc, P + 0x14),
-             uc_read32(uc, P + 0x18), uc_read32(uc, P + 0x1C),
-             uc_read32(uc, P + 0x20), uc_read32(uc, P + 0x24),
-             (int)(int16_t)uc_read32(uc, P + 0x28),
-             (int)(int16_t)uc_read32(uc, P + 0x2A), uc_read32(uc, P + 0x2C),
-             uc_read32(uc, P + 0x30));
-    const char *nm[3] = {"a2", "a3", "a4"};
-    uint32_t pa[3] = {r1, r2, r3};
-    for (int i = 0; i < 3; i++) {
-      uint32_t raw[16] = {0};
-      if (uc_mem_read(uc, pa[i], raw, sizeof(raw)) != UC_ERR_OK)
-        continue;
-      log_info("  %s@0x%X =", nm[i], pa[i]);
-      for (int k = 0; k < 16; k += 4)
-        log_info("     [%02d..%02d] 0x%08X 0x%08X 0x%08X 0x%08X", k, k + 3,
-                 raw[k], raw[k + 1], raw[k + 2], raw[k + 3]);
-    }
-    /* 已加载图像记录：把 a3 的 (宽,高) 对上去（只打一次） */
-    if (n == 1)
-      zm_image_dump_pool();
-  }
-  /* a3 的尺寸分布（换一个尺寸就报一次） */
-  {
-    uint32_t sw = uc_read32(uc, r2 + 0x00), sh = uc_read32(uc, r2 + 0x04);
-    uint32_t sf = uc_read32(uc, r2 + 0x08), sp = uc_read32(uc, r2 + 0x1C);
-    static uint32_t last_key = 0xFFFFFFFFu, seen = 0;
-    uint32_t key = (sw << 16) | (sh & 0xFFFFu);
-    seen++;
-    zm_seq_push(4, sw, sh);
-    if (key != last_key || seen == 1) {
-      last_key = key;
-      log_info("[StretchBlt 探针] 第 %u 次：源 %ux%u ZMCF=%u 透明色=0x%08X "
-               "像素指针=0x%X（整层搬运? %s）",
-               n, sw, sh, sf, uc_read32(uc, r2 + 0x0C), sp,
-               (sw == (uint32_t)LAYER_W && sh == (uint32_t)LAYER_H) ? "是 ←"
-                                                                    : "否");
-    }
-  }
-  return zm_display_stub(uc, off, r0, r1, r2, r3);
+  if (++n <= 6)
+    log_info("StretchBlt #%u 源图%dx%d 源区={%d,%d,%d,%d}→取到%dx%d "
+             "目标(%d,%d) %dx%d 色键=%d",
+             n, (int)uc_read32(uc, r2 + 0), (int)uc_read32(uc, r2 + 4), sl, st,
+             sw_arg, sh_arg, sw, sh, dx, dy, dw, dh, mask_on);
+  free(rgba);
+  return 1;
 }
 uint32_t zm_display_DrawAntialiasingLine(uc_engine *uc, uint32_t off, uint32_t r0,
                                          uint32_t r1, uint32_t r2, uint32_t r3) {
