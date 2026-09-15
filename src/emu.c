@@ -129,8 +129,22 @@ int zm_emu_build_vtables() {
     uc_write32(g_uc, CBK_CTX + 0x50, DISPLAY);
     uc_write32(g_uc, CBK_CTX + 0x54, (uint32_t)sw);
     uc_write32(g_uc, CBK_CTX + 0x58, (uint32_t)sh);
-    log_info("create_cbk 上下文：CBK_OBJ+0x48=0x%X → display=0x%X 屏幕 %dx%d",
-             CBK_CTX, DISPLAY, sw, sh);
+    /* 【已试过并撤回，勿盲目重试】+0x5C / +0x60 被 applet 当"引擎给的两个尺寸值"
+     * 读（sub_1E78 @0x1EA0-0x1EBC：R2 = ([+0x5C] >= [+0x60]) ? 0x5E : 0x14，
+     * 即字号 94 / 20；sub_56C0 还会把这两格拷进 UI 对象 +8 / +0xC）。
+     * 2026-09-16 试过填成 (sw, sh)：崩溃现场（pc=0x1EDC / R4=0）与寄存器
+     * 完全不变 → 与本次崩溃无关，已撤回。 */
+    /* +0x64 = IFileMgr 指针。00000001 在 EV_CREATE（sub_8300）里：
+     *   R4 = [[CBK_OBJ+0x48] + 0x64]   // 即 [CBK_CTX + 0x64]
+     *   sprintf(buf, "record_flag.dat")
+     *   R3 = [R4]->vt[+0x08]; BLX R3   // IFileMgr.OpenFile(fm, path, 1)
+     * 这格为 0 时 R4 = NULL → 随后从地址 0（.app 头部）取数据当函数指针 →
+     * 启动即崩：err=8 FETCH_UNMAPPED pc=0x91100414 lr=0x835C R4=0，
+     * 栈顶还能看到 "record_flag.dat" 那 16 个字节。 */
+    uc_write32(g_uc, CBK_CTX + 0x64, G_FileMgr_ADDR);
+    log_info("create_cbk 上下文：CBK_OBJ+0x48=0x%X → display=0x%X 屏幕 %dx%d "
+             "IFileMgr=0x%X",
+             CBK_CTX, DISPLAY, sw, sh, G_FileMgr_ADDR);
   }
   log_info("布局: SHIM_BASE=0x%X TRAMP_BASE=0x%X ROOT_TABLE_ADDR=0x%X G_SHELL_ADDR=0x%X",
            SHIM_BASE, TRAMP_BASE, ROOT_TABLE_ADDR, G_SHELL_ADDR);
@@ -405,6 +419,52 @@ int zm_emu_start_applet() {
       uc_hook hh;
       uc_hook_add(g_uc, &hh, UC_HOOK_CODE, (void *)trace_code_hook, NULL, 1, 0);
       log_info("指令追踪已开启（ZM_TRACE=1）");
+    }
+  }
+
+  /* ZM_PC=<lo>[,<hi>]：PC 观察点（纯调试）。命中时打印 PC/LR/R0-R3，
+   * 用来确认"目标函数被调用时到底拿到什么参数"。详见 hook.h。 */
+  {
+    const char *p = getenv("ZM_PC");
+    if (p && p[0]) {
+      char *end = NULL;
+      unsigned long lo = strtoul(p, &end, 0);
+      unsigned long hi = lo;
+      if (end && *end == ',')
+        hi = strtoul(end + 1, NULL, 0);
+      hook_set_pc_watch((uint32_t)lo, (uint32_t)hi);
+    }
+  }
+
+  /* ZM_PC2=<lo>[,<hi>]：第二个 PC 观察点（同 ZM_PC，用于同时看两个位置），
+   * 例如确认"某对象的构造 +0x10 复制"与"该字段被填"的先后顺序。 */
+  {
+    const char *p = getenv("ZM_PC2");
+    if (p && p[0]) {
+      char *end = NULL;
+      unsigned long lo = strtoul(p, &end, 0);
+      unsigned long hi = lo;
+      if (end && *end == ',')
+        hi = strtoul(end + 1, NULL, 0);
+      hook_set_pc_watch_idx(1, (uint32_t)lo, (uint32_t)hi);
+    }
+  }
+
+  /* ZM_MW=<lo>,<hi>：内存写监视（纯调试）。命中区间被写时打印 PC/LR/值，
+   * 用来查"某字段有没有人写、是谁写的"。详见 hook.h。 */
+  {
+    const char *p = getenv("ZM_MW");
+    if (p && p[0]) {
+      char *end = NULL;
+      unsigned long lo = strtoul(p, &end, 0);
+      unsigned long hi = lo;
+      if (end && *end == ',')
+        hi = strtoul(end + 1, NULL, 0);
+      uc_hook hw;
+      uc_err we = uc_hook_add(g_uc, &hw, UC_HOOK_MEM_WRITE,
+                              (void *)hook_mem_write_watch, NULL, (uint64_t)lo,
+                              (uint64_t)hi);
+      log_info("[MW] 监视写区间 0x%lX ~ 0x%lX (err=%d)", lo, hi, we);
     }
   }
 

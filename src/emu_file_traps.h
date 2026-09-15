@@ -35,7 +35,13 @@ enum ZM_FILEMGR_VT {
   ZM_FileMgr_x2C = 0x2CU,
   ZM_FileMgr_x30 = 0x30U,
   ZM_FileMgr_x34 = 0x34U,
-  ZM_FileMgr_x38 = 0x38U
+  ZM_FileMgr_x38 = 0x38U,
+  /* +0x3C：00000001 实测会用（sub_68D8 @0x68F4 读 [vt+0x3C] 后 BLX）：
+   *   R0 = IFileMgr 对象、R1 = 对象+0xC 的值、R2 = &sub_68D8（回调）、R3 = 0
+   *   返回值被写进 UI 对象的 +0x10，之后该类的 getter（类表+0x20 → 0xD054 的
+   *   LDR R0,[R0,#0x10]）把它当 this 用 —— 之前这格不存在，读表外 → 返回 0
+   *   → NULL 当 this → 崩在 pc=0x1EDC。语义待从参数/回调确认后再实现。 */
+  ZM_FileMgr_x3C = 0x3CU
 };
 
 /* fs */
@@ -84,6 +90,7 @@ enum ZM_FILEMGR_VT {
 #define TR_fileMgr_AddRef TRAP(FileMgr_VT_ADDR + ZM_FileMgr_AddRef)
 #define TR_fileMgr_Release TRAP(FileMgr_VT_ADDR + ZM_FileMgr_Release)
 #define TR_fileMgr_open_file TRAP(FileMgr_VT_ADDR + ZM_FileMgr_OpenFile)
+#define TR_fileMgr_x3C TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x3C)
 #define TR_fileMgr_x0C                                                         \
   TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x0C) /* RE sub_2A550                       \
                                           */

@@ -119,6 +119,38 @@ uint32_t zm_shell_CreateInstance(uc_engine *uc, uint32_t svc, uint32_t out_ptr) 
     uc_write32(uc, out_ptr, outobj);
   log_info("IShell.CreateInstance(svc=0x%X) -> obj=0x%X ret=%d", svc, outobj,
            ret);
+
+  /* ---- 识别 applet 自己的上下文对象，并把 [CBK_OBJ+0x48] 指过去 ----
+   * 证据（00000001）：
+   *   sub_319C：ctx = malloc(0x90)，[ctx] = &unk_18148（它自己的类表）
+   *   sub_418(ctx)：[ctx+0x54] = getShell()；紧接着
+   *                 CreateInstance(IDisplay) 把结果写进 [ctx+0x58] ← 就是这里
+   *   随后 sub_319C 再填 [ctx+0x64]=IFileMgr / +0x68=IMedia / +0x6C=ISetting
+   *   / +0x84=label。
+   *   引擎侧 sub_3E54 构造 UI 对象时读的正是这同一批偏移
+   *   （+0x58→obj+0x18、+0x64→obj+0x1C、+0x68→obj+0x20、+0x84→obj+0x10）。
+   * 我们以前把 [CBK_OBJ+0x48] 指向自己仿造的 CBK_CTX（布局不对：我们把
+   * +0x54/+0x58 当成宽/高写），于是构造读到的 +0x84 恒为 0 → 该类 getter
+   * 返回 NULL → 被当 this → 崩在 pc=0x1EDC。
+   * 判定条件是两个精确值：out_ptr 落在对象 +0x58、且 +0x54 == shell。 */
+  /* ---- 识别 applet 自己的上下文对象，并把 [CBK_OBJ+0x48] 指过去 ----
+   * 判定时机选在**最后一个服务** ISetting(0x100000B) 返回时（applet 依次往
+   * +0x64 IFileMgr、+0x68 IMedia、+0x6C ISetting 里写），此时三个字段都应
+   * 已就位 —— 三重校验，不会误判到别的对象。
+   * 打开后 00000001 的 NULL-this 崩溃（pc=0x1EDC）消失，前进到下一个缺口。
+   * 设 ZM_APPCTX=0 可关闭（对照用）。 */
+  if (svc == 0x100000B && out_ptr && (!getenv("ZM_APPCTX") ||
+                                      getenv("ZM_APPCTX")[0] != '0')) {
+    uint32_t media = uc_read32(uc, out_ptr - 4);   /* ctx+0x68 */
+    uint32_t fmgr = uc_read32(uc, out_ptr - 8);    /* ctx+0x64 */
+    if (media == G_MEDIA_ADDR && fmgr == G_FileMgr_ADDR) {
+      uint32_t ctx = out_ptr - 0x6C;
+      uc_write32(uc, CBK_OBJ + 0x48, ctx);
+      log_info("识别到 applet 上下文 0x%X（三重校验：IFileMgr/IMedia/ISetting "
+               "就位）：[CBK_OBJ+0x48] 已指过去",
+               ctx);
+    }
+  }
   return (uint32_t)ret;
 }
 

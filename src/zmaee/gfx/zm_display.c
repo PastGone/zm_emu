@@ -2379,27 +2379,38 @@ uint32_t zm_display_LoadBitmap(uc_engine *uc, uint32_t r0, uint32_t r1) {
   static const int bpp_tab[5] = {1, 2, 4, 4, 4}; /* RE：ZMCF2BytsPerPixel */
   int bpp = (fmt >= 0 && fmt <= 4) ? bpp_tab[fmt] : 0;
   if (!w || !h || !bpp) {
+    log_warn("LoadBitmap(\"%s\") 头字段异常：w=%d h=%d fmt=%d(0x%X) 文件 %u 字节",
+             name, w, h, fmt, fpf, (unsigned)len);
     free(buf);
     return (uint32_t)-1;
   }
-  size_t px = ((size_t)w * (size_t)h * (size_t)bpp + 3u) & ~(size_t)3u;
-  if (20u + px > len) {
+  /* 【2026-09 实测修正】文件里的像素块是**紧凑**的，不做 4 字节补齐：
+   *   start_register.zbmp 59x13 fmt=1 → 20 + 59*13*2 = 1554 = 文件大小（不是 1556）
+   *   game_name.zbmp      231x71 fmt=1 → 20 + 231*71*2 = 32822 = 文件大小
+   * 以前按 (px+3)&~3 校验，这两张图被判"数据不足" → 位图槽留空 → applet 后续
+   * 拿空槽当对象用 → 崩在 pc=0xA0000010。分配时我们自己的缓冲仍可补齐，
+   * 但读取长度必须用紧凑值。 */
+  size_t px_raw = (size_t)w * (size_t)h * (size_t)bpp;
+  size_t px_alloc = (px_raw + 3u) & ~(size_t)3u;
+  if (20u + px_raw > len) {
+    log_warn("LoadBitmap(\"%s\") 数据不足：需要 %u，文件只有 %u（%dx%d fmt=%d）",
+             name, (unsigned)(20u + px_raw), (unsigned)len, w, h, fmt);
     free(buf);
     return (uint32_t)-1;
   }
 
-  uint32_t gpx = zm_pix_pool_alloc((uint32_t)px);
+  uint32_t gpx = zm_pix_pool_alloc((uint32_t)px_alloc);
   if (!gpx) {
     free(buf);
     return (uint32_t)-1;
   }
-  uc_mem_write(uc, gpx, buf + 20, px);
+  uc_mem_write(uc, gpx, buf + 20, px_raw);
 
   uint32_t gpal = 0;
-  if (palflag && palsize && 20u + px + palsize <= len) {
+  if (palflag && palsize && 20u + px_raw + palsize <= len) {
     gpal = zm_pix_pool_alloc(palsize);
     if (gpal)
-      uc_mem_write(uc, gpal, buf + 20 + px, palsize);
+      uc_mem_write(uc, gpal, buf + 20 + px_raw, palsize);
   }
   free(buf);
 
