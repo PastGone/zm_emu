@@ -2,6 +2,7 @@
 #include "./log/log.h"
 #include "./tool/disasm_log.h"
 #include "./trap.h"
+#include "./zmaee/gfx/zm_display.h" /* zm_display_pump_events：周期性泵窗口事件 */
 #include <inttypes.h>
 #include <stdio.h>
 
@@ -29,6 +30,18 @@ void hook_set_pc_watch(uint32_t lo, uint32_t hi) {
 void hook_code(uc_engine *uc, uint64_t address, uint32_t size,
                void *user_data) {
   // 这个地方好像不对,因为啥来ARM32的规定，pc=address+8
+
+  /* 周期性泵一次 SDL 窗口事件。
+   * 背景：emu.c 用 uc_emu_start(..., 0, 0)（无限指令）驱动 guest，宿主只在
+   * guest 调 IDisplay::Refresh 槽时才经 fb_commit 泵事件。一旦 guest 长时间
+   * 自旋 / 卡在某个循环里不再调 Refresh，宿主就永远没机会处理窗口事件 ——
+   * 表现为整个桌面"鼠标能动、点击没反应"、连窗口都关不掉。
+   * 这里每 2^18 条指令泵一次（约几毫秒一次，开销可忽略），保证窗口始终可响应。 */
+  {
+    static uint32_t s_pump_tick = 0;
+    if (((++s_pump_tick) & 0x3FFFFu) == 0)
+      zm_display_pump_events();
+  }
 
   if (g_pc_watch_on) {
     for (int i = 0; i < PC_WATCH_MAX; i++) {

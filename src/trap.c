@@ -57,6 +57,106 @@ static void applet_free(uc_engine *uc, uint32_t p) {
   /* 排查模式：不回收，用于确认崩溃是否由内存回收引起 */
 }
 
+/* create_cbk 对象里内嵌的“applet 自管堆”初始化。
+ *
+ * RE（applet 000004051/00000502）：
+ *   0x1D6BC() 尾调用 ROOT[0x154]=create_cbk → 拿到 CBK_OBJ
+ *   r0 = [CBK_OBJ + 0x4C]            ← 分配器对象
+ *   0x15DDC(分配器, size)：
+ *       [分配器+0] = 堆管理器；0x175B8(管理器, size) 才真正切内存
+ *       小对象走桶：桶头在 分配器+4/+0x10/+0x1C/+0x28，每桶 12 字节（+4 空闲头、+8 节点步长）
+ *   0x175B8(管理器, size)：按块链表分配
+ *       管理器 { +4 首块地址, +8 区末地址 }
+ *       块头 8 字节：+0 u16 魔数 0xCAFE、+2 u8 已用标志、+4 u32 负载大小；负载从 +8 起
+ *
+ * 这个字段我们以前**从没初始化**（还被 SHIM 填充当成跳板写入过），于是 applet
+ * 分配失败 → 拿到 NULL 对象 → 之后 NULL 解引用 → 崩（pc=0x7B080C 那条）。
+ * 这里按上面的格式建一个空堆：一整块空闲块，让 0x175B8 自己去切。只做一次。 */
+static void cbk_heap_init_once(uc_engine *uc) {
+  static int done = 0;
+  if (done)
+    return;
+  done = 1;
+
+  /* 0x15DDC 每次“补桶”会向管理器要 0x8000(32KB)（RE：0x15E1C `mov r1,#128,#28`
+   * = 0x8000），128KB 几个桶就见底 → 分配返回 0 → applet 拿到 NULL 后又去
+   * Release(0) → 崩（实测 pc=0x173D4 / 0x52069AD8）。给足 1MB。 */
+  /* 堆大小可用 ZM_HEAP_KB 调（排查用；默认 128KB） */
+  const char *ekb = getenv("ZM_HEAP_KB");
+  const uint32_t HEAP_BYTES =
+      (ekb && atoi(ekb) > 0) ? (uint32_t)atoi(ekb) * 1024u : 0x20000u;
+  /* ★ 不能向 applet 自己的堆要这几块（`applet_malloc`/u_malloc）：实测会把
+   * applet 堆起点整体后移，害得 00000001 这种本来正常的 applet 立刻崩
+   * （pc=0x34 写 NULL+0x34，逐项 bisect 定位）。改从 blob 区尾部取：
+   * payload 只到 0x1D074，0x80000 之后是同样已映射且闲置的零页。 */
+  uint32_t region = BLOB_BASE + 0x80000u;               /* 128KB 堆区 */
+  uint32_t mgr = region + HEAP_BYTES;                   /* 管理器 0x10 字节 */
+  uint32_t al = mgr + 0x10u;                            /* 分配器 0x40 字节 */
+  if (al + 0x40u > BLOB_BASE + BLOB_SIZE) {
+    log_warn("cbk 堆初始化失败：专用区越界");
+    return;
+  }
+
+  /* 分配器与管理器清零（桶的 [0]=块链、[+4]=空闲头 全 0 = 空） */
+  {
+    static uint8_t zb[0x100];
+    uint32_t n = 0x40 + 0x10;
+    for (uint32_t o = 0; o < n; o += sizeof(zb)) {
+      uint32_t c = (n - o > sizeof(zb)) ? (uint32_t)sizeof(zb) : (n - o);
+      uc_mem_write(uc, al + o, zb, c);
+    }
+  }
+
+  /* ★ 每个桶的“节点步长”（+8）必须填对：RE 0x15E40 `ldr r2,[r4,#8]`、
+   * 0x15E48 `节点总大小 = 步长 + 8`。全 0 时切出来的节点只有 8 字节，
+   * 而 applet 要 4/8/0x10/0x20 → 立刻溢出。
+   * 桶基址（RE 0x15DF0..0x15E0C）：al+4(≤4) / al+0x10(≤8) / al+0x1C(≤0x10) / al+0x28(≤0x20) */
+  {
+    static const uint32_t stride[4] = {4u, 8u, 0x10u, 0x20u};
+    static const uint32_t boff[4] = {0x04u, 0x10u, 0x1Cu, 0x28u};
+    for (int k = 0; k < 4; k++) {
+      uint32_t v = stride[k];
+      uc_mem_write(uc, al + boff[k] + 8, &v, 4);
+    }
+  }
+
+  /* 先把整块区清零：applet_malloc 只做 bump、不清零，切成的小块里会残留旧数据，
+   * 表现为对象某个成员是垃圾指针（实测 Release 时 [obj+0]=0x52069AD8 越界崩）。 */
+  {
+    static uint8_t zb[0x400];
+    for (uint32_t o = 0; o < HEAP_BYTES; o += sizeof(zb)) {
+      uint32_t c = (HEAP_BYTES - o > sizeof(zb)) ? (uint32_t)sizeof(zb)
+                                                 : (HEAP_BYTES - o);
+      uc_mem_write(uc, region + o, zb, c);
+    }
+  }
+
+  /* 一整块空闲块：magic 0xCAFE、**标志 1 = 空闲可用**（RE：0x175F0 `bne 0x1768C`
+   * 即标志 != 1 就跳过该块 —— 所以 1 才是"可分配"）、负载 = 区大小 - 8 */
+  {
+    uint8_t hdr[8] = {0};
+    uint16_t magic = 0xCAFE;
+    uint32_t size = HEAP_BYTES - 8;
+    memcpy(hdr, &magic, 2);
+    hdr[2] = 1;
+    memcpy(hdr + 4, &size, sizeof(size));
+    uc_mem_write(uc, region, hdr, sizeof(hdr));
+  }
+
+  /* 管理器 { +4 首块, +8 区末 }；分配器 [0] = 管理器 */
+  {
+    uint32_t first = region;
+    uint32_t end = region + HEAP_BYTES;
+    uc_mem_write(uc, mgr + 4, &first, 4);
+    uc_mem_write(uc, mgr + 8, &end, 4);
+    uc_mem_write(uc, al, &mgr, 4);
+  }
+  
+    uc_mem_write(uc, CBK_OBJ + 0x4C, &al, 4);
+  log_info("create_cbk 自管堆已建：分配器=0x%X 管理器=0x%X 区=0x%X..0x%X", al, mgr,
+           region, region + HEAP_BYTES);
+}
+
 /** applet 的 calloc：分配并清零（清零在客户机侧完成，不开宿主临时缓冲） */
 static uint32_t applet_calloc(uc_engine *uc, uint32_t n, uint32_t size) {
   uint32_t p = applet_malloc(uc, n * size);
@@ -1196,6 +1296,10 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
      * 导致 applet 00000440 在真实堆下走到此处时报"非法的外部调用"。
      */
     ret = zm_root_create_cbk(uc);
+    /* 建 CBK_OBJ+0x4C 指向的 applet 自管堆（只做一次）。
+     * ★ 必须放在 create_cbk **之后**：它要向 applet 堆要内存，而 CBK 对象自己
+     * 也是从同一个堆分配的 —— 先要的话会把 CBK 的地址整体往后挪。 */
+    cbk_heap_init_once(uc);
     break;
   case TR_root_srand:
     zm_root_srand(r0);

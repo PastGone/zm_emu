@@ -35,6 +35,10 @@ void zm_display_size(int *w, int *h);
 /* 释放 SDL 资源（窗口、渲染器、画布、字体） */
 void zm_display_shutdown(void);
 
+/* 只泵 SDL 窗口事件（不上屏）。供宿主在 guest 长时间自旋、不再调 Refresh 槽时
+ * 周期性调用，避免整个窗口/桌面输入被吞掉（表现为鼠标能动、点击没反应）。 */
+void zm_display_pump_events(void);
+
 /* 事件循环：阻塞直到用户关窗（SDL_QUIT）或超时（ms，0=不限时）。
  * applet 没有主循环，由模拟器在 TR_enter_event_loop 里调用本函数代跑。
  * 返回 false → 模拟应结束；返回 true → 已派发点击，由调用者让模拟器

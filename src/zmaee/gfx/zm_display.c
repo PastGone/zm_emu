@@ -3,18 +3,18 @@
 #include "../../emu.h"
 #include "../../event.h"
 #include "../../log/log.h"
-#include "../../trap.h" /* getArg：第 5 个及以后的参数 */
 #include "../../tool/uc_helper.h"
-#include "../runtime/timer/zm_timer.h" /* zm_timer_poll：到期定时器检查 */
+#include "../../trap.h"        /* getArg：第 5 个及以后的参数 */
 #include "../audio/zm_audio.h" /* zm_media_pending_cb_poll：音频完成回调跳板 */
+#include "../fs/zm_file_mgr.h" /* zm_fs_read_file：宿主侧整文件读取 */
+#include "../runtime/timer/zm_timer.h" /* zm_timer_poll：到期定时器检查 */
 #include "zm_image.h" /* IImage/IBitmap 像素取用（DrawImage/DrawBitmap） */
 #include "zm_layer.h" /* IDisplay 层结构（CreateLayer/GetLayerInfo/合成） */
-#include "../fs/zm_file_mgr.h" /* zm_fs_read_file：宿主侧整文件读取 */
 
-#include <stdbool.h>
-#include <stdlib.h>
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
+#include <stdbool.h>
+#include <stdlib.h>
 
 #include <png.h> /* 调试截图（fb_save_png） */
 
@@ -76,7 +76,8 @@ static const char *pick_font_path(void) {
     chosen = env;
   } else {
     chosen = ZM_FONT_PATH;
-    for (size_t i = 0; i < sizeof(g_font_cands) / sizeof(g_font_cands[0]); i++) {
+    for (size_t i = 0; i < sizeof(g_font_cands) / sizeof(g_font_cands[0]);
+         i++) {
       FILE *f = fopen(g_font_cands[i], "rb");
       if (f) {
         fclose(f);
@@ -167,7 +168,8 @@ static TTF_Font *get_font(int font_size) {
   g_font_size = font_size;
   {
     const char *fam = TTF_FontFaceFamilyName(g_font);
-    log_info("文本字体: %s face=%d (%s) %dpx", fpath, face, fam ? fam : "?", font_size);
+    log_info("文本字体: %s face=%d (%s) %dpx", fpath, face, fam ? fam : "?",
+             font_size);
   }
   return g_font;
 }
@@ -239,8 +241,7 @@ static bool g_colorstat = false;
 
 /* argb8888 → rgb565（写客户机层缓冲用） */
 static inline uint16_t to_rgb565(uint32_t argb) {
-  unsigned r = (argb >> 16) & 0xFFu, g = (argb >> 8) & 0xFFu,
-           b = argb & 0xFFu;
+  unsigned r = (argb >> 16) & 0xFFu, g = (argb >> 8) & 0xFFu, b = argb & 0xFFu;
   return (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
 }
 
@@ -289,9 +290,8 @@ static inline void fb_px(int x, int y, uint32_t argb) {
   if (g_uc && g_draw_buf && (unsigned)x < (unsigned)g_draw_w &&
       (unsigned)y < (unsigned)g_draw_h) {
     uint16_t c = to_rgb565(argb);
-    uc_mem_write(g_uc,
-                 g_draw_buf + ((uint32_t)y * g_draw_w + (uint32_t)x) * 2u, &c,
-                 sizeof(c));
+    uc_mem_write(g_uc, g_draw_buf + ((uint32_t)y * g_draw_w + (uint32_t)x) * 2u,
+                 &c, sizeof(c));
   }
 }
 
@@ -458,8 +458,8 @@ static void fb_draw_text(uc_engine *uc, uint32_t rect_ptr, const char *text,
     int oy = dy + y;
     if (oy < ry || oy >= ry + rh)
       continue; /* 裁剪到 rect 内，避免文本溢出按钮 */
-    const uint32_t *src =
-        (const uint32_t *)((const uint8_t *)conv->pixels + (size_t)y * conv->pitch);
+    const uint32_t *src = (const uint32_t *)((const uint8_t *)conv->pixels +
+                                             (size_t)y * conv->pitch);
     for (int x = 0; x < tw; x++) {
       int ox = dx + x;
       if (ox < rx || ox >= rx + rw)
@@ -532,14 +532,34 @@ static void fb_blit_rgba_mode(int x, int y, int w, int h, const uint8_t *rgba,
       }
       int dx = sx, dy = sy;
       switch (mode & 7) {
-      case 1: dx = w - 1 - sx; break;                              /* (-X,Y) */
-      case 2: dx = h - 1 - sy; dy = w - 1 - sx; break;              /* (-Y,-X) */
-      case 3: dy = h - 1 - sy; break;                              /* (X,-Y) */
-      case 4: dx = sy; dy = sx; break;                             /* (Y,X) */
-      case 5: dx = h - 1 - sy; dy = sx; break;                     /* (-Y,X) */
-      case 6: dx = w - 1 - sx; dy = h - 1 - sy; break;              /* (-X,-Y) */
-      case 7: dx = sy; dy = w - 1 - sx; break;                     /* (Y,-X) */
-      default: break;
+      case 1:
+        dx = w - 1 - sx;
+        break; /* (-X,Y) */
+      case 2:
+        dx = h - 1 - sy;
+        dy = w - 1 - sx;
+        break; /* (-Y,-X) */
+      case 3:
+        dy = h - 1 - sy;
+        break; /* (X,-Y) */
+      case 4:
+        dx = sy;
+        dy = sx;
+        break; /* (Y,X) */
+      case 5:
+        dx = h - 1 - sy;
+        dy = sx;
+        break; /* (-Y,X) */
+      case 6:
+        dx = w - 1 - sx;
+        dy = h - 1 - sy;
+        break; /* (-X,-Y) */
+      case 7:
+        dx = sy;
+        dy = w - 1 - sx;
+        break; /* (Y,-X) */
+      default:
+        break;
       }
       const uint8_t *p = rgba + ((size_t)sy * w + sx) * 4u;
       unsigned a = p[3];
@@ -551,8 +571,8 @@ static void fb_blit_rgba_mode(int x, int y, int w, int h, const uint8_t *rgba,
       int ox = x + dx, oy = y + dy;
       uint32_t argb;
       if (!a || a == 0xFF) {
-        argb = 0xFF000000u | ((unsigned)p[0] << 16) | ((unsigned)p[1] << 8) |
-               p[2];
+        argb =
+            0xFF000000u | ((unsigned)p[0] << 16) | ((unsigned)p[1] << 8) | p[2];
       } else {
         uint32_t d = fb_get(ox, oy);
         unsigned dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
@@ -605,22 +625,47 @@ static void fb_blit_rgba_scaled_mode(int x, int y, int dw, int dh,
     for (int ox = 0; ox <= dw; ox++) { /* 多跑一格用于收尾 flush */
       if (ox == dw) {
         if (run_n > 0)
-          uc_mem_write(g_uc, g_draw_buf + ((uint32_t)run_y * g_draw_w +
-                                           (uint32_t)run_x) * 2u,
+          uc_mem_write(g_uc,
+                       g_draw_buf +
+                           ((uint32_t)run_y * g_draw_w + (uint32_t)run_x) * 2u,
                        row16, (size_t)run_n * 2u);
         break;
       }
       /* 目标坐标 → 源方向坐标（含镜像/转置），再折算到源像素 */
       int ux, uy;
       switch (mode & 7) {
-      case 1: ux = dw - 1 - ox; uy = oy; break;             /* (-X,Y) */
-      case 2: ux = dh - 1 - oy; uy = dw - 1 - ox; break;    /* (-Y,-X) */
-      case 3: ux = ox; uy = dh - 1 - oy; break;             /* (X,-Y) */
-      case 4: ux = oy; uy = ox; break;                      /* (Y,X) */
-      case 5: ux = oy; uy = dw - 1 - ox; break;             /* (-Y,X) */
-      case 6: ux = dw - 1 - ox; uy = dh - 1 - oy; break;    /* (-X,-Y) */
-      case 7: ux = dh - 1 - oy; uy = dw - 1 - ox; break;    /* (Y,-X) */
-      default: ux = ox; uy = oy; break;
+      case 1:
+        ux = dw - 1 - ox;
+        uy = oy;
+        break; /* (-X,Y) */
+      case 2:
+        ux = dh - 1 - oy;
+        uy = dw - 1 - ox;
+        break; /* (-Y,-X) */
+      case 3:
+        ux = ox;
+        uy = dh - 1 - oy;
+        break; /* (X,-Y) */
+      case 4:
+        ux = oy;
+        uy = ox;
+        break; /* (Y,X) */
+      case 5:
+        ux = oy;
+        uy = dw - 1 - ox;
+        break; /* (-Y,X) */
+      case 6:
+        ux = dw - 1 - ox;
+        uy = dh - 1 - oy;
+        break; /* (-X,-Y) */
+      case 7:
+        ux = dh - 1 - oy;
+        uy = dw - 1 - ox;
+        break; /* (Y,-X) */
+      default:
+        ux = ox;
+        uy = oy;
+        break;
       }
       int sx = (int)(((int64_t)ux * sw) / dw);
       int sy = (int)(((int64_t)uy * sh) / dh);
@@ -638,8 +683,8 @@ static void fb_blit_rgba_scaled_mode(int x, int y, int dw, int dh,
         continue;
       uint32_t argb;
       if (a == 0xFF) {
-        argb = 0xFF000000u | ((unsigned)p[0] << 16) | ((unsigned)p[1] << 8) |
-               p[2];
+        argb =
+            0xFF000000u | ((unsigned)p[0] << 16) | ((unsigned)p[1] << 8) | p[2];
       } else {
         uint32_t d = fb_get(tx, ty);
         unsigned dr = (d >> 16) & 0xFF, dg = (d >> 8) & 0xFF, db = d & 0xFF;
@@ -652,14 +697,14 @@ static void fb_blit_rgba_scaled_mode(int x, int y, int dw, int dh,
       if ((unsigned)tx < (unsigned)g_fb_w && (unsigned)ty < (unsigned)g_fb_h)
         g_fb[(size_t)ty * (size_t)g_fb_w + (size_t)tx] = argb;
       /* 客户机层缓冲：同行连续像素攒成一段，段尾一次写回 */
-      int on_layer = g_uc && g_draw_buf &&
-                     (unsigned)tx < (unsigned)g_draw_w &&
+      int on_layer = g_uc && g_draw_buf && (unsigned)tx < (unsigned)g_draw_w &&
                      (unsigned)ty < (unsigned)g_draw_h;
       if (!on_layer)
         continue;
       if (run_n && (ty != run_y || tx != run_x + run_n)) {
-        uc_mem_write(g_uc, g_draw_buf + ((uint32_t)run_y * g_draw_w +
-                                         (uint32_t)run_x) * 2u,
+        uc_mem_write(g_uc,
+                     g_draw_buf +
+                         ((uint32_t)run_y * g_draw_w + (uint32_t)run_x) * 2u,
                      row16, (size_t)run_n * 2u);
         run_n = 0;
       }
@@ -755,7 +800,8 @@ static void fb_save_png(const char *path) {
 /* 把"层缓冲"（RGB565）原样存成 PNG，用来直接观察 applet 到底往层里画了什么。
  * 透明色（品红）会原样保留 —— 品红面积就是"层没有覆盖"的部分。
  * 仅调试用：ZM_DUMP_LAYER=<前缀>。 */
-static void layer_dump_png(uc_engine *uc, const char *path, const zm_layer_t *L) {
+static void layer_dump_png(uc_engine *uc, const char *path,
+                           const zm_layer_t *L) {
   if (!uc || !path || !L || !L->w || !L->h || !L->buf)
     return;
   FILE *fp = fopen(path, "wb");
@@ -843,7 +889,8 @@ static void fb_present(void) {
   int smax = (shot_max_s && shot_max_s[0]) ? atoi(shot_max_s) : 60;
   if (every < 1)
     every = 1;
-  if (prefix && prefix[0] && shot < smax && (present_no % (uint32_t)every) == 0) {
+  if (prefix && prefix[0] && shot < smax &&
+      (present_no % (uint32_t)every) == 0) {
     /* 统计非黑像素：用来判断"绘制到底有没有落到帧缓冲上" */
     int nonblack = 0;
     for (size_t i = 0, sz = (size_t)g_fb_w * g_fb_h; i < sz; i++)
@@ -975,9 +1022,9 @@ static void fb_composite(uc_engine *uc, int rx, int ry, int rw, int rh,
     int use_tc = (L.tenable != 0);
     uint16_t tc = use_tc ? to_rgb565(L.tcolor) : 0;
     for (int i = 0; i < lh; i++) {
-      uint32_t rowoff = L.buf +
-                        (uint32_t)(soff_y + i) * (uint32_t)pitch * (uint32_t)bpp +
-                        (uint32_t)soff_x * (uint32_t)bpp;
+      uint32_t rowoff =
+          L.buf + (uint32_t)(soff_y + i) * (uint32_t)pitch * (uint32_t)bpp +
+          (uint32_t)soff_x * (uint32_t)bpp;
       if (bpp == 2) {
         if (uc_mem_read(uc, rowoff, row, (size_t)lw * 2u) != UC_ERR_OK)
           break;
@@ -990,8 +1037,8 @@ static void fb_composite(uc_engine *uc, int rx, int ry, int rw, int rh,
         for (int x = 0; x < lw; x++)
           row[x] = to_rgb565(row32[x]);
       }
-      uint32_t fb_off = (uint32_t)(y0 + i) * (uint32_t)fb_w * 2u +
-                        (uint32_t)x0 * 2u;
+      uint32_t fb_off =
+          (uint32_t)(y0 + i) * (uint32_t)fb_w * 2u + (uint32_t)x0 * 2u;
       if (use_tc) {
         /* mask：透明像素不动 → 保留下层 / 上一帧的内容（RE：Mask16To16） */
         if (uc_mem_read(uc, FRAMEBUF + fb_off, frow, (size_t)lw * 2u) !=
@@ -1106,10 +1153,14 @@ static int fb_merge_layer(void) {
             b = (int)(c & 0xFF);
         if (r < 24 && gg < 24 && b < 24) {
           nblack++;
-          if (x < bx0) bx0 = x;
-          if (x > bx1) bx1 = x;
-          if (y < by0) by0 = y;
-          if (y > by1) by1 = y;
+          if (x < bx0)
+            bx0 = x;
+          if (x > bx1)
+            bx1 = x;
+          if (y < by0)
+            by0 = y;
+          if (y > by1)
+            by1 = y;
         } else if (r < 64 && gg < 64 && b < 64) {
           ngray++;
         }
@@ -1214,8 +1265,8 @@ static int fb_merge_layer(void) {
             }
           if (best == 0)
             break;
-          log_info("    层%u 内 #%d: 0x%04X × %u (%.1f%%)", li, k + 1, bestc, best,
-                   total ? 100.0 * best / total : 0.0);
+          log_info("    层%u 内 #%d: 0x%04X × %u (%.1f%%)", li, k + 1, bestc,
+                   best, total ? 100.0 * best / total : 0.0);
           lh2[bestc] = 0;
         }
         /* ZM_DUMP_LAYER=<前缀>：每一层的缓冲都存成图，
@@ -1258,6 +1309,41 @@ static int fb_merge_layer(void) {
     memset(hist, 0, sizeof(hist));
   }
   return painted;
+}
+
+/* 供宿主侧在 guest 长时间自旋时周期性调用：只泵 SDL 事件（不做上屏）。
+ * uc_emu_start(...,0,0) 是无限指令执行，宿主只在 guest 调 IDisplay::Refresh
+ * 槽时才会经 fb_commit 泵事件；一旦 guest 自旋（不再调 Refresh）窗口就整块
+ * 卡死、用户操作不了。hook 里周期性调本函数可保证窗口始终可响应/可关闭。 */
+void zm_display_pump_events(void) {
+  if (!g_ren)
+    return;
+  /* ★ 关键一步：SDL_PumpEvents() 把 X11 socket 上的事件读进 SDL 内部队列。
+   * 若 guest 自旋、长时间没人读这个 socket，**X server 往本客户端的写会阻塞**
+   * —— 而 X server 是单线程的，于是整个桌面都被拖住：鼠标能动、点击全无反应、
+   * 窗口也关不掉（正是实测现象）。注意 SDL_PeepEvents/SDL_PollEvent 语义：
+   * 只有 PollEvent 会内部 Pump，PeepEvents 不会，所以这里必须显式 Pump。 */
+  SDL_PumpEvents();
+
+  /* 只**窥探** SDL_QUIT（PEEKEVENT 不移除事件），其余事件原样留给 applet
+   * 自己的输入循环（zm_display_event_loop）去取 —— 否则会把点击"抢走"。 */
+  SDL_Event e;
+  if (SDL_PeepEvents(&e, 1, SDL_PEEKEVENT, SDL_QUIT, SDL_QUIT) > 0) {
+    log_info("SDL 窗口已关闭，退出模拟");
+    exit(0);
+  }
+  /* ★ 主动让出 CPU。uc_emu_start 是无限指令执行，guest 一旦在某个循环里自旋，
+   * 模拟器会一直占满 CPU：桌面 compositor/X 抢不到时间片 → 表现为"整个桌面
+   * 鼠标能动、点击没反应、窗口关不掉"。这里限制到每 ~8ms 让出 1ms，
+   * 代价是模拟略慢，换来桌面始终可响应。 */
+  {
+    static Uint32 last = 0;
+    Uint32 now = SDL_GetTicks();
+    if (now - last >= 8) {
+      last = now;
+      SDL_Delay(10);
+    }
+  }
 }
 
 static void fb_commit(void) {
@@ -1625,9 +1711,9 @@ uint32_t zm_display_CreateLayerExt(uc_engine *uc, uint32_t off, uint32_t r0,
  *
  * 反编译（用户提供）：
  *   if (a1 == 0 || (unsigned)(a2 - 1) > 0xE) return -4;
- *   v5 = *(void **)(a1 + 52*a2 + 72);          // = 层载荷 +0x24（像素缓冲指针）
- *   if (v5) {
- *     if (*(BYTE*)(a1 + a2 + 20) != 0) free(v5);   // 该层"缓冲自持"才释放
+ *   v5 = *(void **)(a1 + 52*a2 + 72);          // = 层载荷
+ * +0x24（像素缓冲指针） if (v5) { if (*(BYTE*)(a1 + a2 + 20) != 0) free(v5); //
+ * 该层"缓冲自持"才释放
  *     *(DWORD*)(a1 + 52*a2 + 72) = 0;              // 指针清零
  *   }
  *   return 0;
@@ -1647,7 +1733,8 @@ uint32_t zm_display_FreeLayer(uc_engine *uc, uint32_t r0, uint32_t r1) {
   uint32_t zero = 0;
   uc_mem_write(uc, P + 0x24, &zero, 4);
   log_info("FreeLayer(层=%u) 缓冲@0x%X（自持标志=%u%s）→ 指针已清零", r1, buf,
-           own, own ? "，真机 free；本模拟器像素池为 bump 分配，仅释放记录" : "");
+           own,
+           own ? "，真机 free；本模拟器像素池为 bump 分配，仅释放记录" : "");
   return 0;
 }
 
@@ -1662,7 +1749,8 @@ uint32_t zm_display_FreeAllLayer(uc_engine *uc, uint32_t r0) {
     if (zm_display_FreeLayer(uc, r0, i) != 0)
       ret = -1;
   }
-  log_info("FreeAllLayer: 活动层归 0，层 1..15 已释放（层 0 基础层保留）→ %d", ret);
+  log_info("FreeAllLayer: 活动层归 0，层 1..15 已释放（层 0 基础层保留）→ %d",
+           ret);
   return (uint32_t)ret;
 }
 uint32_t zm_display_GetLayerInfo(uc_engine *uc, uint32_t off, uint32_t r0,
@@ -1679,10 +1767,11 @@ uint32_t zm_display_SetLayerPosition(uc_engine *uc, uint32_t off, uint32_t r0,
   return zm_display_stub(uc, off, r0, r1, r2, r3);
 }
 /* UpdateEx 的真实实现（校验 + rect 裁剪 + 按 applet 给的列表合成）。
- * 供 Update（薄封装）与虚表槽共用。rect 参数按值传入，避免再写一趟客户机内存。 */
-static uint32_t update_ex_impl(uc_engine *uc, uint32_t display, int32_t x, int32_t y,
-                               int32_t w, int32_t h, const uint32_t *list,
-                               uint32_t count) {
+ * 供 Update（薄封装）与虚表槽共用。rect 参数按值传入，避免再写一趟客户机内存。
+ */
+static uint32_t update_ex_impl(uc_engine *uc, uint32_t display, int32_t x,
+                               int32_t y, int32_t w, int32_t h,
+                               const uint32_t *list, uint32_t count) {
   /* 裁剪范围 = display+0x30/+0x34，也就是**层 0 载荷的 w/h**
    * （RE：ZMAEE_IDisplay_New 把屏宽/屏高写进层 0 的 +0x0C/+0x10）。 */
   int32_t sw = (int32_t)uc_read32(uc, display + 0x30);
@@ -1727,8 +1816,8 @@ static uint32_t update_ex_impl(uc_engine *uc, uint32_t display, int32_t x, int32
  *   UpdateEx(display, &rect, 4, unk_5B5D8)
  * 全部校验都在 UpdateEx 里，本函数没有任何判断。
  * 以前我们只接 r0（display），x/y/w/h 三个参数直接丢了。 */
-uint32_t zm_display_Update(uc_engine *uc, uint32_t display, uint32_t x, uint32_t y,
-                           uint32_t w, uint32_t h) {
+uint32_t zm_display_Update(uc_engine *uc, uint32_t display, uint32_t x,
+                           uint32_t y, uint32_t w, uint32_t h) {
   zm_display_slot_tick(0x28U);
   return update_ex_impl(uc, display, (int32_t)x, (int32_t)y, (int32_t)w,
                         (int32_t)h, ZM_UPDATE_DEFAULT_LIST, 4u);
@@ -1750,9 +1839,10 @@ uint32_t zm_display_RegisterCustomFont(uc_engine *uc, uint32_t off, uint32_t r0,
   return zm_display_stub(uc, off, r0, r1, r2, r3);
 }
 /* +0x44：GetFontWidth(this)
- * 真机：sub_26378(this, &v2, nullptr)；sub_26378 写 *a2 = 选定字体尺寸/2 后因 a3==NULL
- * 直接返回 0，故 GetFontWidth 返回 v2/2 = (尺寸/2)/2 = 尺寸/4。context 空返回 -4。
- * 模拟器：选中字体尺寸即当前 g_font_size（≤0 默认 16），返回 尺寸/4。 */
+ * 真机：sub_26378(this, &v2, nullptr)；sub_26378 写 *a2 = 选定字体尺寸/2 后因
+ * a3==NULL 直接返回 0，故 GetFontWidth 返回 v2/2 = (尺寸/2)/2 = 尺寸/4。context
+ * 空返回 -4。 模拟器：选中字体尺寸即当前 g_font_size（≤0 默认 16），返回
+ * 尺寸/4。 */
 uint32_t zm_display_GetFontWidth(uc_engine *uc, uint32_t r0, uint32_t r1) {
   zm_display_slot_tick(0x44U);
   (void)uc;
@@ -1785,10 +1875,11 @@ uint32_t zm_display_SetActiveLayer(uc_engine *uc, uint32_t display,
                                    uint32_t idx) {
   zm_display_slot_tick(0x20U);
   /* 层 0（基础层）**不在这里补建**。它由 zm_layer_init_base() 在模拟器启动时
-   * 按 RE 的 ZMAEE_IDisplay_New 语义一次建好（载荷 +0x00 = GetBaseLayerDepth()、
-   * +0x24 = GetBaseLayerBuffer()）。本函数只做纯粹的"设活动层"。
-   * applet 每帧 SetActiveLayer(0)/(1) 交替是正常行为，两层都必须真实存在，
-   * 否则它会拿到 -4 退回"全画进层 1"的老路（层不清 → 残影）。 */
+   * 按 RE 的 ZMAEE_IDisplay_New 语义一次建好（载荷 +0x00 =
+   * GetBaseLayerDepth()、 +0x24 =
+   * GetBaseLayerBuffer()）。本函数只做纯粹的"设活动层"。 applet 每帧
+   * SetActiveLayer(0)/(1) 交替是正常行为，两层都必须真实存在， 否则它会拿到 -4
+   * 退回"全画进层 1"的老路（层不清 → 残影）。 */
   uint32_t ret = zm_layer_SetActiveLayer(uc, display, idx);
   zm_seq_push(1, idx, ret);
   fb_refresh_draw_target(); /* 绘制目标随活动层改变 */
@@ -1799,8 +1890,9 @@ uint32_t zm_display_SetActiveLayer(uc_engine *uc, uint32_t display,
   if (n <= 8)
     log_info("IDisplay.SetActiveLayer(%u) -> %d（第 %u 次）", idx, (int)ret, n);
   else if ((n % 600) == 0)
-    log_info("[探针]SetActiveLayer 累计 %u 次，当前活动层=%u（0/1 每帧交替属正常）",
-             n, uc_read32(uc, DISPLAY + 8));
+    log_info(
+        "[探针]SetActiveLayer 累计 %u 次，当前活动层=%u（0/1 每帧交替属正常）",
+        n, uc_read32(uc, DISPLAY + 8));
   return ret;
 }
 
@@ -1842,13 +1934,15 @@ uint32_t zm_display_UpdateEx(uc_engine *uc, uint32_t display, uint32_t rect_ptr,
   static uint32_t sig_cnt = 0;
   n++;
   uint32_t sig = ((uint32_t)x & 0xFFFu) ^ (((uint32_t)y & 0xFFFu) << 12) ^
-                 (((uint32_t)w & 0xFFFu) << 8) ^ (((uint32_t)h & 0xFFFu) << 20) ^
-                 (count << 4) ^ (lst[0] & 0xF) ^ ((lst[1] & 0xF) << 1) ^
+                 (((uint32_t)w & 0xFFFu) << 8) ^
+                 (((uint32_t)h & 0xFFFu) << 20) ^ (count << 4) ^
+                 (lst[0] & 0xF) ^ ((lst[1] & 0xF) << 1) ^
                  ((lst[2] & 0xF) << 2) ^ ((lst[3] & 0xF) << 3);
   if (sig != sig_prev) {
     sig_prev = sig;
     sig_cnt++;
-    log_info("[UpdateEx #%u/%u] rect={%d,%d,%d,%d} count=%u 列表={%u,%u,%u,%u}（第 %u 种形态）",
+    log_info("[UpdateEx #%u/%u] rect={%d,%d,%d,%d} count=%u "
+             "列表={%u,%u,%u,%u}（第 %u 种形态）",
              n, sig_cnt, (int)x, (int)y, (int)w, (int)h, count, lst[0], lst[1],
              lst[2], lst[3], sig_cnt);
     zm_seq_push(3, count, lst[0]);
@@ -1862,7 +1956,8 @@ uint32_t zm_display_UpdateEx(uc_engine *uc, uint32_t display, uint32_t rect_ptr,
  *   if (ctx) { ctx[8] = fontIndex; return 0; } else return -4;
  * 模拟器无按索引字体表（文本绘制走 sp 传 font_size），仅记录选中索引；
  * 上下文恒非空 → 返回 0。 */
-uint32_t zm_display_SelectFont(uc_engine *uc, uint32_t display, uint32_t font_idx) {
+uint32_t zm_display_SelectFont(uc_engine *uc, uint32_t display,
+                               uint32_t font_idx) {
   zm_display_slot_tick(0x40U);
   (void)uc;
   (void)display;
@@ -1872,8 +1967,9 @@ uint32_t zm_display_SelectFont(uc_engine *uc, uint32_t display, uint32_t font_id
 
 /* +0x48：GetFontHeight(this)
  * 真机（000267A8）：sub_26378(this, 0, &h)；成功返回 h（选中字体高度指标），
- * context 空返回 -4。sub_26378 按 dword_64BA8+8 选中字体类型取尺寸(+60/+64/+68)，
- * 再把对应高度指标(+72/+76/+80)写入 *a3。模拟器用当前字体 g_font 的像素行高近似。 */
+ * context 空返回 -4。sub_26378 按 dword_64BA8+8
+ * 选中字体类型取尺寸(+60/+64/+68)， 再把对应高度指标(+72/+76/+80)写入
+ * *a3。模拟器用当前字体 g_font 的像素行高近似。 */
 uint32_t zm_display_GetFontHeight(uc_engine *uc) {
   zm_display_slot_tick(0x48U);
   (void)uc;
@@ -1888,11 +1984,12 @@ uint32_t zm_display_GetFontHeight(uc_engine *uc) {
  *   2) 按 UCS-2 '\0' 把 len 截到有效字数（len==0 或 *str==0 → 记 0）；
  *   3) 若选中字体类型(ctx[2])==3 → 走自定义字体 vtable（未注册返回 -1）；
  *   4) 否则 ZMAEE_Ucs2_2_Utf8(str, len, buf[512], 0x200)
- *      → NewStringUTF → AndroidAEE_MeasureText(...) → *width_out = 宽（float）；
- *   5) 若 a5 != 0 → sub_26378(this, 0, a5) 写字体高度指标。
+ *      → NewStringUTF → AndroidAEE_MeasureText(...) → *width_out =
+ * 宽（float）； 5) 若 a5 != 0 → sub_26378(this, 0, a5) 写字体高度指标。
  * 模拟器：context 恒非空 → 返回 0；用同一个 ucs2_to_utf8 + 当前 TTF 量宽高。 */
-uint32_t zm_display_MeasureString(uc_engine *uc, uint32_t disp, uint32_t str_ptr,
-                                  uint32_t len, uint32_t width_out, uint32_t sp) {
+uint32_t zm_display_MeasureString(uc_engine *uc, uint32_t disp,
+                                  uint32_t str_ptr, uint32_t len,
+                                  uint32_t width_out, uint32_t sp) {
   zm_display_slot_tick(0x4CU);
   (void)disp;
 
@@ -1919,7 +2016,8 @@ uint32_t zm_display_MeasureString(uc_engine *uc, uint32_t disp, uint32_t str_ptr
     uint32_t metrics_out = uc_read32(uc, sp);
     if (metrics_out) {
       TTF_Font *font = get_font(g_font_size);
-      int fh = font ? TTF_FontHeight(font) : (g_font_size > 0 ? g_font_size : 16);
+      int fh =
+          font ? TTF_FontHeight(font) : (g_font_size > 0 ? g_font_size : 16);
       uc_write32(uc, metrics_out, (uint32_t)fh);
     }
   }
@@ -1936,17 +2034,19 @@ uint32_t zm_display_MeasureString(uc_engine *uc, uint32_t disp, uint32_t str_ptr
  *   3) **MeasureString(自身, text, len, &w, &h)** 量出文本宽高；
  *   4) 用 flags 把文本在 rect 内定位：
  *        &2 右对齐  &4 水平居中  &0x20 底对齐  &0x10 垂直居中；
- *   5) Ucs2_2_Utf8(text, len, buf, 256) → NewStringUTF → AndroidAEE_GetTextBitmap
- *      （渲染发生在 **Android 侧**，用系统字体，所以真机汉字一定有字形）；
- *   6) ZMAEE_Blt 把这张文字位图贴进当前层。
+ *   5) Ucs2_2_Utf8(text, len, buf, 256) → NewStringUTF →
+ * AndroidAEE_GetTextBitmap （渲染发生在 **Android
+ * 侧**，用系统字体，所以真机汉字一定有字形）； 6) ZMAEE_Blt
+ * 把这张文字位图贴进当前层。
  *
  * 【2026-09 修正】模拟器以前：把 UCS-2 原始字节当 UTF-8 直接喂 TTF（汉字
  * 两字节被当成非法 UTF-8 → .notdef = 豆腐块），并且把 `flags` 当字号用
  * （实测 applet 传 0x21/0x14/0x11，是"底对齐/居中"而不是 33px/20px）。
  * 现在：先 ucs2_to_utf8 转换 → 字体按 ZM_FONT/CJK 候选挑 → flags 按位定位。
  * a6（[sp+4]）真机透传给 AndroidAEE_GetTextBitmap，含义未定，暂忽略。 */
-uint32_t zm_display_DrawText(uc_engine *uc, uint32_t rect_ptr, uint32_t text_ptr,
-                             uint32_t text_len, uint32_t sp) {
+uint32_t zm_display_DrawText(uc_engine *uc, uint32_t rect_ptr,
+                             uint32_t text_ptr, uint32_t text_len,
+                             uint32_t sp) {
   zm_display_slot_tick(0x50U);
   if (!rect_ptr || !text_ptr || !text_len)
     return 0;
@@ -2037,17 +2137,19 @@ static void layer_fill(uc_engine *uc, int x, int y, int w, int h,
       log_info("[FillRect详查] 层=%u fmt=%u 请求(%d,%d,%d,%d) 色=0x%08X | "
                "L.pos(%d,%d) L.size(%d,%d) clip(%d,%d,%d,%d) buf=0x%X -> "
                "有效[%d,%d]-[%d,%d] = %d 像素/行",
-               active, depth, x, y, w, h, color, (int)L.x, (int)L.y, pitch, lh, cl,
-               ct, cw, ch, buf, x0, y0, x1, y1, npx);
+               active, depth, x, y, w, h, color, (int)L.x, (int)L.y, pitch, lh,
+               cl, ct, cw, ch, buf, x0, y0, x1, y1, npx);
     } else if ((ncall % 200) == 0) {
-      log_info("[FillRect详查] 累计 %u 次填充, 累计写入 %u 像素", ncall, nwritten);
+      log_info("[FillRect详查] 累计 %u 次填充, 累计写入 %u 像素", ncall,
+               nwritten);
     }
   }
 
   if (depth == 1) {
     static uint16_t row16[1024];
-    uint16_t c16 = (uint16_t)(((color & 0xF80000u) >> 8) |
-                              ((color & 0xFC00u) >> 5) | ((color & 0xFFu) >> 3));
+    uint16_t c16 =
+        (uint16_t)(((color & 0xF80000u) >> 8) | ((color & 0xFC00u) >> 5) |
+                   ((color & 0xFFu) >> 3));
     /* 填充色 == 层透明色 → applet 是在"把这片区域清成透明"
      * （实测它每帧都调 clear(1) → FillRect(0,0,240,320, 0xFFFC00FF)）。
      *
@@ -2095,8 +2197,8 @@ uint32_t zm_display_FillRect(uc_engine *uc, uint32_t x, uint32_t y, uint32_t w,
   zm_seq_push(2, color, (uint32_t)h);
   static uint32_t n = 0;
   if ((n++ % 200) == 0)
-    log_info("IDisplay.FillRect(%d,%d,%d,%d, 0x%08X)（第 %u 次）", (int)x, (int)y,
-             (int)w, h, color, n);
+    log_info("IDisplay.FillRect(%d,%d,%d,%d, 0x%08X)（第 %u 次）", (int)x,
+             (int)y, (int)w, h, color, n);
   /* 实测（层结构已修正后仍然如此）：applet 每帧都调
    *   FillRect(0,0,240,320, 0xFFFC00FF)
    * 把层清成透明色，且**不把背景重画进层**——实测层缓冲 83.9% 是 0xF81F。
@@ -2124,7 +2226,8 @@ uint32_t zm_display_SetTransColor(uc_engine *uc, uint32_t r0, uint32_t r1,
   (void)r0;
   /*
    * RE：ZMAEE_IDisplay_SetTransColor(a1, a2, a3)
-   *   v3 = a1 + 52 * *(_DWORD *)(a1 + 8);   // ← **活动层**（a1+8 是活动层索引）
+   *   v3 = a1 + 52 * *(_DWORD *)(a1 + 8);   // ← **活动层**（a1+8
+   * 是活动层索引）
    *   *(_DWORD *)(v3 + 84) = a3;            // 载荷 +0x30 = 透明色
    *   *(_DWORD *)(v3 + 80) = a2;            // 载荷 +0x2C = 启用标志
    * 即：a2 → 载荷 +0x2C（非 0 = 启用透明色），a3 → 载荷 +0x30（颜色）。
@@ -2140,9 +2243,10 @@ uint32_t zm_display_SetTransColor(uc_engine *uc, uint32_t r0, uint32_t r1,
   uint32_t P = zm_layer_payload(DISPLAY, active);
   uc_write32(uc, P + 0x2C, r1); /* 启用标志：非 0 → 合成走 mask */
   uc_write32(uc, P + 0x30, r2); /* 透明色（ARGB，合成时转 RGB565） */
-  log_info("IDisplay.SetTransColor(启用=0x%08X, 色=0x%08X) -> 层%u (+0x2C/+0x30) -> "
-           "RGB565 key=0x%04X",
-           r1, r2, active, to_rgb565(r2));
+  log_info(
+      "IDisplay.SetTransColor(启用=0x%08X, 色=0x%08X) -> 层%u (+0x2C/+0x30) -> "
+      "RGB565 key=0x%04X",
+      r1, r2, active, to_rgb565(r2));
   return 0;
 }
 uint32_t zm_display_SetOpacity(uc_engine *uc, uint32_t off, uint32_t r0,
@@ -2236,8 +2340,8 @@ uint32_t zm_display_DrawImage(uc_engine *uc, uint32_t off, uint32_t r0,
  *     GDI_BitBlt(层载荷, x, y, info, rect, a6);            // ← a4 换成"信息头"
  * GDI_BitBlt 内部（ZMAEE_GDI_BitBlt 反编译）：
  *     src_fmt = info[2]; tc = info[3];
- *     isMask  = a6 & (tc >= 0 ? 1 : 0);                    // ★ a6 = 抠透明色开关
- *     fn = (isMask ? mask*_func : copy*_func)[src_fmt];
+ *     isMask  = a6 & (tc >= 0 ? 1 : 0);                    // ★ a6 =
+ * 抠透明色开关 fn = (isMask ? mask*_func : copy*_func)[src_fmt];
  *     ZMAEE_Blt(bpp[目标色深], bpp[src_fmt], rect, ...);   // ★ 索引里没有 mode
  *
  * 【要点】第 6 参 a6 **不是模式号**，而是 mask/copy 家族选择位；4 种镜像变体
@@ -2282,8 +2386,8 @@ static int bitmap_info_to_rgba(uc_engine *uc, uint32_t info, int sl, int st,
      * 注意：DrawBitmap/DrawImage 传进来的这个矩形其实是**目标空间的裁剪区**
      * （参考 GDI_BitBlt 的第 5 参 a5），比位图大是正常的 —— 那种情况下这里会
      * 刷屏，属预期，不是错误。 */
-    log_debug("IBitmap 子矩形 {%d,%d,%d,%d} 对 %dx%d 越界/为空，退回整图",
-              sl, st, sr, sb, bw, bh);
+    log_debug("IBitmap 子矩形 {%d,%d,%d,%d} 对 %dx%d 越界/为空，退回整图", sl,
+              st, sr, sb, bw, bh);
     sl = 0;
     st = 0;
     sr = bw;
@@ -2299,8 +2403,8 @@ static int bitmap_info_to_rgba(uc_engine *uc, uint32_t info, int sl, int st,
   }
   for (int y = 0; y < oh; y++) {
     uint32_t gy = (uint32_t)(st + y);
-    if (uc_mem_read(uc, px + ((size_t)gy * (size_t)bw + (size_t)sl) *
-                              (size_t)bpp,
+    if (uc_mem_read(uc,
+                    px + ((size_t)gy * (size_t)bw + (size_t)sl) * (size_t)bpp,
                     row, (size_t)ow * (size_t)bpp) != UC_ERR_OK) {
       free(row);
       free(rgba);
@@ -2405,8 +2509,8 @@ static int blit_surface_region(uc_engine *uc, uint32_t obj, int dx, int dy,
     if (idx < 0 && nseen < 24) {
       idx = nseen;
       seen[nseen++] = obj;
-      log_info("[绘制首次] obj=0x%X %dx%d 目标=(%d,%d) mode=%d rect=%s", obj, w, h,
-               dx, dy, mode & 7, rect_ptr ? "有" : "无");
+      log_info("[绘制首次] obj=0x%X %dx%d 目标=(%d,%d) mode=%d rect=%s", obj, w,
+               h, dx, dy, mode & 7, rect_ptr ? "有" : "无");
     }
     /* 每个对象再补记前 3 次调用，用来判断坐标是"恒定"还是"随时间动画" */
     if (idx >= 0) {
@@ -2426,8 +2530,9 @@ static int blit_surface_region(uc_engine *uc, uint32_t obj, int dx, int dy,
         rr = (int)uc_read32(uc, rect_ptr + 8);
         rb = (int)uc_read32(uc, rect_ptr + 12);
       }
-      log_info("[绘制入屏] obj=0x%X %dx%d 目标=(%d,%d) rect={%d,%d,%d,%d} mode=%d",
-               obj, w, h, dx, dy, rl, rt, rr, rb, mode & 7);
+      log_info(
+          "[绘制入屏] obj=0x%X %dx%d 目标=(%d,%d) rect={%d,%d,%d,%d} mode=%d",
+          obj, w, h, dx, dy, rl, rt, rr, rb, mode & 7);
     }
   }
 
@@ -2484,14 +2589,13 @@ uint32_t zm_display_DrawBitmap(uc_engine *uc, uint32_t off, uint32_t r0,
  *                    srcRect=[sp+0], mode=[sp+4], mask_flag=[sp+8])
  *
  * 真机（ZMAEE_IDisplay_DrawBitmapEx 反编译）：
- *     if (a4 == 0 || display == 0 || a6 > 7 || a5 == 0) return;   // ★ a6<=7 校验
- *     IBitmap_GetInfo(a4, info);
- *     GDI_BitBlt_Ext(层载荷, x, y, info, rect, a6, a7);           // ★ 与 7 参 BitBlt 同一条路
- * 即 **DrawBitmapEx ≡ DrawBitmap + mode + mask**：
- *     a6 = 模式号（0..7），进 `byte_5B658[a6+8]` 选 Copy/Mir/Mir90/Mir270 变体；
- *     a7 = 上面 DrawBitmap 同款的 mask 开关（不参与几何）。
- * applet 侧自洽（00000506 sub_4A0 type1）：sp+0/4/8 = srcRect / 模式 / [wrapper+8]，
- * 末参正是那个开关。这是主 sprite 绘制入口。
+ *     if (a4 == 0 || display == 0 || a6 > 7 || a5 == 0) return;   // ★ a6<=7
+ * 校验 IBitmap_GetInfo(a4, info); GDI_BitBlt_Ext(层载荷, x, y, info, rect, a6,
+ * a7);           // ★ 与 7 参 BitBlt 同一条路 即 **DrawBitmapEx ≡ DrawBitmap +
+ * mode + mask**： a6 = 模式号（0..7），进 `byte_5B658[a6+8]` 选
+ * Copy/Mir/Mir90/Mir270 变体； a7 = 上面 DrawBitmap 同款的 mask
+ * 开关（不参与几何）。 applet 侧自洽（00000506 sub_4A0 type1）：sp+0/4/8 =
+ * srcRect / 模式 / [wrapper+8]， 末参正是那个开关。这是主 sprite 绘制入口。
  *
  * 【已证】此处 `getArg(uc,5)` 当 mode 交给 fb_blit_rgba_mode（内部 `mode & 7`
  * 做镜像/转置）与真机一致 —— 之前是本模拟器按调用形状推的假设，现已由上面
@@ -2568,8 +2672,8 @@ uint32_t zm_display_CreateBitmap(uc_engine *uc, uint32_t r0, uint32_t r1,
   uc_write32(uc, obj + 36, gpx);
   uc_write32(uc, obj + 40, palsz);
   uc_write32(uc, out_ptr, obj);
-  log_info("CreateBitmap(%dx%d fmt=%d) -> 0x%X pix@0x%X pal@0x%X", w, h, fmt, obj,
-           gpx, (fmt == 0) ? gpx + px : 0u);
+  log_info("CreateBitmap(%dx%d fmt=%d) -> 0x%X pix@0x%X pal@0x%X", w, h, fmt,
+           obj, gpx, (fmt == 0) ? gpx + px : 0u);
   return 0;
 }
 uint32_t zm_display_LoadBitmap(uc_engine *uc, uint32_t r0, uint32_t r1) {
@@ -2628,22 +2732,24 @@ uint32_t zm_display_LoadBitmap(uc_engine *uc, uint32_t r0, uint32_t r1) {
   static const int bpp_tab[5] = {1, 2, 4, 4, 4}; /* RE：ZMCF2BytsPerPixel */
   int bpp = (fmt >= 0 && fmt <= 4) ? bpp_tab[fmt] : 0;
   if (!w || !h || !bpp) {
-    log_warn("LoadBitmap(\"%s\") 头字段异常：w=%d h=%d fmt=%d(0x%X) 文件 %u 字节",
-             name, w, h, fmt, fpf, (unsigned)len);
+    log_warn(
+        "LoadBitmap(\"%s\") 头字段异常：w=%d h=%d fmt=%d(0x%X) 文件 %u 字节",
+        name, w, h, fmt, fpf, (unsigned)len);
     free(buf);
     return (uint32_t)-1;
   }
   /* 【2026-09 实测修正】文件里的像素块是**紧凑**的，不做 4 字节补齐：
-   *   start_register.zbmp 59x13 fmt=1 → 20 + 59*13*2 = 1554 = 文件大小（不是 1556）
-   *   game_name.zbmp      231x71 fmt=1 → 20 + 231*71*2 = 32822 = 文件大小
+   *   start_register.zbmp 59x13 fmt=1 → 20 + 59*13*2 = 1554 = 文件大小（不是
+   * 1556） game_name.zbmp      231x71 fmt=1 → 20 + 231*71*2 = 32822 = 文件大小
    * 以前按 (px+3)&~3 校验，这两张图被判"数据不足" → 位图槽留空 → applet 后续
    * 拿空槽当对象用 → 崩在 pc=0xA0000010。分配时我们自己的缓冲仍可补齐，
    * 但读取长度必须用紧凑值。 */
   size_t px_raw = (size_t)w * (size_t)h * (size_t)bpp;
   size_t px_alloc = (px_raw + 3u) & ~(size_t)3u;
   if (20u + px_raw > len) {
-    log_warn("LoadBitmap(\"%s\") 数据不足：需要 %u，文件只有 %u（%dx%d fmt=%d）",
-             name, (unsigned)(20u + px_raw), (unsigned)len, w, h, fmt);
+    log_warn(
+        "LoadBitmap(\"%s\") 数据不足：需要 %u，文件只有 %u（%dx%d fmt=%d）",
+        name, (unsigned)(20u + px_raw), (unsigned)len, w, h, fmt);
     free(buf);
     return (uint32_t)-1;
   }
@@ -2667,19 +2773,20 @@ uint32_t zm_display_LoadBitmap(uc_engine *uc, uint32_t r0, uint32_t r1) {
   static uint32_t slot = 0;
   uint32_t obj = BITMAP_POOL + (slot++ % BITMAP_SLOT_COUNT) * BITMAP_SLOT_SIZE;
   uc_write32(uc, obj, BITMAP_VT_ADDR);
-  uc_write32(uc, obj + 4, 1);                                /* 引用计数 */
-  uc_write32(uc, obj + 8, (uint32_t)w);                      /* 宽 */
-  uc_write32(uc, obj + 12, (uint32_t)h);                     /* 高 */
-  uc_write32(uc, obj + 16, (uint32_t)fmt);                   /* 颜色格式 */
-  uc_write32(uc, obj + 20, trans);                           /* 透明色 */
-  uc_write32(uc, obj + 24, palflag ? 1u : 0u);               /* 调色板标志 */
-  uc_write32(uc, obj + 28, gpal);                            /* 调色板指针 */
-  uc_write32(uc, obj + 32, palflag ? palsize : 0u);          /* 调色板大小 */
-  uc_write32(uc, obj + 36, gpx);                             /* 像素指针 */
+  uc_write32(uc, obj + 4, 1);                       /* 引用计数 */
+  uc_write32(uc, obj + 8, (uint32_t)w);             /* 宽 */
+  uc_write32(uc, obj + 12, (uint32_t)h);            /* 高 */
+  uc_write32(uc, obj + 16, (uint32_t)fmt);          /* 颜色格式 */
+  uc_write32(uc, obj + 20, trans);                  /* 透明色 */
+  uc_write32(uc, obj + 24, palflag ? 1u : 0u);      /* 调色板标志 */
+  uc_write32(uc, obj + 28, gpal);                   /* 调色板指针 */
+  uc_write32(uc, obj + 32, palflag ? palsize : 0u); /* 调色板大小 */
+  uc_write32(uc, obj + 36, gpx);                    /* 像素指针 */
   uc_write32(uc, obj + 40, palflag ? palsize : 0u);
   uc_write32(uc, out_ptr, obj);
-  log_info("LoadBitmap(\"%s\") -> 0x%X %dx%d fmt=%d bpp=%d trans=0x%08X pix@0x%X",
-           name, obj, w, h, fmt, bpp, trans, gpx);
+  log_info(
+      "LoadBitmap(\"%s\") -> 0x%X %dx%d fmt=%d bpp=%d trans=0x%08X pix@0x%X",
+      name, obj, w, h, fmt, bpp, trans, gpx);
   return 0;
 }
 /* +0xA8 CreateImage(this=display, alloc=r1, free=r2, out=&IImage=r3)
@@ -2736,7 +2843,8 @@ uint32_t zm_display_BitBlt(uc_engine *uc, uint32_t off, uint32_t r0,
     int l = (int)uc_read32(uc, rect);
     int t = (int)uc_read32(uc, rect + 4);
     int rr = (int)uc_read32(uc, rect + 8);
-    int b = (int)uc_read32(uc, rect + 12);    if (rr > l && b > t) {
+    int b = (int)uc_read32(uc, rect + 12);
+    if (rr > l && b > t) {
       sx = l;
       sy = t;
       sw = rr - l;
@@ -2818,8 +2926,9 @@ uint32_t zm_display_StretchBlt(uc_engine *uc, uint32_t off, uint32_t r0,
   free(rgba);
   return 1;
 }
-uint32_t zm_display_DrawAntialiasingLine(uc_engine *uc, uint32_t off, uint32_t r0,
-                                         uint32_t r1, uint32_t r2, uint32_t r3) {
+uint32_t zm_display_DrawAntialiasingLine(uc_engine *uc, uint32_t off,
+                                         uint32_t r0, uint32_t r1, uint32_t r2,
+                                         uint32_t r3) {
   return zm_display_stub(uc, off, r0, r1, r2, r3);
 }
 uint32_t zm_display_DrawWLine(uc_engine *uc, uint32_t off, uint32_t r0,
@@ -2866,8 +2975,9 @@ uint32_t zm_display_DrawBorderText(uc_engine *uc, uint32_t off, uint32_t r0,
                                    uint32_t r1, uint32_t r2, uint32_t r3) {
   return zm_display_stub(uc, off, r0, r1, r2, r3);
 }
-uint32_t zm_display_PushAndSetAlphaLayer(uc_engine *uc, uint32_t off, uint32_t r0,
-                                         uint32_t r1, uint32_t r2, uint32_t r3) {
+uint32_t zm_display_PushAndSetAlphaLayer(uc_engine *uc, uint32_t off,
+                                         uint32_t r0, uint32_t r1, uint32_t r2,
+                                         uint32_t r3) {
   return zm_display_stub(uc, off, r0, r1, r2, r3);
 }
 uint32_t zm_display_PopAndRestoreAlphaLayer(uc_engine *uc, uint32_t off,
@@ -2900,16 +3010,16 @@ uint32_t zm_bitmap_SetTransColor(uc_engine *uc, uint32_t r0, uint32_t r1) {
    *   GDI_BitBlt_Ext 里 v8 = a7 & (~*(info + 12) >> 31)，
    *   而 info = memcpy(bitmap + 8, 32)，故 info[3] 即 bitmap+20 的透明色。
    *     透明色 = -1（IBitmap_Create 的初值）→ ~(-1)>>31 = 0 → 走 copy（不透明）
-   *     透明色 ≥ 0                        → 结果为 1       → 走 mask（透明生效）
-   * 以前这里是空实现、把颜色丢掉 —— applet 想让某张图透明时完全无效，
-   * 于是那张图会带着背景色块被整块贴上去。 */
+   *     透明色 ≥ 0                        → 结果为 1       → 走
+   * mask（透明生效） 以前这里是空实现、把颜色丢掉 —— applet
+   * 想让某张图透明时完全无效， 于是那张图会带着背景色块被整块贴上去。 */
   if (r0 != 0)
     uc_write32(uc, r0 + 20, r1);
   {
     static uint32_t n = 0;
     if (n++ < 8)
-      log_info("IBitmap.SetTransColor(bitmap=0x%X, color=0x%08X)（第 %u 次）", r0, r1,
-               n);
+      log_info("IBitmap.SetTransColor(bitmap=0x%X, color=0x%08X)（第 %u 次）",
+               r0, r1, n);
   }
   return r0;
 }
