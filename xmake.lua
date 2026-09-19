@@ -12,6 +12,10 @@ target("zm_emu")
 --    
     add_files("src/*.c")        
     add_files("src/**/*.c")
+    -- 
+    set_languages("c23") -- 指定使用 C23 标准
+
+
 --    
     -- ulibc：include/ 放各模块头（各 .c 用 #include "u_xxx.h" 引用），
     -- 根目录放总入口 ulibc.h，两个路径都要能搜到
