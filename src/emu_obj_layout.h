@@ -1,3 +1,6 @@
+#ifndef EMU_OBJ_LAYOUT_H
+#define EMU_OBJ_LAYOUT_H
+
 #include "emu_mem_regions.h" /* 拿 SHIM_OBJ_BASE */
 
 /* ============================================================
@@ -40,7 +43,7 @@ enum obj_shell_inner_off {
   OBJ_SHELL_OFF_DWORD_65FF8 = 0x390,    // 0x65FF8
 };
 
-#define G_SHELL_ADDR (SHIM_OBJ_BASE + 0x000U)
+static constexpr uint32_t G_SHELL_ADDR = SHIM_OBJ_BASE + 0x000U;
 
 /* IFileMgr 对象 */
 typedef struct obj_file_mgr_st {
@@ -50,7 +53,7 @@ typedef struct obj_file_mgr_st {
 enum obj_file_mgr_inner_off {
   OBJ_FILE_MGR_OFF_VTABLE = 0x000,
 };
-#define G_FileMgr_ADDR (SHIM_OBJ_BASE + 0x200U)
+static constexpr uint32_t G_FileMgr_ADDR = SHIM_OBJ_BASE + 0x200U;
 
 typedef struct obj_file_st {
   void *vtable;      // +0x00, 指向 gAEEFileVtbl
@@ -73,7 +76,7 @@ enum obj_file_inner_off {
   OBJ_FILE_SIZE = 0x1C           // 28 字节
 };
 
-#define FILE1 (SHIM_OBJ_BASE + 0x300U)
+static constexpr uint32_t FILE1 = SHIM_OBJ_BASE + 0x300U;
 
 /* INetMgr / ITAPI 服务对象 */
 // 单个 socket 槽位，大小 0x48 (72 字节)
@@ -115,7 +118,7 @@ enum netmgr_socket_slot_inner_off {
   SOCKET_SLOT_SIZE = 0x48          // 72 字节
 };
 
-#define G_NETMGR_ADDR (SHIM_OBJ_BASE + 0x400U)
+static constexpr uint32_t G_NETMGR_ADDR = SHIM_OBJ_BASE + 0x400U;
 typedef struct obj_itapi_st {
   void *vtable;           // +0x00, 0x6677C, 指向 g_aee_tapi_vtbl
   int32_t field_04;       // +0x04, 0x66780, 初始化为 1
@@ -132,7 +135,7 @@ enum obj_itapi_inner_off {
   OBJ_ITAPI_OFF_FIELD_94 = 0x94, // 0x66810
 };
 
-#define G_TAPI_ADDR (SHIM_OBJ_BASE + 0x500U)
+static constexpr uint32_t G_TAPI_ADDR = SHIM_OBJ_BASE + 0x500U;
 
 /* ---- 服务对象区布局教训（00001b62 实测）----
  * applet 会把 root.create_cbk 返回的 CBK_OBJ 当 ≥0x170 字节的大上下文
@@ -140,10 +143,10 @@ enum obj_itapi_inner_off {
  * +0x128 起填句柄数组）。真实固件里各对象在 RAM 中相距甚远，互不干扰；
  * 此前的紧凑布局被 applet 上下文写入踩碎 DISPLAY vptr / DISPLAY_VT_ADDR /
  * DLL_OBJ_VT_ADDR，导致读回空指针崩溃。现按每对象 0x100+ 间隔拉开。 */
-#define CBK_OBJ (SHIM_OBJ_BASE + 0x800U)
+static constexpr uint32_t CBK_OBJ = SHIM_OBJ_BASE + 0x800U;
 
 /* loadDLL 返回的 stub DLL 对象 */
-#define DLL_OBJ (SHIM_OBJ_BASE + 0x1000U)
+static constexpr uint32_t DLL_OBJ = SHIM_OBJ_BASE + 0x1000U;
 
 /* bitmap 单例模板（CreateBitmap 旧桩） */
 // 固定头部 44 字节，后面紧跟 a3 字节的额外数据
@@ -175,7 +178,7 @@ enum obj_bitmap_inner_off {
   OBJ_BITMAP_OFF_FIELD_28 = 0x28,  // +0x28
   OBJ_BITMAP_HEADER_SIZE = 0x2C    // 固定头部 44 字节
 };
-#define BITMAP (SHIM_OBJ_BASE + 0x1100U)
+static constexpr uint32_t BITMAP = SHIM_OBJ_BASE + 0x1100U;
 
 /* ISetting / IMedia 服务对象 */
 typedef struct obj_setting_st {
@@ -195,7 +198,7 @@ enum obj_setting_inner_off {
   OBJ_SETTING_SIZE = 0x14           // 20 字节
 };
 
-#define SETTING (SHIM_OBJ_BASE + 0x1200U)
+static constexpr uint32_t SETTING = SHIM_OBJ_BASE + 0x1200U;
 //
 typedef struct obj_media_st {
   void *vtable;     // +0x00, 指向 g_aee_media_vtbl
@@ -228,7 +231,7 @@ enum obj_media_inner_off {
   OBJ_MEDIA_SIZE = 0x30          // 48 字节
 };
 
-#define G_MEDIA_ADDR (SHIM_OBJ_BASE + 0x1300U)
+static constexpr uint32_t G_MEDIA_ADDR = SHIM_OBJ_BASE + 0x1300U;
 
 /* IDisplay 全局单例（0x1000005）。
  * 需要装下：+0 vptr、+0x10 base layer buffer、+0x24 base layer depth、
@@ -271,8 +274,8 @@ enum obj_idisplay_inner_off {
   OBJ_IDISPLAY_SIZE = 0x4C                  // 至少 76 字节，可能更大
 };
 
-#define DISPLAY (SHIM_OBJ_BASE + 0x1400U)
-#define DISPLAY_OBJ_SIZE 0x400U
+static constexpr uint32_t DISPLAY = SHIM_OBJ_BASE + 0x1400U;
+static constexpr uint32_t DISPLAY_OBJ_SIZE = 0x400U;
 
 /* IUtil 服务对象。实测 applet **每帧**都请求它一次（拿不到就返回 -3
  * 优雅回退）—— 是唯一"每帧都在失败"的服务，因此值得给它一个真实对象。 */
@@ -288,7 +291,7 @@ enum obj_iutil_inner_off {
   OBJ_IUTIL_SIZE = 0x08          // 至少 8 字节
 };
 
-#define G_IUTIL_ADDR (SHIM_OBJ_BASE + 0x1800U)
+static constexpr uint32_t G_IUTIL_ADDR = SHIM_OBJ_BASE + 0x1800U;
 
 /* ZMAEE IZip 服务对象（0x100000F）。
  * 仅返回模拟对象地址，其 +0 vtable 指向 ZIP_VT_ADDR，方法走 zm_zip_stub
@@ -331,7 +334,7 @@ enum obj_zip_inner_off {
   OBJ_ZIP_SIZE = 0x3C           // 60 字节
 };
 
-#define ZIP_ADDR (SHIM_OBJ_BASE + 0x1900U)
+static constexpr uint32_t ZIP_ADDR = SHIM_OBJ_BASE + 0x1900U;
 
 /* 以下为"尚未实现"的服务对象占位地址（CreateInstance 0x1000006 IGps /
  * 0x1000007 IGSensor / 0x100000A IAddrBook / 0x100000E IMemStream /
@@ -349,7 +352,7 @@ enum obj_gps_inner_off {
   OBJ_GPS_SIZE = 0x08           // 8 字节
 };
 
-#define G_GPS_ADDR (SHIM_OBJ_BASE + 0x1A00U)
+static constexpr uint32_t G_GPS_ADDR = SHIM_OBJ_BASE + 0x1A00U;
 typedef struct obj_gsensor_st {
   void *vtable;      // +0x00, 指向 g_aee_gsensor_vtbl
   int32_t ref_count; // +0x04, 初始化为 1，很可能是引用计数
@@ -361,7 +364,7 @@ enum obj_gsensor_inner_off {
   OBJ_GSENSOR_SIZE = 0x08           // 8 字节
 };
 
-#define G_GSENSOR_ADDR (SHIM_OBJ_BASE + 0x1B00U)
+static constexpr uint32_t G_GSENSOR_ADDR = SHIM_OBJ_BASE + 0x1B00U;
 typedef struct obj_addrbook_st {
   void *vtable;            // +0x00, 指向 g_aee_addrbook_vtbl
   int32_t ref_count;       // +0x04, 初始化为 1，很可能是引用计数
@@ -375,7 +378,7 @@ enum obj_addrbook_inner_off {
   OBJ_ADDRBOOK_SIZE = 0x110          // 272 字节
 };
 
-#define G_ADDRBOOK_ADDR (SHIM_OBJ_BASE + 0x1C00U)
+static constexpr uint32_t G_ADDRBOOK_ADDR = SHIM_OBJ_BASE + 0x1C00U;
 typedef struct obj_memstream_st {
   void *vtable;     // +0x00, 指向 g_aee_memstream_vtbl
   int32_t field_04; // +0x04, 未初始化（malloc 后未赋值）
@@ -394,7 +397,7 @@ enum obj_memstream_inner_off {
   OBJ_MEMSTREAM_OFF_FIELD_14 = 0x14, // +0x14
   OBJ_MEMSTREAM_SIZE = 0x18          // 24 字节
 };
-#define G_MEMSTREAM_ADDR (SHIM_OBJ_BASE + 0x1D00U)
+static constexpr uint32_t G_MEMSTREAM_ADDR = SHIM_OBJ_BASE + 0x1D00U;
 typedef struct obj_statusbar_st {
   void *vtable;      // +0x00, 指向 g_aee_statusbar_vtbl
   int32_t ref_count; // +0x04, 初始化为 1，很可能是引用计数
@@ -406,7 +409,7 @@ enum obj_statusbar_inner_off {
   OBJ_STATUSBAR_SIZE = 0x08           // 8 字节
 };
 
-#define G_STATUSBAR_ADDR (SHIM_OBJ_BASE + 0x1E00U)
+static constexpr uint32_t G_STATUSBAR_ADDR = SHIM_OBJ_BASE + 0x1E00U;
 
 // 全局数组，最多 16 个 HTTP 对象指针
 extern int *dword_659C8[16];
@@ -461,7 +464,7 @@ enum obj_http_inner_off {
 };
 
 // 全局数组
-#define HTTP_MAX_INSTANCES 16
+static constexpr uint32_t HTTP_MAX_INSTANCES = 16;
 
 //
 
@@ -494,3 +497,5 @@ enum idisplay_layer_inner_off {
   IDISPLAY_LAYER_SIZE = 0x58,
   IDISPLAY_LAYER_STRIDE_CODE = 0x34 // 代码中的步长，与大小矛盾
 };
+
+#endif /* EMU_OBJ_LAYOUT_H */

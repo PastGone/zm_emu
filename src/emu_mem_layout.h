@@ -10,21 +10,21 @@
  * ROOT_TABLE 是 applet stub 通过 shim 计算的表地址；
  * 其余是各服务对象 / ZMAEE 原生对象的虚表。
  * ============================================================ */
-#define ROOT_TABLE_ADDR (SHIM_VT_BASE + 0x000U)
+static constexpr uint32_t ROOT_TABLE_ADDR = SHIM_VT_BASE + 0x000U;
 
 /* IShell 虚表（RE：g_aee_shell_vtbl @ .data:0x64440，34 槽）
  * 必须避开 G_SHELL_ADDR 对象字段区（至少到 +0x118）。
  * 放在 0x400，34 槽 → 0x488。 */
-#define SHELL_VT_ADDR (SHIM_VT_BASE + 0x400U)
+static constexpr uint32_t SHELL_VT_ADDR = SHIM_VT_BASE + 0x400U;
 
-#define FileMgr_VT_ADDR (SHIM_VT_BASE + 0x500U) /* 16 槽 → 0x540 */
-#define FILE_VT_ADDR (SHIM_VT_BASE + 0x580U)    /* 10 槽 → 0x5A8 */
+static constexpr uint32_t FileMgr_VT_ADDR = SHIM_VT_BASE + 0x500U; /* 16 槽 → 0x540 */
+static constexpr uint32_t FILE_VT_ADDR = SHIM_VT_BASE + 0x580U;    /* 10 槽 → 0x5A8 */
 
-#define NETMGR_VT_ADDR (SHIM_VT_BASE + 0x800U) /* 8 槽 → 0x820 */
-#define TAPI_VT_ADDR (SHIM_VT_BASE + 0x880U)   /* 8 槽 → 0x8A0 */
+static constexpr uint32_t NETMGR_VT_ADDR = SHIM_VT_BASE + 0x800U; /* 8 槽 → 0x820 */
+static constexpr uint32_t TAPI_VT_ADDR = SHIM_VT_BASE + 0x880U;   /* 8 槽 → 0x8A0 */
 
-#define CBK_OBJ_VT_ADDR (SHIM_VT_BASE + 0x1000U) /* 可写：applet 覆写 vt+8 */
-#define DLL_OBJ_VT_ADDR (SHIM_VT_BASE + 0x1100U)
+static constexpr uint32_t CBK_OBJ_VT_ADDR = SHIM_VT_BASE + 0x1000U; /* 可写：applet 覆写 vt+8 */
+static constexpr uint32_t DLL_OBJ_VT_ADDR = SHIM_VT_BASE + 0x1100U;
 
 /* ---- ZMAEE IDisplay / IBitmap 原生虚表（逆向实测 g_aee_display_vtbl /
  * g_aee_bitmap_vtbl @ .data:0x63E10 / 0x63DF4）----
@@ -32,26 +32,26 @@
  * 是早期对同一张表的误命名（实测偏移与本表吻合），已并入此处。
  * bitmap 由 IDisplay.CreateBitmap/LoadBitmap 创建，这里用单个 BITMAP 单例
  * 作为所有 bitmap 对象的 vtable 模板（真实多实例后续再扩展）。 */
-#define DISPLAY_VT_ADDR (SHIM_VT_BASE + 0x1600U) /* 58 槽 → 0x16E8 */
-#define BITMAP_VT_ADDR (SHIM_VT_BASE + 0x1700U)  /* 7 槽 → 0x171C */
+static constexpr uint32_t DISPLAY_VT_ADDR = SHIM_VT_BASE + 0x1600U; /* 58 槽 → 0x16E8 */
+static constexpr uint32_t BITMAP_VT_ADDR = SHIM_VT_BASE + 0x1700U;  /* 7 槽 → 0x171C */
 
 /* 0x100000B ISetting（RE：g_aee_setting_vtbl @ .data:0x64408，14 槽）。
  * 旧名 AUDIO 是误命名：该对象被用于 +0x14 / +0x24，曾按"音频状态"实现；
  * 真实接口是 ISetting（配置读写），音频是下面的 G_MEDIA_ADDR。 */
-#define SETTING_VT_ADDR (SHIM_VT_BASE + 0x1800U)
+static constexpr uint32_t SETTING_VT_ADDR = SHIM_VT_BASE + 0x1800U;
 
 /* 0x100000C IMedia = 音频（RE：g_aee_media_vtbl @ .data:0x640E4，25 槽）。
  * 旧名 AP 是误命名。 */
-#define MEDIA_VT_ADDR (SHIM_VT_BASE + 0x1900U)
+static constexpr uint32_t MEDIA_VT_ADDR = SHIM_VT_BASE + 0x1900U;
 
 /* 0x1000013 IUtil 服务对象。真机 util 虚表是 7 个槽（0x00~0x18）。 */
-#define IUTIL_VT_ADDR (SHIM_VT_BASE + 0x1A00U)
+static constexpr uint32_t IUTIL_VT_ADDR = SHIM_VT_BASE + 0x1A00U;
 
 /* ZMAEE IZip 服务对象虚表（IDA 实测 g_aee_zip_vtbl @ .data:0x64574，5 槽 → 0x14）。 */
-#define ZIP_VT_ADDR (SHIM_VT_BASE + 0x1B00U)
+static constexpr uint32_t ZIP_VT_ADDR = SHIM_VT_BASE + 0x1B00U;
 
 /* IImage 池虚表（32 槽 → 0x80） */
-#define IMAGE_VT_ADDR (SHIM_VT_BASE + 0x2000U)
+static constexpr uint32_t IMAGE_VT_ADDR = SHIM_VT_BASE + 0x2000U;
 
 /* ---- ZMAEE surface 门面虚表（IImage::Decode 的 out 对象）----
  * 对象字段（00000506 运行期确认）：
@@ -60,7 +60,7 @@
  *   +0x10 GetRect(this, out) → 写 int16 矩形 {l,t,r,b}（分派器据此绘制）
  * 其它槽按对象族的常规顺序给安全的空实现/固定值，避免落到"非法外部调用"。
  * 共 21 槽（0x54 字节）。 */
-#define SURF_VT_ADDR (SHIM_VT_BASE + 0x2200U)
+static constexpr uint32_t SURF_VT_ADDR = SHIM_VT_BASE + 0x2200U;
 
 /* ============================================================
  *                        数 据 区  (0x08000)
@@ -70,12 +70,12 @@
 
 /* scratch；顺手把 SIZE_SLOT 从原 0x700 挪开，
  * 解决 DUMMY_BUF / SIZE_SLOT 同址冲突。 */
-#define DUMMY_BUF (SHIM_DATA_BASE + 0x000U) /* 0x100 字节 scratch */
-#define SIZE_SLOT (SHIM_DATA_BASE + 0x100U) /* applet 写文件大小（待确认） */
-#define API_SLOT (SHIM_DATA_BASE + 0x110U)  /* applet 写 API vt */
+static constexpr uint32_t DUMMY_BUF = SHIM_DATA_BASE + 0x000U; /* 0x100 字节 scratch */
+static constexpr uint32_t SIZE_SLOT = SHIM_DATA_BASE + 0x100U; /* applet 写文件大小（待确认） */
+static constexpr uint32_t API_SLOT = SHIM_DATA_BASE + 0x110U;  /* applet 写 API vt */
 
 /* 00000405.app 新增 shim 对象地址：init 事件 r3 上下文（256B 零填充） */
-#define INIT_CTX (SHIM_DATA_BASE + 0x200U)
+static constexpr uint32_t INIT_CTX = SHIM_DATA_BASE + 0x200U;
 
 /* ---- create_cbk 的"应用上下文"结构体（00000506 实测）----
  *
@@ -98,8 +98,8 @@
  *     ldr r0,[ctx,#0x8c]; cmp r0,#0; bne <直接使用>; bl <创建>
  * 会拿到 trap 地址（0x821A8C）当成真实对象解引用 → 崩溃。
  * 未使用字段保持 0，applet 才会走"创建"分支。 */
-#define CBK_CTX (SHIM_DATA_BASE + 0x400U)
-#define CBK_CTX_SIZE 0x100U
+static constexpr uint32_t CBK_CTX = SHIM_DATA_BASE + 0x400U;
+static constexpr uint32_t CBK_CTX_SIZE = 0x100U;
 
 /* ============================================================
  *                        池 区  (0x20000)
@@ -111,13 +111,13 @@
  * IImage::Decode 解出的 IBitmap 在真实固件里是**堆对象**（尺寸/格式随图变），
  * applet 只经虚表使用、不摸字段，因此这里用固定地址池 + 宿主侧记录表实现
  * 多实例（旧实现返回 0/单例，导致 applet 拿到空指针直接崩）。 */
-#define IMAGE_POOL (SHIM_POOL_BASE + 0x0000U) /* 512 × 0x40 = 0x8000 */
-#define IMAGE_SLOT_SIZE 0x40U
-#define IMAGE_SLOT_COUNT 512
+static constexpr uint32_t IMAGE_POOL = SHIM_POOL_BASE + 0x0000U; /* 512 × 0x40 = 0x8000 */
+static constexpr uint32_t IMAGE_SLOT_SIZE = 0x40U;
+static constexpr uint32_t IMAGE_SLOT_COUNT = 512;
 
-#define BITMAP_POOL (SHIM_POOL_BASE + 0x8000U) /* 64 × 0x40 = 0x1000 */
-#define BITMAP_SLOT_SIZE 0x40U
-#define BITMAP_SLOT_COUNT 64
+static constexpr uint32_t BITMAP_POOL = SHIM_POOL_BASE + 0x8000U; /* 64 × 0x40 = 0x1000 */
+static constexpr uint32_t BITMAP_SLOT_SIZE = 0x40U;
+static constexpr uint32_t BITMAP_SLOT_COUNT = 64;
 
 /* ---- ZMAEE ImageEntry：IDisplay::CreateImage 返回的**数据对象** ----
  * 逆向（00000506 sub_3644 → sub_37B4 → vt[0xAC] BitBlt）：
@@ -132,7 +132,7 @@
  * 的 ZMAEE_GDI_Surface（{宽,高,位深,透明色}+像素），见 zm_image.h。
  * 两者都用 IMAGE_POOL 的槽（entry 在前，surf 紧随其后一个槽），
  * 因此池容量按"每张图 2 个槽"规划。 */
-#define IMAGE_ENTRY_OFF_SURF 0x08U
+static constexpr uint32_t IMAGE_ENTRY_OFF_SURF = 0x08U;
 
 /* entry +0x18 = **图像类型字段**（IImage::Decode 的分派键）。
  * RE（ZMAEE_IImage_GetType @0x30490）：该函数没有逻辑，就是
@@ -145,7 +145,7 @@
  *     其它     → 直接 return -1（非法类型）
  * 同一对象上：+0x0C = 原始数据指针，+0x10 = 数据长度（Decode 用它们造
  * IMemStream）。模拟器里 Decode 是整槽 trap，故这两格暂不维护。 */
-#define IMAGE_ENTRY_OFF_TYPE 0x18U
+static constexpr uint32_t IMAGE_ENTRY_OFF_TYPE = 0x18U;
 
 /* ============================================================
  *                        像 素 区  (0x30000)
@@ -166,8 +166,8 @@
  * 编译期只保留**容量上限** LAYER_MAX_W/H：静态数组与内存 region 尺寸要用它
  * （如 zm_display.c 的 `static uint16_t prev_fb[...]`）。当前见过的 applet
  * 头部最大 900×900（00000405），故上限取 1024。 */
-#define LAYER_MAX_W 1024
-#define LAYER_MAX_H 1024
+static constexpr uint32_t LAYER_MAX_W = 1024;
+static constexpr uint32_t LAYER_MAX_H = 1024;
 
 extern int g_layer_w, g_layer_h;
 #define LAYER_W g_layer_w
@@ -183,8 +183,8 @@ extern int g_layer_w, g_layer_h;
  *
  * 布局为 RGB565、宽高 LAYER_W×LAYER_H；applet 直接读写它，present 时再
  * 转成 ARGB 上传到 SDL 纹理显示。 */
-#define LAYER_BUF (SHIM_PIXEL_BASE + 0x000000U)
-#define LAYER_BUF_SIZE (LAYER_MAX_W * LAYER_MAX_H * 2) /* 上限容量 2MB */
+static constexpr uint32_t LAYER_BUF = SHIM_PIXEL_BASE + 0x000000U;
+static constexpr uint32_t LAYER_BUF_SIZE = LAYER_MAX_W * LAYER_MAX_H * 2; /* 上限容量 2MB */
 
 /* ---- IBitmap 的像素/调色板区 ----
  *
@@ -199,12 +199,12 @@ extern int g_layer_w, g_layer_h;
  * RE 依据：ZMAEE_IBitmap_GetInfo 就是 `memcpy(out, bitmap + 8, 32)`，
  * 即 out[7] = bitmap[36] = 像素指针。
  * 布局：IBitmap 对象字段 8 个 dword（+8..+40）+ 像素数据。循环复用。 */
-#define FRAMEBUF (SHIM_PIXEL_BASE + 0x200000U)
-#define FRAMEBUF_SIZE (LAYER_MAX_W * LAYER_MAX_H * 2) /* 上限容量 2MB */
+static constexpr uint32_t FRAMEBUF = SHIM_PIXEL_BASE + 0x200000U;
+static constexpr uint32_t FRAMEBUF_SIZE = LAYER_MAX_W * LAYER_MAX_H * 2; /* 上限容量 2MB */
 
 /* 解码像素池（也用于分配"基础层"缓冲，须容纳最大 1024×1024×2 ≈ 2MB）。 */
-#define PIX_POOL (SHIM_PIXEL_BASE + 0x400000U)
-#define PIX_POOL_SIZE 0x280000U /* 2.5MB */
+static constexpr uint32_t PIX_POOL = SHIM_PIXEL_BASE + 0x400000U;
+static constexpr uint32_t PIX_POOL_SIZE = 0x280000U; /* 2.5MB */
 
 /* -------------------- trap 地址宏 -------------------- */
 #define TRAP(idx) (TRAMP_BASE + (idx) - SHIM_BASE)

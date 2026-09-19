@@ -7,8 +7,8 @@
 /* ============================================================
  * 顶层内存布局（纯地址算术）
  * ============================================================ */
-#define ONE_MB (0x100000U)
-#define HALF_MB (0x80000U)
+static constexpr uint32_t ONE_MB = 0x100000U;
+static constexpr uint32_t HALF_MB = 0x80000U;
 
 /* payload 在客户机中的映射基址。
  *
@@ -24,16 +24,26 @@
  *
  * 因此这里保持 0：applet 被映射到 [0, payload_size)，其内部绝对地址直接可用。
  * （0 页不映射，payload 实际落在 [0x1000, payload_size) 的映射区间内。） */
-#define BLOB_BASE (0x0U)
-#define BLOB_SIZE (1 * ONE_MB)
+static constexpr uint32_t BLOB_BASE = 0x0U;
+static constexpr uint32_t BLOB_SIZE = 1 * ONE_MB;
 
-#define STACK_BASE (BLOB_BASE + BLOB_SIZE)
-#define STACK_SIZE (1 * HALF_MB)
-#define STACK_TOP (STACK_BASE + STACK_SIZE)
+static constexpr uint32_t STACK_BASE = BLOB_BASE + BLOB_SIZE;
+static constexpr uint32_t STACK_SIZE = 1 * HALF_MB;
+static constexpr uint32_t STACK_TOP = STACK_BASE + STACK_SIZE;
 
-#define HEAP_BASE (STACK_TOP + ONE_MB / 8)
-#define HEAP_SIZE (6 * ONE_MB)
-#define HEAP_END (HEAP_BASE + HEAP_SIZE)
+static constexpr uint32_t HEAP_BASE = STACK_TOP + ONE_MB / 8;
+static constexpr uint32_t HEAP_SIZE = 6 * ONE_MB;
+static constexpr uint32_t HEAP_END = HEAP_BASE + HEAP_SIZE;
+
+static constexpr uint32_t SHIM_FT_BASE = HEAP_END; /* 函数表 */
+static constexpr uint32_t SHIM_FT_SIZE = HALF_MB / 2;
+
+static constexpr uint32_t SHIM_BASE = SHIM_FT_BASE;
+/* VT 32K + DATA 32K + OBJ 64K + POOL 64K + PIXEL 0x680000 */
+static constexpr uint32_t SHIM_SIZE = 0x6B0000U;
+
+static constexpr uint32_t TRAMP_BASE = SHIM_BASE + SHIM_SIZE;
+static constexpr uint32_t TRAMP_SIZE = 1 * HALF_MB;
 
 /* CBK 自管堆（applet 通过 [CBK_OBJ+0x4C] 自己管理的那个分配器）的专用区。
  *
@@ -42,27 +52,17 @@
  * applet 的静态数据/我们自己造的堆对象撞车）。
  * 放在 TRAMP 之后，1MB。
  *
- * ★ 大小必须够：RE 0x15DDC 每次“补桶”都要向堆管理器要 0x8000(32KB)
+ * ★ 大小必须够：RE 0x15DDC 每次"补桶"都要向堆管理器要 0x8000(32KB)
  * （0x15E1C `mov r1,#128,#28` = 0x8000），而桶有 4 个（步长 4/8/0x10/0x20）
  * → 4*32KB = 128KB。给 128KB 时第 4 个桶（0x1c 这类请求用）必然补桶失败 →
  * 0x191B4 的 0x1c 分配返回 0 → 类表条目为 NULL → 对 NULL 做相对虚表派发 →
  * 崩在 0x80E291E8。给 1MB。 */
-#define CBKHEAP_BASE (TRAMP_BASE + TRAMP_SIZE)
-#define CBKHEAP_SIZE (1 * ONE_MB)
+static constexpr uint32_t CBKHEAP_BASE = TRAMP_BASE + TRAMP_SIZE;
+static constexpr uint32_t CBKHEAP_SIZE = 1 * ONE_MB;
 
-#define SHIM_FT_BASE (HEAP_END) /* 函数表 */
-#define SHIM_FT_SIZE (HALF_MB / 2)
-
-#define SHIM_BASE SHIM_FT_BASE
-/* VT 32K + DATA 32K + OBJ 64K + POOL 64K + PIXEL 0x680000 */
-#define SHIM_SIZE (0x6B0000U)
-
-#define TRAMP_BASE (SHIM_BASE + SHIM_SIZE)
-#define TRAMP_SIZE (1 * HALF_MB)
-
-#define ROOT_SLOT_OFF 0x180U
-#define APPLET_ENTRY_OFF 0x188U
-#define APPLET_ENTRY_POINT (BLOB_BASE + APPLET_ENTRY_OFF)
+static constexpr uint32_t ROOT_SLOT_OFF = 0x180U;
+static constexpr uint32_t APPLET_ENTRY_OFF = 0x188U;
+static constexpr uint32_t APPLET_ENTRY_POINT = BLOB_BASE + APPLET_ENTRY_OFF;
 
 /* ============================================================
  * SHIM 内部分区
@@ -70,19 +70,19 @@
  *   [ VT ][ DATA ][ OBJ ][ POOL ][ PIXEL ][ reserved ]
  *   0   32K    64K   128K   192K   768K       1M
  * ============================================================ */
-#define SHIM_VT_BASE (SHIM_BASE + 0x00000U) /* 32KB */
-#define SHIM_VT_SIZE (0x08000U)
+static constexpr uint32_t SHIM_VT_BASE = SHIM_BASE + 0x00000U; /* 32KB */
+static constexpr uint32_t SHIM_VT_SIZE = 0x08000U;
 
-#define SHIM_DATA_BASE (SHIM_BASE + 0x08000U) /* 32KB */
-#define SHIM_DATA_SIZE (0x08000U)
+static constexpr uint32_t SHIM_DATA_BASE = SHIM_BASE + 0x08000U; /* 32KB */
+static constexpr uint32_t SHIM_DATA_SIZE = 0x08000U;
 
-#define SHIM_OBJ_BASE (SHIM_BASE + 0x10000U) /* 64KB */
-#define SHIM_OBJ_SIZE (0x10000U)
+static constexpr uint32_t SHIM_OBJ_BASE = SHIM_BASE + 0x10000U; /* 64KB */
+static constexpr uint32_t SHIM_OBJ_SIZE = 0x10000U;
 
-#define SHIM_POOL_BASE (SHIM_BASE + 0x20000U) /* 64KB */
-#define SHIM_POOL_SIZE (0x10000U)
+static constexpr uint32_t SHIM_POOL_BASE = SHIM_BASE + 0x20000U; /* 64KB */
+static constexpr uint32_t SHIM_POOL_SIZE = 0x10000U;
 
-#define SHIM_PIXEL_BASE (SHIM_BASE + 0x30000U) /* 0x680000 */
-#define SHIM_PIXEL_SIZE (0x680000U)
+static constexpr uint32_t SHIM_PIXEL_BASE = SHIM_BASE + 0x30000U; /* 0x680000 */
+static constexpr uint32_t SHIM_PIXEL_SIZE = 0x680000U;
 
 #endif /* EMU_MEM_REGIONS_H */
