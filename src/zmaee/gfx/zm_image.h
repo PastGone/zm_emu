@@ -84,7 +84,7 @@ uint32_t zm_surf_nop(uc_engine *uc, uint32_t off);
 int zm_image_get_gdi_surface(uc_engine *uc, uint32_t surf, int *w, int *h,
                              int *step, uint32_t *colorkey);
 
-/* 把 GDI_Surface 贴到帧缓冲 (dx,dy)。rect_ptr = {left,top,right,bottom} 或 0
+/* 把 GDI_Surface 贴到帧缓冲 (dx,dy)。rect_ptr = {x,y,w,h} 或 0
  * （整块）；mode = applet 的类型字节（镜像/翻转）。已处理返回 1。 */
 int zm_image_blit_gdi_surface(uc_engine *uc, uint32_t surf, int dx, int dy,
                               uint32_t rect_ptr, int mode);

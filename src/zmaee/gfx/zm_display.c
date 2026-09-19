@@ -2468,7 +2468,7 @@ static int bitmap_obj_to_rgba(uc_engine *uc, uint32_t obj, int *w, int *h,
 
 /* 把某个 surface 对象的指定矩形画到 (dx,dy)：
  * surface 可以是 IImage / IBitmap（都在 zm_image 池里）；
- * rect_ptr = {left, top, right, bottom}（客户机内存），0 表示整图；
+ * rect_ptr = {x, y, w, h}（客户机内存），0 表示整图；
  * mode = applet 的类型字节（镜像/翻转，见 fb_blit_rgba_mode）。 */
 static int blit_surface_region(uc_engine *uc, uint32_t obj, int dx, int dy,
                                uint32_t rect_ptr, int mode) {
@@ -2538,15 +2538,20 @@ static int blit_surface_region(uc_engine *uc, uint32_t obj, int dx, int dy,
 
   int sx = 0, sy = 0, sw = w, sh = h;
   if (rect_ptr) {
-    int left = (int)uc_read32(uc, rect_ptr);
-    int top = (int)uc_read32(uc, rect_ptr + 4);
-    int right = (int)uc_read32(uc, rect_ptr + 8);
-    int bottom = (int)uc_read32(uc, rect_ptr + 12);
-    if (right > left && bottom > top) {
-      sx = left;
-      sy = top;
-      sw = right - left;
-      sh = bottom - top;
+    /* rect = {x, y, w, h}，与 UpdateEx / DrawText 的矩形约定一致。
+     * 以前误读成 {l,t,r,b}：00000506 的样本 rect 全是 x=y=0 的
+     * {0,0,px,py}，两种解释结果相同无法区分；000007ca（计算器）传
+     * {70,0,10,15} 这类非零源点矩形才暴露——按 ltrb 判为非法后静默
+     * 回退整图，所有数字键都被画成整条 "0123456789" 数字条。 */
+    int rx = (int)uc_read32(uc, rect_ptr);
+    int ry = (int)uc_read32(uc, rect_ptr + 4);
+    int rw = (int)uc_read32(uc, rect_ptr + 8);
+    int rh = (int)uc_read32(uc, rect_ptr + 12);
+    if (rw > 0 && rh > 0) {
+      sx = rx;
+      sy = ry;
+      sw = rw;
+      sh = rh;
     }
   }
   if (sx == 0 && sy == 0 && sw == w && sh == h) {
@@ -2577,7 +2582,7 @@ uint32_t zm_display_DrawBitmap(uc_engine *uc, uint32_t off, uint32_t r0,
   (void)off;
   (void)r0;
   fb_refresh_draw_target();
-  /* rect：{left, top, right, bottom}，用于把源图裁剪后画到 (x,y)。
+  /* rect：{x, y, w, h}，用于把源图裁剪后画到 (x,y)。
    * 第 6 参（mask 开关）不透传 —— 见上方注释：它不进镜像表。 */
   if (blit_surface_region(uc, r3, (int)r1, (int)r2, getArg(uc, 4), 0))
     return 1;
@@ -2808,7 +2813,8 @@ uint32_t zm_display_CreateImage(uc_engine *uc, uint32_t off, uint32_t r0,
  *   → 参数是 (display, x, y, surface, rect, mode) 共 6 个；
  *     mode 取值 0..7，作为 byte_5B658[mode+8] 的索引选择 GDI 搬运函数。
  *   → surface 是一个带像素描述的对象（surface+8=纹理指针、+12=格式/标志），
- *     即资源包装里的图片对象；rect={left,top,right,bottom}。
+ *     即资源包装里的图片对象；rect={x,y,w,h}（实测样本 {0,0,px,py} 的
+ *     x=y=0 无法区分 ltrb/xywh，000007ca 的非零源点矩形证实是 xywh）。
  * 实测（00000506 sub_101E8 绘制英雄格）：
  *   BitBlt(disp, 42, 215, hero, {0,0,px,py}, 0/1/3/6, 0)
  *   其中 mode 由英雄朝向（direction）决定 —— 正是镜像/翻转编码。

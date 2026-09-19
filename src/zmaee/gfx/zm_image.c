@@ -949,15 +949,17 @@ int zm_image_blit_gdi_surface(uc_engine *uc, uint32_t surf, int dx, int dy,
 
   int sx = 0, sy = 0, sw = w, sh = h;
   if (rect_ptr) {
-    int l = (int)uc_read32(uc, rect_ptr);
-    int t = (int)uc_read32(uc, rect_ptr + 4);
-    int r = (int)uc_read32(uc, rect_ptr + 8);
-    int b = (int)uc_read32(uc, rect_ptr + 12);
-    if (r > l && b > t) {
-      sx = l;
-      sy = t;
-      sw = r - l;
-      sh = b - t;
+    /* rect = {x, y, w, h}（与 UpdateEx / DrawText 一致，见
+     * zm_display.c blit_surface_region 的说明） */
+    int rx = (int)uc_read32(uc, rect_ptr);
+    int ry = (int)uc_read32(uc, rect_ptr + 4);
+    int rw = (int)uc_read32(uc, rect_ptr + 8);
+    int rh = (int)uc_read32(uc, rect_ptr + 12);
+    if (rw > 0 && rh > 0) {
+      sx = rx;
+      sy = ry;
+      sw = rw;
+      sh = rh;
     }
   }
   if (sx < 0 || sy < 0 || sx + sw > w || sy + sh > h || sw <= 0 || sh <= 0)
