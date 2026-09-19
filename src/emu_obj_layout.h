@@ -29,7 +29,7 @@ typedef struct obj_shell_st {
   int32_t dword_65FF8;      // +0x390, 0x65FF8, 初始 -1
 } obj_shell_st;             // 推测大小 0x394 (916 字节)
 
-enum obj_shell_inner_off {
+enum obj_shell_inner_off : uint32_t {
   OBJ_SHELL_OFF_VTABLE = 0x000,         // 0x65C68
   OBJ_SHELL_OFF_ROOT_DIR = 0x004,       // 0x65C6C
   OBJ_SHELL_OFF_FIELD_104 = 0x104,      // 0x65D6C
@@ -50,7 +50,7 @@ typedef struct obj_file_mgr_st {
   uint32_t *vtable;
 } obj_file_mgr_st; // 整个对象加上保留区域占 272 字节,在逆向里。
 
-enum obj_file_mgr_inner_off {
+enum obj_file_mgr_inner_off : uint32_t {
   OBJ_FILE_MGR_OFF_VTABLE = 0x000,
 };
 static constexpr uint32_t G_FileMgr_ADDR = SHIM_OBJ_BASE + 0x200U;
@@ -65,7 +65,7 @@ typedef struct obj_file_st {
   int32_t field_18;  // +0x18, 初始化为 0
 } obj_file_st;       // 总大小 0x1C (28 字节)
 
-enum obj_file_inner_off {
+enum obj_file_inner_off : uint32_t {
   OBJ_FILE_OFF_VTABLE = 0x00,    // +0x00
   OBJ_FILE_OFF_REF_COUNT = 0x04, // +0x04
   OBJ_FILE_OFF_FIELD_08 = 0x08,  // +0x08
@@ -99,7 +99,7 @@ typedef struct obj_netmgr_st {
   int32_t field_274;           // +0x274, 0x643B4, 初始 0xFFFFFFFF，循环结束哨兵
 } obj_netmgr_st;               // 总大小 0x278 (632 字节)
 
-enum obj_netmgr_inner_off {
+enum obj_netmgr_inner_off : uint32_t {
   OBJ_NETMGR_OFF_VTABLE = 0x00,     // 0x64140
   OBJ_NETMGR_OFF_REF_COUNT = 0x04,  // 0x64144
   OBJ_NETMGR_OFF_FIELD_08 = 0x08,   // 0x64148
@@ -109,7 +109,7 @@ enum obj_netmgr_inner_off {
   OBJ_NETMGR_OFF_FIELD_274 = 0x274, // 0x643B4
   OBJ_NETMGR_SIZE = 0x278           // 0x643B8 (g_aee_netmgr_vtbl 起始)
 };
-enum netmgr_socket_slot_inner_off {
+enum netmgr_socket_slot_inner_off : uint32_t {
   SOCKET_SLOT_OFF_VTABLE = 0x00,   // +0x00
   SOCKET_SLOT_OFF_FIELD_04 = 0x04, // +0x04
   SOCKET_SLOT_OFF_FIELD_08 = 0x08, // +0x08
@@ -127,7 +127,7 @@ typedef struct obj_itapi_st {
   int32_t field_94;       // +0x94, 0x66810, 被 ITAPI 方法读写
 } obj_itapi_st;           // 总大小 0x98 (152 字节)
 
-enum obj_itapi_inner_off {
+enum obj_itapi_inner_off : uint32_t {
   OBJ_ITAPI_OFF_VTABLE = 0x00,   // 0x6677C
   OBJ_ITAPI_OFF_FIELD_04 = 0x04, // 0x66780
   OBJ_ITAPI_OFF_RESERVED = 0x08, // 0x66784
@@ -164,7 +164,7 @@ typedef struct obj_bitmap_st {
   int32_t field_28;  // +0x28, 初始化为 0
                      // 后面是 a3 字节的额外数据
 } obj_bitmap_st;     // 固定头部大小 0x2C (44 字节)
-enum obj_bitmap_inner_off {
+enum obj_bitmap_inner_off : uint32_t {
   OBJ_BITMAP_OFF_VTABLE = 0x00,    // +0x00
   OBJ_BITMAP_OFF_REF_COUNT = 0x04, // +0x04
   OBJ_BITMAP_OFF_FIELD_08 = 0x08,  // +0x08
@@ -189,7 +189,7 @@ typedef struct obj_setting_st {
   int32_t field_10;  // +0x10, 初始化为 0
 } obj_setting_st;    // 总大小 0x14 (20 字节)
 
-enum obj_setting_inner_off {
+enum obj_setting_inner_off : uint32_t {
   OBJ_SETTING_OFF_VTABLE = 0x00,    // +0x00
   OBJ_SETTING_OFF_REF_COUNT = 0x04, // +0x04
   OBJ_SETTING_OFF_FIELD_08 = 0x08,  // +0x08
@@ -215,7 +215,7 @@ typedef struct obj_media_st {
   int32_t field_2C; // +0x2C, 初始化为 0
 } obj_media_st;     // 总大小 0x30 (48 字节)
 
-enum obj_media_inner_off {
+enum obj_media_inner_off : uint32_t {
   OBJ_MEDIA_OFF_VTABLE = 0x00,   // +0x00
   OBJ_MEDIA_OFF_FIELD_04 = 0x04, // +0x04
   OBJ_MEDIA_OFF_FIELD_08 = 0x08, // +0x08
@@ -255,7 +255,7 @@ typedef struct obj_idisplay_st {
   int32_t field_48;         // +0x48, 0x64C4C, 再次保存 base_layer_buf
 } obj_idisplay_st;          // 推测大小至少 0x4C (76 字节)
 
-enum obj_idisplay_inner_off {
+enum obj_idisplay_inner_off : uint32_t {
   OBJ_IDISPLAY_OFF_VTABLE = 0x00,           // 0x64C04
   OBJ_IDISPLAY_OFF_FIELD_04 = 0x04,         // 0x64C08
   OBJ_IDISPLAY_OFF_RESERVED1 = 0x08,        // 0x64C0C
@@ -285,7 +285,7 @@ typedef struct obj_iutil_st {
                     // 后面未知，可能没有更多字段，也可能有但未被引用
 } obj_iutil_st;     // 已知大小至少 0x08 (8 字节)
 
-enum obj_iutil_inner_off {
+enum obj_iutil_inner_off : uint32_t {
   OBJ_IUTIL_OFF_VTABLE = 0x00,   // 0x66814
   OBJ_IUTIL_OFF_FIELD_04 = 0x04, // 0x66818
   OBJ_IUTIL_SIZE = 0x08          // 至少 8 字节
@@ -315,7 +315,7 @@ typedef struct obj_zip_st {
   int32_t field_38;  // +0x38, 0
 } obj_zip_st;        // 总大小 0x3C (60 字节)
 
-enum obj_zip_inner_off {
+enum obj_zip_inner_off : uint32_t {
   OBJ_ZIP_OFF_VTABLE = 0x00,    // +0x00
   OBJ_ZIP_OFF_REF_COUNT = 0x04, // +0x04
   OBJ_ZIP_OFF_FIELD_08 = 0x08,  // +0x08
@@ -346,7 +346,7 @@ typedef struct obj_gps_st {
   int32_t ref_count; // +0x04, 初始化为 1，很可能是引用计数
 } obj_gps_st;        // 总大小 0x08 (8 字节)
 
-enum obj_gps_inner_off {
+enum obj_gps_inner_off : uint32_t {
   OBJ_GPS_OFF_VTABLE = 0x00,    // +0x00
   OBJ_GPS_OFF_REF_COUNT = 0x04, // +0x04
   OBJ_GPS_SIZE = 0x08           // 8 字节
@@ -358,7 +358,7 @@ typedef struct obj_gsensor_st {
   int32_t ref_count; // +0x04, 初始化为 1，很可能是引用计数
 } obj_gsensor_st;    // 总大小 0x08 (8 字节)
 
-enum obj_gsensor_inner_off {
+enum obj_gsensor_inner_off : uint32_t {
   OBJ_GSENSOR_OFF_VTABLE = 0x00,    // +0x00
   OBJ_GSENSOR_OFF_REF_COUNT = 0x04, // +0x04
   OBJ_GSENSOR_SIZE = 0x08           // 8 字节
@@ -371,7 +371,7 @@ typedef struct obj_addrbook_st {
   uint8_t reserved[0x108]; // +0x08 ~ +0x10F, 全部清零，未知
 } obj_addrbook_st;         // 总大小 0x110 (272 字节)
 
-enum obj_addrbook_inner_off {
+enum obj_addrbook_inner_off : uint32_t {
   OBJ_ADDRBOOK_OFF_VTABLE = 0x00,    // +0x00
   OBJ_ADDRBOOK_OFF_REF_COUNT = 0x04, // +0x04
   OBJ_ADDRBOOK_OFF_RESERVED = 0x08,  // +0x08
@@ -388,7 +388,7 @@ typedef struct obj_memstream_st {
   int32_t field_14; // +0x14, 初始化为 0
 } obj_memstream_st; // 总大小 0x18 (24 字节)
 
-enum obj_memstream_inner_off {
+enum obj_memstream_inner_off : uint32_t {
   OBJ_MEMSTREAM_OFF_VTABLE = 0x00,   // +0x00
   OBJ_MEMSTREAM_OFF_FIELD_04 = 0x04, // +0x04
   OBJ_MEMSTREAM_OFF_FIELD_08 = 0x08, // +0x08
@@ -403,7 +403,7 @@ typedef struct obj_statusbar_st {
   int32_t ref_count; // +0x04, 初始化为 1，很可能是引用计数
 } obj_statusbar_st;  // 总大小 0x08 (8 字节)
 
-enum obj_statusbar_inner_off {
+enum obj_statusbar_inner_off : uint32_t {
   OBJ_STATUSBAR_OFF_VTABLE = 0x00,    // +0x00
   OBJ_STATUSBAR_OFF_REF_COUNT = 0x04, // +0x04
   OBJ_STATUSBAR_SIZE = 0x08           // 8 字节
@@ -438,7 +438,7 @@ typedef struct obj_http_st {
   int32_t field_44C;    // +0x44C, v10[275], 初始化为 1
 } obj_http_st;          // 总大小 0x450 (1104 字节)
 
-enum obj_http_inner_off {
+enum obj_http_inner_off : uint32_t {
   OBJ_HTTP_OFF_VTABLE = 0x00,      // +0x00
   OBJ_HTTP_OFF_REF_COUNT = 0x04,   // +0x04
   OBJ_HTTP_OFF_FIELD_08 = 0x08,    // +0x08
@@ -483,7 +483,7 @@ typedef struct idisplay_layer_st {
   uint8_t reserved1[0x0C]; // +0x4C ~ +0x57
 } idisplay_layer_st;       // 至少 0x58 (88 字节)
 
-enum idisplay_layer_inner_off {
+enum idisplay_layer_inner_off : uint32_t {
   IDISPLAY_LAYER_OFF_FORMAT = 0x24,
   IDISPLAY_LAYER_OFF_FIELD_28 = 0x28,
   IDISPLAY_LAYER_OFF_FIELD_2C = 0x2C,
