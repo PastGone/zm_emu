@@ -7,7 +7,7 @@
 /* ZMAEE IImage 原生虚表槽位（基址 IMAGE_VT_ADDR） */
 /* ZMAEE IImage 原生虚表（与 g_aee_image_vtbl 逐槽对齐：
  *   AddRef/Release/SetData/GetFrameCount/Width/Height/GetType/Decode…） */
-enum ZM_IMAGE_VT {
+enum ZM_IMAGE_VT : uint32_t {
   ZM_Image_AddRef = 0x00U,
   ZM_Image_Release = 0x04U,
   ZM_Image_SetData = 0x08U,
@@ -28,7 +28,7 @@ enum ZM_IMAGE_VT {
 
 /* -------------------- SURF_VT_ADDR 枚举 -------------------- */
 /* ZMAEE surface 门面虚表槽位（基址 SURF_VT_ADDR，共 21 槽 / 0x54 字节） */
-enum ZM_SURF_VT {
+enum ZM_SURF_VT : uint32_t {
   ZM_Surf_release = 0x00U,
   ZM_Surf_x04 = 0x04U,
   ZM_Surf_x08 = 0x08U,
@@ -59,22 +59,24 @@ enum ZM_SURF_VT {
  *   +0x18 GetType                        —— 类型枚举（applet 未据此分支）
  *   +0x1C Decode(this, alloc, free, &bmp, 0) —— 解码出 IBitmap（0=成功）
  * 其余槽接 zm_image_stub，保证不落"非法的外部调用"。 */
-#define TR_image_AddRef TRAP(IMAGE_VT_ADDR + ZM_Image_AddRef)
-#define TR_image_Release TRAP(IMAGE_VT_ADDR + ZM_Image_Release)
-#define TR_image_SetData TRAP(IMAGE_VT_ADDR + ZM_Image_SetData)
-#define TR_image_GetFrameCount TRAP(IMAGE_VT_ADDR + ZM_Image_GetFrameCount)
-#define TR_image_Width TRAP(IMAGE_VT_ADDR + ZM_Image_Width)
-#define TR_image_Height TRAP(IMAGE_VT_ADDR + ZM_Image_Height)
-#define TR_image_GetType TRAP(IMAGE_VT_ADDR + ZM_Image_GetType)
-#define TR_image_Decode TRAP(IMAGE_VT_ADDR + ZM_Image_Decode)
-#define TR_image_x20 TRAP(IMAGE_VT_ADDR + ZM_Image_x20)
-#define TR_image_x24 TRAP(IMAGE_VT_ADDR + ZM_Image_x24)
-#define TR_image_x28 TRAP(IMAGE_VT_ADDR + ZM_Image_x28)
-#define TR_image_x2C TRAP(IMAGE_VT_ADDR + ZM_Image_x2C)
-#define TR_image_x30 TRAP(IMAGE_VT_ADDR + ZM_Image_x30)
-#define TR_image_x34 TRAP(IMAGE_VT_ADDR + ZM_Image_x34)
-#define TR_image_x38 TRAP(IMAGE_VT_ADDR + ZM_Image_x38)
-#define TR_image_x3C TRAP(IMAGE_VT_ADDR + ZM_Image_x3C)
+enum ZM_IMAGE_TRAPS : uint32_t {
+  TR_image_AddRef = TRAP(IMAGE_VT_ADDR + ZM_Image_AddRef),
+  TR_image_Release = TRAP(IMAGE_VT_ADDR + ZM_Image_Release),
+  TR_image_SetData = TRAP(IMAGE_VT_ADDR + ZM_Image_SetData),
+  TR_image_GetFrameCount = TRAP(IMAGE_VT_ADDR + ZM_Image_GetFrameCount),
+  TR_image_Width = TRAP(IMAGE_VT_ADDR + ZM_Image_Width),
+  TR_image_Height = TRAP(IMAGE_VT_ADDR + ZM_Image_Height),
+  TR_image_GetType = TRAP(IMAGE_VT_ADDR + ZM_Image_GetType),
+  TR_image_Decode = TRAP(IMAGE_VT_ADDR + ZM_Image_Decode),
+  TR_image_x20 = TRAP(IMAGE_VT_ADDR + ZM_Image_x20),
+  TR_image_x24 = TRAP(IMAGE_VT_ADDR + ZM_Image_x24),
+  TR_image_x28 = TRAP(IMAGE_VT_ADDR + ZM_Image_x28),
+  TR_image_x2C = TRAP(IMAGE_VT_ADDR + ZM_Image_x2C),
+  TR_image_x30 = TRAP(IMAGE_VT_ADDR + ZM_Image_x30),
+  TR_image_x34 = TRAP(IMAGE_VT_ADDR + ZM_Image_x34),
+  TR_image_x38 = TRAP(IMAGE_VT_ADDR + ZM_Image_x38),
+  TR_image_x3C = TRAP(IMAGE_VT_ADDR + ZM_Image_x3C)
+};
 
 /* ---- ZMAEE surface 门面虚表（IImage::Decode 的 out 对象）----
  * 对象字段（00000506 运行期确认）：
@@ -83,29 +85,28 @@ enum ZM_SURF_VT {
  *   +0x10 GetRect(this, out) → 写 int16 矩形 {l,t,r,b}（分派器据此绘制）
  * 其它槽按对象族的常规顺序给安全的空实现/固定值，避免落到"非法外部调用"。
  * 共 21 槽（0x54 字节）。 */
-#define TR_surf_release TRAP(SURF_VT_ADDR + ZM_Surf_release) /* 析构 */
-#define TR_surf_x04 TRAP(SURF_VT_ADDR + ZM_Surf_x04)
-#define TR_surf_x08 TRAP(SURF_VT_ADDR + ZM_Surf_x08)
-#define TR_surf_x0C TRAP(SURF_VT_ADDR + ZM_Surf_x0C)
-
-#define TR_surf_getrect                                                        \
-  TRAP(SURF_VT_ADDR + ZM_Surf_getrect) /* GetRect(this,out)：实测使用 */
-
-#define TR_surf_x14 TRAP(SURF_VT_ADDR + ZM_Surf_x14)
-#define TR_surf_x18 TRAP(SURF_VT_ADDR + ZM_Surf_x18)
-#define TR_surf_x1C TRAP(SURF_VT_ADDR + ZM_Surf_x1C)
-#define TR_surf_x20 TRAP(SURF_VT_ADDR + ZM_Surf_x20)
-#define TR_surf_x24 TRAP(SURF_VT_ADDR + ZM_Surf_x24)
-#define TR_surf_x28 TRAP(SURF_VT_ADDR + ZM_Surf_x28)
-#define TR_surf_x2C TRAP(SURF_VT_ADDR + ZM_Surf_x2C)
-#define TR_surf_x30 TRAP(SURF_VT_ADDR + ZM_Surf_x30)
-#define TR_surf_x34 TRAP(SURF_VT_ADDR + ZM_Surf_x34)
-#define TR_surf_x38 TRAP(SURF_VT_ADDR + ZM_Surf_x38)
-#define TR_surf_x3C TRAP(SURF_VT_ADDR + ZM_Surf_x3C)
-#define TR_surf_x40 TRAP(SURF_VT_ADDR + ZM_Surf_x40)
-#define TR_surf_x44 TRAP(SURF_VT_ADDR + ZM_Surf_x44)
-#define TR_surf_x48 TRAP(SURF_VT_ADDR + ZM_Surf_x48)
-#define TR_surf_x4C TRAP(SURF_VT_ADDR + ZM_Surf_x4C)
-#define TR_surf_x50 TRAP(SURF_VT_ADDR + ZM_Surf_x50)
+enum ZM_SURF_TRAPS : uint32_t {
+  TR_surf_release = TRAP(SURF_VT_ADDR + ZM_Surf_release), /* 析构 */
+  TR_surf_x04 = TRAP(SURF_VT_ADDR + ZM_Surf_x04),
+  TR_surf_x08 = TRAP(SURF_VT_ADDR + ZM_Surf_x08),
+  TR_surf_x0C = TRAP(SURF_VT_ADDR + ZM_Surf_x0C),
+  TR_surf_getrect = TRAP(SURF_VT_ADDR + ZM_Surf_getrect), /* GetRect(this,out)：实测使用 */
+  TR_surf_x14 = TRAP(SURF_VT_ADDR + ZM_Surf_x14),
+  TR_surf_x18 = TRAP(SURF_VT_ADDR + ZM_Surf_x18),
+  TR_surf_x1C = TRAP(SURF_VT_ADDR + ZM_Surf_x1C),
+  TR_surf_x20 = TRAP(SURF_VT_ADDR + ZM_Surf_x20),
+  TR_surf_x24 = TRAP(SURF_VT_ADDR + ZM_Surf_x24),
+  TR_surf_x28 = TRAP(SURF_VT_ADDR + ZM_Surf_x28),
+  TR_surf_x2C = TRAP(SURF_VT_ADDR + ZM_Surf_x2C),
+  TR_surf_x30 = TRAP(SURF_VT_ADDR + ZM_Surf_x30),
+  TR_surf_x34 = TRAP(SURF_VT_ADDR + ZM_Surf_x34),
+  TR_surf_x38 = TRAP(SURF_VT_ADDR + ZM_Surf_x38),
+  TR_surf_x3C = TRAP(SURF_VT_ADDR + ZM_Surf_x3C),
+  TR_surf_x40 = TRAP(SURF_VT_ADDR + ZM_Surf_x40),
+  TR_surf_x44 = TRAP(SURF_VT_ADDR + ZM_Surf_x44),
+  TR_surf_x48 = TRAP(SURF_VT_ADDR + ZM_Surf_x48),
+  TR_surf_x4C = TRAP(SURF_VT_ADDR + ZM_Surf_x4C),
+  TR_surf_x50 = TRAP(SURF_VT_ADDR + ZM_Surf_x50)
+};
 
 #endif /* EMU_IMAGE_TRAPS_H */

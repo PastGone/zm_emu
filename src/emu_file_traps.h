@@ -5,7 +5,7 @@
 
 /* -------------------- FILE_VT_ADDR 枚举 -------------------- */
 /* ZMAEE IFile 虚表槽位（基址 FILE_VT_ADDR） */
-enum ZM_FILE_VT {
+enum ZM_FILE_VT : uint32_t {
   ZM_File_AddRef = 0x00U,
   ZM_File_Release = 0x04U,
   ZM_File_Read = 0x08U,
@@ -20,7 +20,7 @@ enum ZM_FILE_VT {
 
 /* -------------------- FileMgr_VT_ADDR 枚举 -------------------- */
 /* ZMAEE IFileMgr 虚表槽位（基址 FileMgr_VT_ADDR，16 槽） */
-enum ZM_FILEMGR_VT {
+enum ZM_FILEMGR_VT : uint32_t {
   ZM_FileMgr_AddRef = 0x00U,
   ZM_FileMgr_Release = 0x04U,
   ZM_FileMgr_OpenFile = 0x08U,
@@ -69,12 +69,13 @@ enum ZM_FILEMGR_VT {
  * 注：seek 的参数序（whence/offset 谁在前）尚无 applet 覆盖验证，
  * 保持现状未改动；若后续有 applet 用到 seek，需用 RE 数据核对。
  */
-#define TR_file_close TRAP(FILE_VT_ADDR + ZM_File_Release) /* Release */
-#define TR_file_read TRAP(FILE_VT_ADDR + ZM_File_Read)
-#define TR_file_write TRAP(FILE_VT_ADDR + ZM_File_Write)
-#define TR_file_seek TRAP(FILE_VT_ADDR + ZM_File_Seek)
-#define TR_file_tell                                                           \
-  TRAP(FILE_VT_ADDR + ZM_File_Tell) /* Tell：返回当前读写位置 */
+enum ZM_FILE_TRAPS : uint32_t {
+  TR_file_close = TRAP(FILE_VT_ADDR + ZM_File_Release), /* Release */
+  TR_file_read = TRAP(FILE_VT_ADDR + ZM_File_Read),
+  TR_file_write = TRAP(FILE_VT_ADDR + ZM_File_Write),
+  TR_file_seek = TRAP(FILE_VT_ADDR + ZM_File_Seek),
+  TR_file_tell = TRAP(FILE_VT_ADDR + ZM_File_Tell) /* Tell：返回当前读写位置 */
+};
 
 /* ---- ZMAEE IFileMgr 原生虚表（RE 实测：g_filemgr_vtbl @ .data:00064038，
  * 16 槽；紧随 gAEEFileVtbl @0x64010 之后）----
@@ -87,47 +88,23 @@ enum ZM_FILEMGR_VT {
  * （a2: 0→'C'内置盘，1→'E'，>=2→SD 挂载?'T':0）。
  * +0x20 RE=sub_2A7BC：TestFile 存在性检查（ConvertFileName 分派
  * 包内/ assets.zip / 文件系统三路），非目录枚举；枚举槽待 RE。 */
-#define TR_fileMgr_AddRef TRAP(FileMgr_VT_ADDR + ZM_FileMgr_AddRef)
-#define TR_fileMgr_Release TRAP(FileMgr_VT_ADDR + ZM_FileMgr_Release)
-#define TR_fileMgr_open_file TRAP(FileMgr_VT_ADDR + ZM_FileMgr_OpenFile)
-#define TR_fileMgr_x3C TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x3C)
-#define TR_fileMgr_x0C                                                         \
-  TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x0C) /* RE sub_2A550                       \
-                                          */
-#define TR_fileMgr_x10                                                         \
-  TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x10) /* RE sub_2A4E0                       \
-                                          */
-#define TR_fileMgr_x14                                                         \
-  TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x14) /* RE sub_2A45C                       \
-                                          */
-#define TR_fileMgr_x18                                                         \
-  TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x18) /* RE sub_2A3F4                       \
-                                          */
-#define TR_fileMgr_x1C                                                         \
-  TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x1C) /* RE sub_2A344                       \
-                                          */
-
-#define TR_fileMgr_x20                                                         \
-  TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x20) /* RE sub_2A7BC（00001b62 高频） */
-
-#define TR_fileMgr_x24                                                         \
-  TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x24) /* RE sub_2A2D0                       \
-                                          */
-#define TR_fileMgr_x28                                                         \
-  TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x28) /* RE sub_29EA0                       \
-                                          */
-#define TR_fileMgr_x2C                                                         \
-  TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x2C) /* RE sub_29E7C                       \
-                                          */
-
-#define TR_fileMgr_x30                                                         \
-  TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x30) /* RE sub_29E40（旧称 enumFile） */
-
-#define TR_fileMgr_x34                                                         \
-  TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x34) /* RE sub_29E08                       \
-                                          */
-#define TR_fileMgr_x38                                                         \
-  TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x38) /* RE sub_29E00                       \
-                                          */
+enum ZM_FILEMGR_TRAPS : uint32_t {
+  TR_fileMgr_AddRef = TRAP(FileMgr_VT_ADDR + ZM_FileMgr_AddRef),
+  TR_fileMgr_Release = TRAP(FileMgr_VT_ADDR + ZM_FileMgr_Release),
+  TR_fileMgr_open_file = TRAP(FileMgr_VT_ADDR + ZM_FileMgr_OpenFile),
+  TR_fileMgr_x3C = TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x3C),
+  TR_fileMgr_x0C = TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x0C), /* RE sub_2A550 */
+  TR_fileMgr_x10 = TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x10), /* RE sub_2A4E0 */
+  TR_fileMgr_x14 = TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x14), /* RE sub_2A45C */
+  TR_fileMgr_x18 = TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x18), /* RE sub_2A3F4 */
+  TR_fileMgr_x1C = TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x1C), /* RE sub_2A344 */
+  TR_fileMgr_x20 = TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x20), /* RE sub_2A7BC（00001b62 高频） */
+  TR_fileMgr_x24 = TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x24), /* RE sub_2A2D0 */
+  TR_fileMgr_x28 = TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x28), /* RE sub_29EA0 */
+  TR_fileMgr_x2C = TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x2C), /* RE sub_29E7C */
+  TR_fileMgr_x30 = TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x30), /* RE sub_29E40（旧称 enumFile） */
+  TR_fileMgr_x34 = TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x34), /* RE sub_29E08 */
+  TR_fileMgr_x38 = TRAP(FileMgr_VT_ADDR + ZM_FileMgr_x38) /* RE sub_29E00 */
+};
 
 #endif /* EMU_FILE_TRAPS_H */

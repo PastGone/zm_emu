@@ -34,7 +34,7 @@
  *   0x0846F  ZMAEE_IShell_StartApplet_Internal
  *   0x5C43C  "CloseApplet: bRetToIdle = %d"   ← ✅ 已证，属 +0x24
  */
-enum ZM_SHELL_VT {
+enum ZM_SHELL_VT : uint32_t {
   ZM_Shell_AddRef = 0x00U,
   ZM_Shell_Release = 0x04U,
   ZM_Shell_CreateInstance = 0x08U,
@@ -88,63 +88,43 @@ enum ZM_SHELL_VT {
  * getSystemInfo）、+0x58 LoadDLL（RE sub_35230）、+0x5C UnloadDLL
  * （RE sub_346D8）、+0x78 LoadLibraryExt（旧称 loadDLL2）此前已按行为
  * 实现；其余槽接 zm_shell_stub，保证不落 "非法的外部调用"。 */
-#define TR_shell_AddRef TRAP(SHELL_VT_ADDR + ZM_Shell_AddRef)
-#define TR_shell_Release TRAP(SHELL_VT_ADDR + ZM_Shell_Release)
-#define TR_shell_CreateInstance TRAP(SHELL_VT_ADDR + ZM_Shell_CreateInstance)
-
-#define TR_shell_x0C                                                           \
-  TRAP(SHELL_VT_ADDR + ZM_Shell_x0C) /* RE sub_34DE4，未知                  \
-                                      */
-
-#define TR_shell_GetDeviceInfo TRAP(SHELL_VT_ADDR + ZM_Shell_GetDeviceInfo)
-#define TR_shell_GetRootDir TRAP(SHELL_VT_ADDR + ZM_Shell_GetRootDir)
-#define TR_shell_SetWorkDir TRAP(SHELL_VT_ADDR + ZM_Shell_SetWorkDir)
-#define TR_shell_GetWorkDir TRAP(SHELL_VT_ADDR + ZM_Shell_GetWorkDir)
-#define TR_shell_StartApplet TRAP(SHELL_VT_ADDR + ZM_Shell_StartApplet)
-
-/* +0x24 CloseApplet(bRetToIdle)：RE sub_3482C（日志串 "CloseApplet: bRetToIdle
- * = %d"）。applet 请求关闭自己 → zm_shell_CloseApplet 处理。 */
-#define TR_shell_CloseApplet TRAP(SHELL_VT_ADDR + ZM_Shell_CloseApplet)
-
-#define TR_shell_CanStartApplet TRAP(SHELL_VT_ADDR + ZM_Shell_CanStartApplet)
-#define TR_shell_ActiveApplet TRAP(SHELL_VT_ADDR + ZM_Shell_ActiveApplet)
-#define TR_shell_GetApplet TRAP(SHELL_VT_ADDR + ZM_Shell_GetApplet)
-
-#define TR_shell_x34                                                           \
-  TRAP(SHELL_VT_ADDR + ZM_Shell_x34) /* RE sub_34764，未知                  \
-                                      */
-
-#define TR_shell_x38                                                           \
-  TRAP(SHELL_VT_ADDR + ZM_Shell_x38) /* RE sub_34C1C，未知                  \
-                                      */
-
-#define TR_shell_SetTimer TRAP(SHELL_VT_ADDR + ZM_Shell_SetTimer)
-#define TR_shell_CancelTimer TRAP(SHELL_VT_ADDR + ZM_Shell_CancelTimer)
-#define TR_shell_CancelOwnerTimer                                              \
-  TRAP(SHELL_VT_ADDR + ZM_Shell_CancelOwnerTimer)
-#define TR_shell_GetTickCount TRAP(SHELL_VT_ADDR + ZM_Shell_GetTickCount)
-#define TR_shell_OpenWapBrowser TRAP(SHELL_VT_ADDR + ZM_Shell_OpenWapBrowser)
-
-#define TR_shell_x50                                                           \
-  TRAP(SHELL_VT_ADDR + ZM_Shell_x50) /* RE sub_3474C，未知                  \
-                                      */
-
-#define TR_shell_SetEndKeyMask TRAP(SHELL_VT_ADDR + ZM_Shell_SetEndKeyMask)
-#define TR_shell_LoadDLL TRAP(SHELL_VT_ADDR + ZM_Shell_LoadDLL)
-#define TR_shell_UnloadDLL TRAP(SHELL_VT_ADDR + ZM_Shell_UnloadDLL)
-#define TR_shell_GetAppletMask TRAP(SHELL_VT_ADDR + ZM_Shell_GetAppletMask)
-#define TR_shell_SetAppletMask TRAP(SHELL_VT_ADDR + ZM_Shell_SetAppletMask)
-#define TR_shell_IsLoadGlobalLibrary                                           \
-  TRAP(SHELL_VT_ADDR + ZM_Shell_IsLoadGlobalLibrary)
-#define TR_shell_LoadGlobalLibrary                                             \
-  TRAP(SHELL_VT_ADDR + ZM_Shell_LoadGlobalLibrary)
-#define TR_shell_FreeGlobalLibrary                                             \
-  TRAP(SHELL_VT_ADDR + ZM_Shell_FreeGlobalLibrary)
-#define TR_shell_IsGlobalLibraryUseStaticMem                                   \
-  TRAP(SHELL_VT_ADDR + ZM_Shell_IsGlobalLibraryUseStaticMem)
-#define TR_shell_LoadLibraryExt TRAP(SHELL_VT_ADDR + ZM_Shell_LoadLibraryExt)
-#define TR_shell_EntryApplet TRAP(SHELL_VT_ADDR + ZM_Shell_EntryApplet)
-#define TR_shell_GetAppDir TRAP(SHELL_VT_ADDR + ZM_Shell_GetAppDir)
-#define TR_shell_GetSupportHall TRAP(SHELL_VT_ADDR + ZM_Shell_GetSupportHall)
+enum ZM_SHELL_TRAPS : uint32_t {
+  TR_shell_AddRef = TRAP(SHELL_VT_ADDR + ZM_Shell_AddRef),
+  TR_shell_Release = TRAP(SHELL_VT_ADDR + ZM_Shell_Release),
+  TR_shell_CreateInstance = TRAP(SHELL_VT_ADDR + ZM_Shell_CreateInstance),
+  TR_shell_x0C = TRAP(SHELL_VT_ADDR + ZM_Shell_x0C), /* RE sub_34DE4，未知 */
+  TR_shell_GetDeviceInfo = TRAP(SHELL_VT_ADDR + ZM_Shell_GetDeviceInfo),
+  TR_shell_GetRootDir = TRAP(SHELL_VT_ADDR + ZM_Shell_GetRootDir),
+  TR_shell_SetWorkDir = TRAP(SHELL_VT_ADDR + ZM_Shell_SetWorkDir),
+  TR_shell_GetWorkDir = TRAP(SHELL_VT_ADDR + ZM_Shell_GetWorkDir),
+  TR_shell_StartApplet = TRAP(SHELL_VT_ADDR + ZM_Shell_StartApplet),
+  /* +0x24 CloseApplet(bRetToIdle)：RE sub_3482C（日志串 "CloseApplet: bRetToIdle
+   * = %d"）。applet 请求关闭自己 → zm_shell_CloseApplet 处理。 */
+  TR_shell_CloseApplet = TRAP(SHELL_VT_ADDR + ZM_Shell_CloseApplet),
+  TR_shell_CanStartApplet = TRAP(SHELL_VT_ADDR + ZM_Shell_CanStartApplet),
+  TR_shell_ActiveApplet = TRAP(SHELL_VT_ADDR + ZM_Shell_ActiveApplet),
+  TR_shell_GetApplet = TRAP(SHELL_VT_ADDR + ZM_Shell_GetApplet),
+  TR_shell_x34 = TRAP(SHELL_VT_ADDR + ZM_Shell_x34), /* RE sub_34764，未知 */
+  TR_shell_x38 = TRAP(SHELL_VT_ADDR + ZM_Shell_x38), /* RE sub_34C1C，未知 */
+  TR_shell_SetTimer = TRAP(SHELL_VT_ADDR + ZM_Shell_SetTimer),
+  TR_shell_CancelTimer = TRAP(SHELL_VT_ADDR + ZM_Shell_CancelTimer),
+  TR_shell_CancelOwnerTimer = TRAP(SHELL_VT_ADDR + ZM_Shell_CancelOwnerTimer),
+  TR_shell_GetTickCount = TRAP(SHELL_VT_ADDR + ZM_Shell_GetTickCount),
+  TR_shell_OpenWapBrowser = TRAP(SHELL_VT_ADDR + ZM_Shell_OpenWapBrowser),
+  TR_shell_x50 = TRAP(SHELL_VT_ADDR + ZM_Shell_x50), /* RE sub_3474C，未知 */
+  TR_shell_SetEndKeyMask = TRAP(SHELL_VT_ADDR + ZM_Shell_SetEndKeyMask),
+  TR_shell_LoadDLL = TRAP(SHELL_VT_ADDR + ZM_Shell_LoadDLL),
+  TR_shell_UnloadDLL = TRAP(SHELL_VT_ADDR + ZM_Shell_UnloadDLL),
+  TR_shell_GetAppletMask = TRAP(SHELL_VT_ADDR + ZM_Shell_GetAppletMask),
+  TR_shell_SetAppletMask = TRAP(SHELL_VT_ADDR + ZM_Shell_SetAppletMask),
+  TR_shell_IsLoadGlobalLibrary = TRAP(SHELL_VT_ADDR + ZM_Shell_IsLoadGlobalLibrary),
+  TR_shell_LoadGlobalLibrary = TRAP(SHELL_VT_ADDR + ZM_Shell_LoadGlobalLibrary),
+  TR_shell_FreeGlobalLibrary = TRAP(SHELL_VT_ADDR + ZM_Shell_FreeGlobalLibrary),
+  TR_shell_IsGlobalLibraryUseStaticMem = TRAP(SHELL_VT_ADDR + ZM_Shell_IsGlobalLibraryUseStaticMem),
+  TR_shell_LoadLibraryExt = TRAP(SHELL_VT_ADDR + ZM_Shell_LoadLibraryExt),
+  TR_shell_EntryApplet = TRAP(SHELL_VT_ADDR + ZM_Shell_EntryApplet),
+  TR_shell_GetAppDir = TRAP(SHELL_VT_ADDR + ZM_Shell_GetAppDir),
+  TR_shell_GetSupportHall = TRAP(SHELL_VT_ADDR + ZM_Shell_GetSupportHall)
+};
 
 #endif /* EMU_SHELL_TRAPS_H */

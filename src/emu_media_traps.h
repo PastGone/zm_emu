@@ -5,7 +5,7 @@
 
 /* -------------------- MEDIA_VT_ADDR 枚举 -------------------- */
 /* ZMAEE IMedia 原生虚表槽位（基址 MEDIA_VT_ADDR，25 槽，止于 +0x60） */
-enum ZM_MEDIA_VT {
+enum ZM_MEDIA_VT : uint32_t {
   ZM_Media_AddRef = 0x00U,
   ZM_Media_Release = 0x04U,
   ZM_Media_x08 = 0x08U,
@@ -54,28 +54,30 @@ enum ZM_MEDIA_VT {
  *         +0x18 → zm_media_pause_music；+0x1C → zm_media_resume_music；
  *         常量槽（+0x08 -1、+0x38/-1、+0x40/-1）在 trap.c 里直接返常量；
  *         其余接 zm_media_stub（返回 0，与 RE 的常量槽一致）。 */
-#define TR_media_AddRef TRAP(MEDIA_VT_ADDR + ZM_Media_AddRef)
-#define TR_media_Release TRAP(MEDIA_VT_ADDR + ZM_Media_Release)
-#define TR_media_x08 TRAP(MEDIA_VT_ADDR + ZM_Media_x08)
-#define TR_media_x0C TRAP(MEDIA_VT_ADDR + ZM_Media_x0C)
-#define TR_media_play TRAP(MEDIA_VT_ADDR + ZM_Media_play)
-#define TR_media_stop TRAP(MEDIA_VT_ADDR + ZM_Media_stop)
-#define TR_media_x18 TRAP(MEDIA_VT_ADDR + ZM_Media_x18)
-#define TR_media_x1C TRAP(MEDIA_VT_ADDR + ZM_Media_x1C)
-#define TR_media_x20 TRAP(MEDIA_VT_ADDR + ZM_Media_x20)
-#define TR_media_x24 TRAP(MEDIA_VT_ADDR + ZM_Media_x24)
-#define TR_media_x28 TRAP(MEDIA_VT_ADDR + ZM_Media_x28)
-#define TR_media_x2C TRAP(MEDIA_VT_ADDR + ZM_Media_x2C)
-#define TR_media_x30 TRAP(MEDIA_VT_ADDR + ZM_Media_x30)
-#define TR_media_x34 TRAP(MEDIA_VT_ADDR + ZM_Media_x34)
-#define TR_media_x38 TRAP(MEDIA_VT_ADDR + ZM_Media_x38)
-#define TR_media_x3C TRAP(MEDIA_VT_ADDR + ZM_Media_x3C)
-#define TR_media_x40 TRAP(MEDIA_VT_ADDR + ZM_Media_x40)
-#define TR_media_x44 TRAP(MEDIA_VT_ADDR + ZM_Media_x44)
-#define TR_media_x48 TRAP(MEDIA_VT_ADDR + ZM_Media_x48)
-#define TR_media_x4C TRAP(MEDIA_VT_ADDR + ZM_Media_x4C)
-#define TR_media_x50 TRAP(MEDIA_VT_ADDR + ZM_Media_x50)
-#define TR_media_x54 TRAP(MEDIA_VT_ADDR + ZM_Media_x54)
-#define TR_media_x58 TRAP(MEDIA_VT_ADDR + ZM_Media_x58)
+enum ZM_MEDIA_TRAPS : uint32_t {
+  TR_media_AddRef = TRAP(MEDIA_VT_ADDR + ZM_Media_AddRef),
+  TR_media_Release = TRAP(MEDIA_VT_ADDR + ZM_Media_Release),
+  TR_media_x08 = TRAP(MEDIA_VT_ADDR + ZM_Media_x08),
+  TR_media_x0C = TRAP(MEDIA_VT_ADDR + ZM_Media_x0C),
+  TR_media_play = TRAP(MEDIA_VT_ADDR + ZM_Media_play),
+  TR_media_stop = TRAP(MEDIA_VT_ADDR + ZM_Media_stop),
+  TR_media_x18 = TRAP(MEDIA_VT_ADDR + ZM_Media_x18),
+  TR_media_x1C = TRAP(MEDIA_VT_ADDR + ZM_Media_x1C),
+  TR_media_x20 = TRAP(MEDIA_VT_ADDR + ZM_Media_x20),
+  TR_media_x24 = TRAP(MEDIA_VT_ADDR + ZM_Media_x24),
+  TR_media_x28 = TRAP(MEDIA_VT_ADDR + ZM_Media_x28),
+  TR_media_x2C = TRAP(MEDIA_VT_ADDR + ZM_Media_x2C),
+  TR_media_x30 = TRAP(MEDIA_VT_ADDR + ZM_Media_x30),
+  TR_media_x34 = TRAP(MEDIA_VT_ADDR + ZM_Media_x34),
+  TR_media_x38 = TRAP(MEDIA_VT_ADDR + ZM_Media_x38),
+  TR_media_x3C = TRAP(MEDIA_VT_ADDR + ZM_Media_x3C),
+  TR_media_x40 = TRAP(MEDIA_VT_ADDR + ZM_Media_x40),
+  TR_media_x44 = TRAP(MEDIA_VT_ADDR + ZM_Media_x44),
+  TR_media_x48 = TRAP(MEDIA_VT_ADDR + ZM_Media_x48),
+  TR_media_x4C = TRAP(MEDIA_VT_ADDR + ZM_Media_x4C),
+  TR_media_x50 = TRAP(MEDIA_VT_ADDR + ZM_Media_x50),
+  TR_media_x54 = TRAP(MEDIA_VT_ADDR + ZM_Media_x54),
+  TR_media_x58 = TRAP(MEDIA_VT_ADDR + ZM_Media_x58)
+};
 
 #endif /* EMU_MEDIA_TRAPS_H */
