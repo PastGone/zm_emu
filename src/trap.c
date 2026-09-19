@@ -289,8 +289,812 @@ void print_non_zero_registers(uc_engine *uc) {
   }
   printf("========================================\n");
 }
-void handle_trap(uc_engine *uc, uint32_t trap_address) {
+/* =========================================================================
+ * trap 分派表（表驱动）
+ *
+ * 旧实现是 1100+ 行的巨型 switch：手写分派既长，又容易出复制粘贴缺陷
+ * （例如曾把一段无 case 标签的 `ret = zm_shell_stub(...)` 落在
+ * TR_shell_GetAppDir 之后、永远不可达——已删除）。改为“陷阱地址 → 处理函数”
+ * 的分派表：
+ *   - 每个 handler 统一签名 trap_fn(trap_ctx*)；
+ *   - 连续的一组 stub 用 [lo, hi] 区间表示，避免逐条列举；
+ *   - 控制流类 trap（init / abort / enter_event_loop 等）在 ctx.handled 置位后
+ *     自行写 PC / 停 emu，分发器不再写 R0/PC。
+ * 新增一个槽位 = 表内加一行，不再需要复制粘贴 case 模板。
+ * ========================================================================= */
 
+typedef struct {
+  uc_engine *uc;
+  uint32_t trap, r0, r1, r2, r3, lr, sp;
+  bool handled; /* 控制流类 trap 置位：已自行写 PC / 停 emu，勿再写 R0/PC */
+} trap_ctx;
+
+typedef uint32_t (*trap_fn)(trap_ctx *c);
+
+/* 统一适配器宏：实函数签名各异，这里只截取需要的寄存器。 */
+#define AD_R0(fn)   static uint32_t a_##fn(trap_ctx *c) { return fn(c->uc, c->r0); }
+#define AD_R1(fn)   static uint32_t a_##fn(trap_ctx *c) { return fn(c->uc, c->r1); }
+#define AD_R01(fn)  static uint32_t a_##fn(trap_ctx *c) { return fn(c->uc, c->r0, c->r1); }
+#define AD_R012(fn) static uint32_t a_##fn(trap_ctx *c) { return fn(c->uc, c->r0, c->r1, c->r2); }
+#define AD_R0123(fn) static uint32_t a_##fn(trap_ctx *c) { return fn(c->uc, c->r0, c->r1, c->r2, c->r3); }
+#define AD_0(fn)    static uint32_t a_##fn(trap_ctx *c) { return fn(c->uc); }
+/* 带字面量 off 的 handler（display / 各类 stub） */
+#define AD_OFF(fn, off, tag) static uint32_t a_off_##tag(trap_ctx *c) { return fn(c->uc, (off), c->r0, c->r1, c->r2, c->r3); }
+
+/* ---- 直接转发的 handler（签名各异，由宏统一收口）---- */
+AD_R0(zm_shell_AddRef)
+AD_R0(zm_shell_Release)
+AD_R1(zm_shell_GetDeviceInfo)
+AD_0(zm_shell_GetRootDir)
+AD_0(zm_shell_GetWorkDir)
+AD_R1(zm_shell_CloseApplet)
+AD_R1(zm_shell_GetApplet)
+AD_R1(zm_timer_CancelTimer)
+AD_R1(zm_timer_CancelOwnerTimer)
+AD_0(zm_shell_GetTickCount)
+AD_R1(zm_shell_UnloadDLL)
+AD_R0123(zm_shell_LoadLibraryExt)
+AD_R0(zm_file_close)
+AD_R012(zm_file_read)
+AD_R012(zm_file_write)
+AD_R012(zm_file_seek)
+AD_R0(zm_file_tell)
+AD_R0(zm_display_AddRef)
+AD_R0(zm_display_Release)
+AD_R0(zm_display_GetMaxLayerCount)
+AD_R0(zm_display_FreeAllLayer)
+AD_R0(zm_display_GetActiveLayer)
+AD_R0(zm_display_UnlockScreen)
+AD_0(zm_display_GetFontHeight)
+AD_R01(zm_display_FreeLayer)
+AD_R01(zm_display_SetActiveLayer)
+AD_R01(zm_display_SelectFont)
+AD_R01(zm_display_GetFontWidth)
+AD_R01(zm_display_LoadBitmap)
+AD_R012(zm_display_SetTransColor)
+AD_0(zm_display_Refresh)
+AD_R0123(zm_display_UpdateEx)
+AD_R0123(zm_display_CreateBitmap)
+AD_R0(zm_surf_release)
+AD_R01(zm_surf_getrect)
+AD_R0(zm_image_AddRef)
+AD_R0(zm_image_Release)
+AD_R0(zm_image_GetFrameCount)
+AD_R0(zm_image_Width)
+AD_R0(zm_image_Height)
+AD_R0(zm_image_GetType)
+AD_R0123(zm_image_SetData)
+AD_R0(zm_bitmap_AddRef)
+AD_R0(zm_bitmap_Release)
+AD_R01(zm_bitmap_SetTransColor)
+AD_R01(zm_bitmap_GetInfo)
+AD_0(zm_svc_release)
+AD_R012(zm_fileMgr_GetInfo)
+AD_R01(zm_fileMgr_TestFile)
+AD_R01(zm_fileMgr_StorageSupport)
+AD_R0123(zm_root_x68C)
+AD_R0123(zm_ucs2_to_utf8)
+AD_R0123(zm_utf8_to_ucs2)
+AD_R01(zm_root_str_assign)
+AD_R01(zm_strstr)
+AD_R01(zm_strchr)
+AD_R01(zm_spec_lookup)
+AD_R0(zm_strlen)
+AD_R0(zm_wcslen)
+AD_R012(u_memcmp)
+AD_R012(u_memcpy)
+AD_R012(u_memset)
+AD_R0123(zm_root_cbk_default)
+AD_R0123(zm_netmgr_x1C)
+AD_R0123(zm_tapi_x2C)
+AD_R0123(zm_tapi_x40)
+AD_0(zm_dll_init)
+AD_0(zm_media_stop)
+AD_0(zm_media_pause_music)
+AD_0(zm_media_resume_music)
+
+/* 带字面量 off 的 handler（display / 各类 stub） */
+AD_OFF(zm_shell_stub, 0x0C, shell_0C)
+AD_OFF(zm_shell_stub, 0x18, shell_18)
+AD_OFF(zm_shell_stub, 0x20, shell_20)
+AD_OFF(zm_shell_stub, 0x28, shell_28)
+AD_OFF(zm_shell_stub, 0x2C, shell_2C)
+AD_OFF(zm_shell_stub, 0x34, shell_34)
+AD_OFF(zm_shell_stub, 0x38, shell_38)
+AD_OFF(zm_shell_stub, 0x4C, shell_4C)
+AD_OFF(zm_shell_stub, 0x50, shell_50)
+AD_OFF(zm_shell_stub, 0x54, shell_54)
+AD_OFF(zm_shell_stub, 0x60, shell_60)
+AD_OFF(zm_shell_stub, 0x64, shell_64)
+AD_OFF(zm_shell_stub, 0x68, shell_68)
+AD_OFF(zm_shell_stub, 0x6C, shell_6C)
+AD_OFF(zm_shell_stub, 0x70, shell_70)
+AD_OFF(zm_shell_stub, 0x74, shell_74)
+AD_OFF(zm_shell_stub, 0x7C, shell_7C)
+AD_OFF(zm_shell_stub, 0x84, shell_84)
+AD_OFF(zm_fileMgr_stub, 0x00, fm_00)
+AD_OFF(zm_fileMgr_stub, 0x04, fm_04)
+AD_OFF(zm_fileMgr_stub, 0x10, fm_10)
+AD_OFF(zm_fileMgr_stub, 0x14, fm_14)
+AD_OFF(zm_fileMgr_stub, 0x18, fm_18)
+AD_OFF(zm_fileMgr_stub, 0x1C, fm_1C)
+AD_OFF(zm_fileMgr_stub, 0x24, fm_24)
+AD_OFF(zm_fileMgr_stub, 0x28, fm_28)
+AD_OFF(zm_fileMgr_stub, 0x2C, fm_2C)
+AD_OFF(zm_fileMgr_stub, 0x34, fm_34)
+AD_OFF(zm_fileMgr_stub, 0x38, fm_38)
+AD_OFF(zm_display_CreateLayer, 0x0CU, disp_CreateLayer)
+AD_OFF(zm_display_CreateLayerExt, 0x10U, disp_CreateLayerExt)
+AD_OFF(zm_display_GetLayerInfo, 0x1CU, disp_GetLayerInfo)
+AD_OFF(zm_display_SetLayerPosition, 0x24U, disp_SetLayerPosition)
+AD_OFF(zm_display_stub, 0x34, disp_LockScreen)
+AD_OFF(zm_display_RegisterCustomFont, 0x3CU, disp_RegisterCustomFont)
+AD_OFF(zm_display_SetOpacity, 0x58U, disp_SetOpacity)
+AD_OFF(zm_display_SetClipRect, 0x5CU, disp_SetClipRect)
+AD_OFF(zm_display_GetClipRect, 0x60U, disp_GetClipRect)
+AD_OFF(zm_display_SetPixel, 0x64U, disp_SetPixel)
+AD_OFF(zm_display_DrawLine, 0x68U, disp_DrawLine)
+AD_OFF(zm_display_DrawRoundRect, 0x74U, disp_DrawRoundRect)
+AD_OFF(zm_display_DrawCircle, 0x78U, disp_DrawCircle)
+AD_OFF(zm_display_FillCircle, 0x7CU, disp_FillCircle)
+AD_OFF(zm_display_DrawArc, 0x80U, disp_DrawArc)
+AD_OFF(zm_display_FillArc, 0x84U, disp_FillArc)
+AD_OFF(zm_display_FillGradientRect, 0x88U, disp_FillGradientRect)
+AD_OFF(zm_display_AlphaBlendRect, 0x8CU, disp_AlphaBlendRect)
+AD_OFF(zm_display_DrawImage, 0x90U, disp_DrawImage)
+AD_OFF(zm_display_DrawBitmap, 0x94U, disp_DrawBitmap)
+AD_OFF(zm_display_DrawBitmapFrame, 0x9CU, disp_DrawBitmapFrame)
+AD_OFF(zm_display_Flatten, 0xB0U, disp_Flatten)
+AD_OFF(zm_display_CreateImage, 0xA8U, disp_CreateImage)
+AD_OFF(zm_display_DrawAntialiasingLine, 0xB8U, disp_DrawAntialiasingLine)
+AD_OFF(zm_display_DrawWLine, 0xBCU, disp_DrawWLine)
+AD_OFF(zm_display_GetDMLayerHdlr, 0xC0U, disp_GetDMLayerHdlr)
+AD_OFF(zm_display_RelevanceLayer, 0xC4U, disp_RelevanceLayer)
+AD_OFF(zm_display_DrawImageExt, 0xCCU, disp_DrawImageExt)
+AD_OFF(zm_display_DrawSysWallPaper, 0xD0U, disp_DrawSysWallPaper)
+AD_OFF(zm_display_DrawBorderText, 0xD4U, disp_DrawBorderText)
+AD_OFF(zm_display_PushAndSetAlphaLayer, 0xD8U, disp_PushAndSetAlphaLayer)
+AD_OFF(zm_display_PopAndRestoreAlphaLayer, 0xDCU, disp_PopAndRestoreAlphaLayer)
+AD_OFF(zm_display_RotateScreen, 0xE0U, disp_RotateScreen)
+AD_OFF(zm_bitmap_sub_25F78, 0x0CU, bmp_25F78)
+AD_OFF(zm_bitmap_sub_25F84, 0x14U, bmp_25F84)
+AD_OFF(zm_bitmap_sub_25FF8, 0x18U, bmp_25FF8)
+AD_OFF(zm_media_stub, 0x08, media_08)
+AD_OFF(zm_media_stub, 0x0C, media_0C)
+AD_OFF(zm_media_stub, 0x20, media_20)
+AD_OFF(zm_media_stub, 0x24, media_24)
+AD_OFF(zm_media_stub, 0x28, media_28)
+AD_OFF(zm_media_stub, 0x2C, media_2C)
+AD_OFF(zm_media_stub, 0x30, media_30)
+AD_OFF(zm_media_stub, 0x34, media_34)
+AD_OFF(zm_media_stub, 0x3C, media_3C)
+AD_OFF(zm_media_stub, 0x44, media_44)
+AD_OFF(zm_media_stub, 0x48, media_48)
+AD_OFF(zm_media_stub, 0x4C, media_4C)
+AD_OFF(zm_media_stub, 0x50, media_50)
+AD_OFF(zm_media_stub, 0x58, media_58)
+AD_OFF(zm_setting_stub, 0x08, set_08)
+AD_OFF(zm_setting_stub, 0x0C, set_0C)
+AD_OFF(zm_setting_stub, 0x10, set_10)
+AD_OFF(zm_setting_stub, 0x14, set_14)
+AD_OFF(zm_setting_stub, 0x28, set_28)
+AD_OFF(zm_setting_stub, 0x2C, set_2C)
+AD_OFF(zm_setting_stub, 0x30, set_30)
+AD_OFF(zm_setting_stub, 0x34, set_34)
+
+/* ---- 需要特殊处理的 handler（带栈参 / 变参 / 控制流）---- */
+static uint32_t a_shell_CreateInstance(trap_ctx *c) {
+  return zm_shell_CreateInstance(c->uc, c->r1, c->r2);
+}
+static uint32_t a_shell_LoadDLL(trap_ctx *c) {
+  return zm_shell_LoadDLL(c->uc, c->r1, c->r2, c->r3);
+}
+static uint32_t a_shell_GetAppDir(trap_ctx *c) {
+  return zm_shell_GetAppDir(c->uc, c->r1, c->r2);
+}
+static uint32_t a_shell_SetTimer(trap_ctx *c) {
+  return zm_timer_SetTimer(c->uc, c->r1, c->r2, c->r3, uc_read32(c->uc, c->sp));
+}
+static uint32_t a_fileMgr_open_file(trap_ctx *c) {
+  if (c->r0 == 0)
+    return 0;
+  return zm_fileMgr_open_file(c->uc, c->r1);
+}
+static uint32_t a_fileMgr_x3C(trap_ctx *c) {
+  log_debug("[FileMgr+0x3C] r0=0x%X r1=0x%X r2=0x%X r3=0x%X lr=0x%X", c->r0, c->r1,
+            c->r2, c->r3, c->lr);
+  return zm_fileMgr_stub(c->uc, 0x3C, c->r0, c->r1, c->r2, c->r3);
+}
+static uint32_t a_display_Update(trap_ctx *c) {
+  return zm_display_Update(c->uc, c->r0, c->r1, c->r2, c->r3, getArg(c->uc, 4));
+}
+static uint32_t a_display_MeasureString(trap_ctx *c) {
+  return zm_display_MeasureString(c->uc, c->r0, c->r1, c->r2, c->r3, c->sp);
+}
+static uint32_t a_display_DrawText(trap_ctx *c) {
+  return zm_display_DrawText(c->uc, c->r1, c->r2, c->r3, c->sp);
+}
+static uint32_t a_display_DrawRect(trap_ctx *c) {
+  return zm_display_DrawRect(c->uc, c->r1, c->r2, c->r3, c->sp);
+}
+static uint32_t a_display_FillRect(trap_ctx *c) {
+  return zm_display_FillRect(c->uc, c->r1, c->r2, c->r3, c->sp);
+}
+static uint32_t a_display_DrawBitmapEx(trap_ctx *c) {
+  if (g_disasm) {
+    static int watch_done = 0;
+    if (!watch_done && c->r3 >= 0x820000) {
+      uint32_t b0 = uc_read32(c->uc, c->r3), b1 = uc_read32(c->uc, c->r3 + 4);
+      uint32_t pc0 = 0;
+      uc_reg_read(c->uc, UC_ARM_REG_R4, &pc0);
+      log_debug("WATCH bmp=0x%X first=[%08X %08X] R4=0x%X", c->r3, b0, b1, pc0);
+      watch_done = 1;
+    }
+    uint32_t b0 = uc_read32(c->uc, c->r3), b1 = uc_read32(c->uc, c->r3 + 4);
+    uint32_t b2 = uc_read32(c->uc, c->r3 + 8);
+    log_debug("DrawBitmapEx lr=0x%X x=%u y=%u bmp=0x%X(=[%08X %08X %08X]) "
+              "rect=0x%X mode=%u",
+              c->lr, c->r1, c->r2, c->r3, b0, b1, b2, getArg(c->uc, 4), getArg(c->uc, 5));
+  }
+  return zm_display_DrawBitmapEx(c->uc, 0x98U, c->r0, c->r1, c->r2, c->r3);
+}
+static uint32_t a_display_BitBlt(trap_ctx *c) {
+  if (g_disasm) {
+    uint32_t s0 = uc_read32(c->uc, c->r3), s1 = uc_read32(c->uc, c->r3 + 4);
+    uint32_t s2 = uc_read32(c->uc, c->r3 + 8), s3 = uc_read32(c->uc, c->r3 + 12);
+    log_debug("BitBlt lr=0x%X dx=%u dy=%u surf=0x%X(=[%08X %08X %08X %08X]) "
+              "rect=0x%X mode=%u flags=%u",
+              c->lr, c->r1, c->r2, c->r3, s0, s1, s2, s3, getArg(c->uc, 4), getArg(c->uc, 5),
+              getArg(c->uc, 6));
+  }
+  return zm_display_BitBlt(c->uc, 0xACU, c->r0, c->r1, c->r2, c->r3);
+}
+static uint32_t a_display_StretchBlt(trap_ctx *c) {
+  static uint32_t sn = 0;
+  if (sn++ < 6)
+    log_info("[StretchBlt] lr=0x%X r0=0x%X r1=0x%X r2=0x%X r3=0x%X", c->lr, c->r0, c->r1,
+             c->r2, c->r3);
+  return zm_display_StretchBlt(c->uc, 0xB4U, c->r0, c->r1, c->r2, c->r3);
+}
+static uint32_t a_image_Decode(trap_ctx *c) {
+  return zm_image_DecodeToBitmap(c->uc, c->r0, c->r1, c->r2, c->r3, c->sp);
+}
+static uint32_t a_media_play(trap_ctx *c) {
+  return zm_media_command(c->uc, c->r0, c->r1, c->r2, c->r3, c->sp);
+}
+static uint32_t a_media_x54(trap_ctx *c) {
+  return zm_media_command(c->uc, c->r0, c->r1, c->r2, c->r3, c->sp);
+}
+static uint32_t a_media_AddRef(trap_ctx *c) {
+  log_info("IMedia.AddRef called");
+  return 1;
+}
+static uint32_t a_media_Release(trap_ctx *c) {
+  log_info("IMedia.Release called");
+  return zm_svc_release(c->uc);
+}
+static uint32_t a_media_x38(trap_ctx *c) {
+  (void)c;
+  return (uint32_t)-1;
+}
+static uint32_t a_media_x40(trap_ctx *c) {
+  (void)c;
+  return (uint32_t)-1;
+}
+static uint32_t a_setting_AddRef(trap_ctx *c) {
+  (void)c;
+  return 1;
+}
+static uint32_t a_setting_x18(trap_ctx *c) {
+  log_info("ISetting[0x18] lr=0x%X on=%u", c->lr, c->r1);
+  return zm_setting_set_sound(c->uc, c->r1);
+}
+static uint32_t a_setting_x1C(trap_ctx *c) {
+  if (g_disasm)
+    log_debug("ISetting[0x1C] 调用点 lr=0x%X r0=0x%X r1=0x%X r2=0x%X r3=0x%X",
+              c->lr, c->r0, c->r1, c->r2, c->r3);
+  return zm_setting_stub(c->uc, 0x1C, c->r0, c->r1, c->r2, c->r3);
+}
+static uint32_t a_setting_x20(trap_ctx *c) {
+  if (g_disasm)
+    log_debug("ISetting[0x20] 调用点 lr=0x%X r0=0x%X r1=0x%X r2=0x%X r3=0x%X",
+              c->lr, c->r0, c->r1, c->r2, c->r3);
+  return zm_setting_stub(c->uc, 0x20, c->r0, c->r1, c->r2, c->r3);
+}
+static uint32_t a_setting_x24(trap_ctx *c) {
+  return zm_setting_x24(c->uc, c->r1, c->r2);
+}
+static uint32_t a_dll_config(trap_ctx *c) {
+  return zm_dll_config(c->uc, c->r1, c->r2, c->r3);
+}
+static uint32_t a_dll_entry(trap_ctx *c) {
+  return zm_dll_entry(c->uc, c->r1, c->r2, c->r3);
+}
+static uint32_t a_root_getShell(trap_ctx *c) {
+  (void)c;
+  return G_SHELL_ADDR;
+}
+static uint32_t a_root_malloc(trap_ctx *c) {
+  uint32_t a_size = c->r0;
+  uint32_t a_ctx = c->r1;
+  uint32_t ret = applet_malloc(c->uc, c->r0);
+  log_debug("malloc(size=%u ctx=0x%X lr=0x%X -> 0x%X", a_size, a_ctx, c->lr, ret);
+  return ret;
+}
+static uint32_t a_root_free(trap_ctx *c) {
+  log_debug("free(0x%X) lr=0x%X", c->r0, c->lr);
+  applet_free(c->uc, c->r0);
+  return 0;
+}
+static uint32_t a_root_malloc_screen(trap_ctx *c) {
+  uint32_t ret = applet_malloc(c->uc, c->r0);
+  log_debug("MallocScreenMem(0x%X) = 0x%X (lr=0x%X)", c->r0, ret, c->lr);
+  return ret;
+}
+static uint32_t a_root_free_screen(trap_ctx *c) {
+  log_debug("FreeScreenMem(0x%X) lr=0x%X", c->r0, c->lr);
+  applet_free(c->uc, c->r0);
+  return 0;
+}
+static uint32_t a_root_x3C(trap_ctx *c) {
+  (void)c;
+  return 0;
+}
+static uint32_t a_root_sprintf(trap_ctx *c) {
+  u_va va;
+  u_va_start_mem8(&va, c->uc, c->r2, 0);
+  uint32_t ret = (uint32_t)u_sprintf(c->uc, c->r0, c->r1, &va);
+  if (g_disasm) {
+    char fmt[128], outp[256];
+    uint32_t lr = 0;
+    uc_reg_read(c->uc, UC_ARM_REG_LR, &lr);
+    read_cstr(c->uc, c->r1, fmt, sizeof(fmt));
+    read_cstr(c->uc, c->r0, outp, sizeof(outp));
+    log_debug("sprintf lr=0x%X [%u参数]: fmt=\"%s\" out=\"%s\" ret=%u", lr,
+              uc_read32(c->uc, c->r2), fmt, outp, ret);
+  }
+  return ret;
+}
+static uint32_t a_root_str_to_num(trap_ctx *c) {
+  return (uint32_t)u_strtol(c->uc, c->r0, c->r1, (int)c->r2);
+}
+static uint32_t a_root_str_ctor(trap_ctx *c) {
+  return u_strcpy(c->uc, c->r0, c->r1);
+}
+static uint32_t a_root_srand(trap_ctx *c) {
+  zm_root_srand(c->r0);
+  return 0;
+}
+static uint32_t a_root_rand(trap_ctx *c) {
+  (void)c;
+  return zm_root_rand();
+}
+static uint32_t a_root_sqrt(trap_ctx *c) { return zm_root_math(c->uc, ZM_MATH_SQRT, c->r0, c->r1); }
+static uint32_t a_root_cos(trap_ctx *c)  { return zm_root_math(c->uc, ZM_MATH_COS, c->r0, c->r1); }
+static uint32_t a_root_sin(trap_ctx *c)  { return zm_root_math(c->uc, ZM_MATH_SIN, c->r0, c->r1); }
+static uint32_t a_root_atan(trap_ctx *c) { return zm_root_math(c->uc, ZM_MATH_ATAN, c->r0, c->r1); }
+static uint32_t a_root_tan(trap_ctx *c)  { return zm_root_math(c->uc, ZM_MATH_TAN, c->r0, c->r1); }
+static uint32_t a_root_create_cbk(trap_ctx *c) {
+  uint32_t ret = zm_root_create_cbk(c->uc);
+  cbk_heap_init_once(c->uc);
+  return ret;
+}
+
+/* ---- 区间 stub（offset 由 trap 地址自动算）---- */
+static uint32_t d_util_stub(trap_ctx *c) {
+  return zm_util_stub(c->uc, c->trap - TRAMP_BASE, c->r0, c->r1, c->r2, c->r3);
+}
+static uint32_t d_surf_nop(trap_ctx *c) {
+  return zm_surf_nop(c->uc, c->trap - TRAMP_BASE);
+}
+static uint32_t d_image_stub(trap_ctx *c) {
+  return zm_image_stub(c->uc, c->trap - TRAMP_BASE, c->r0, c->r1, c->r2, c->r3);
+}
+static uint32_t d_tapi_stub(trap_ctx *c) {
+  return zm_tapi_stub(c->uc, c->trap - TAPI_VT_ADDR, c->r0, c->r1, c->r2, c->r3);
+}
+static uint32_t d_zip_stub(trap_ctx *c) {
+  return zm_zip_stub(c->uc, c->trap - ZIP_VT_ADDR, c->r0, c->r1, c->r2, c->r3);
+}
+
+/* ---- 控制流类（自行写 PC / 停 emu，置 handled）---- */
+static uint32_t a_init_callback(trap_ctx *c) {
+  uint32_t a0 = SIZE_SLOT;
+  uint32_t a1 = API_SLOT;
+  uc_reg_write(c->uc, UC_ARM_REG_R0, &a0);
+  uc_reg_write(c->uc, UC_ARM_REG_R1, &a1);
+  uint32_t callback_addr = g_registered_loop ? g_registered_loop : TR_enter_event_loop;
+  uc_reg_write(c->uc, UC_ARM_REG_LR, &callback_addr);
+  uint32_t entry = APPLET_ENTRY_POINT;
+  uc_reg_write(c->uc, UC_ARM_REG_PC, &entry);
+  log_info("init 握手：r0=&SIZE_SLOT、r1=&API_SLOT，返回地址=0x%X", callback_addr);
+  c->handled = true;
+  return 0;
+}
+static uint32_t a_register_event_loop(trap_ctx *c) {
+  if (c->r0)
+    g_registered_loop = c->r0;
+  log_info("applet 注册事件循环入口: 0x%X", c->r0);
+  return 0;
+}
+static uint32_t a_abort(trap_ctx *c) {
+  if (g_disasm) {
+    char msg[64];
+    read_cstr(c->uc, c->r0, msg, sizeof(msg));
+    log_info("applet 调用 abort(\"%s\")，停止模拟", msg);
+  } else {
+    log_info("applet 调用 abort，停止模拟");
+  }
+  uc_emu_stop(c->uc);
+  c->handled = true;
+  return 0;
+}
+static uint32_t a_enter_event_loop(trap_ctx *c) {
+  static int stage = 0;
+  static int resume_enabled = 1;
+  static int resume_inited = 0;
+  uc_engine *uc = c->uc;
+  c->handled = true; /* 该 trap 不走默认 R0/PC 写回 */
+
+  if (zm_event_close_requested()) {
+    log_info("applet 的退出回调已跑完（CloseApplet）→ 结束模拟");
+    uc_emu_stop(uc);
+    return 0;
+  }
+  if (!resume_inited) {
+    const char *ar = getenv("ZM_AUTO_RESUME");
+    resume_enabled = (!ar || ar[0] != '0');
+    resume_inited = 1;
+  }
+
+  if (stage == 0) {
+    uint32_t size = uc_read32(uc, SIZE_SLOT);
+    uint32_t handler = uc_read32(uc, API_SLOT + 8);
+    log_info("init 握手完成：size=%u handler=0x%X（API_SLOT=[%08X %08X %08X "
+             "%08X]）",
+             size, handler, uc_read32(uc, API_SLOT), uc_read32(uc, API_SLOT + 4),
+             uc_read32(uc, API_SLOT + 8), uc_read32(uc, API_SLOT + 12));
+    if (size == 0 || size > 0x40000 || handler == 0) {
+      log_error("握手结果异常（size=%u handler=0x%X），无法继续", size, handler);
+      uc_emu_stop(uc);
+      return 0;
+    }
+
+    uint32_t blk = applet_calloc(uc, 1, size + 32);
+    uint32_t INSTANCE = blk + 16;
+    uc_write32(uc, blk + 0, uc_read32(uc, API_SLOT + 0));
+    uc_write32(uc, blk + 4, uc_read32(uc, API_SLOT + 4));
+    uc_write32(uc, blk + 8, uc_read32(uc, API_SLOT + 8));
+    uc_write32(uc, INSTANCE, blk); /* +16 = self */
+    const char *filename = get_filename_from_fullpath(g_app_pathname);
+    size_t fn_len = strlen(filename) + 1;
+    if (4 + fn_len <= (size_t)size + 32u)
+      uc_mem_write(uc, INSTANCE + 4, filename, fn_len);
+    else
+      log_warn("filename (len=%zu) 超出实例大小 %u，跳过写入", fn_len, size);
+
+    g_instance = INSTANCE;
+    g_handler = handler;
+    log_info("实例已分配：instance=0x%X（%u 字节），handler=0x%X", INSTANCE, size, handler);
+
+    stage = 1;
+    log_info("派发 EV_CREATE(evt=0) -> handler=0x%X", g_handler);
+    dispatch_applet_event(0 /* EV_CREATE */, 0, 0);
+    log_info("EV_CREATE 之后：访问 [CBK_OBJ+0x48] = 0x%X（我们初始化的是 0x%X）",
+             uc_read32(uc, CBK_OBJ + 0x48), CBK_CTX);
+    return 0;
+  }
+
+  if (stage == 1) {
+    stage = 2;
+    if (resume_enabled) {
+      log_info("派发 EV_RESUME(evt=3) -> handler=0x%X", g_handler);
+      dispatch_applet_event(3, 0, 0);
+      return 0;
+    }
+  }
+
+  uint32_t hold_ms = 0;
+  const char *env = getenv("ZM_GFX_HOLD_MS");
+  if (env && *env)
+    hold_ms = (uint32_t)strtoul(env, NULL, 0);
+  static int exit_dispatched = 0;
+  if (exit_dispatched) {
+    uc_emu_stop(uc);
+    return 0;
+  }
+  if (!zm_display_event_loop(on_touch_click, hold_ms)) {
+    const char *ex = getenv("ZM_EXIT_EVENT");
+    if (ex && *ex && ex[0] != '0') {
+      exit_dispatched = 1;
+      log_info("派发 EV_STOP(evt=1) -> handler=0x%X（让 applet 自己收尾）", g_handler);
+      dispatch_applet_event(1, 0, 0);
+      return 0;
+    }
+    uc_emu_stop(uc);
+  }
+  return 0;
+}
+
+/* =========================================================================
+ * 分派表：[lo, hi] 区间内的 trap 交给同一个 fn；精确槽位单独成行。
+ * 注意：tapi / surf / image 的精确项必须排在各自区间之前，保证优先匹配。
+ * ========================================================================= */
+static const struct { uint32_t lo, hi; trap_fn fn; } k_trap_table[] = {
+  /* 控制流 / 特殊 */
+  { TR_init_callback, TR_init_callback, a_init_callback },
+  { TR_register_event_loop, TR_register_event_loop, a_register_event_loop },
+  { TR_abort, TR_abort, a_abort },
+  { TR_enter_event_loop, TR_enter_event_loop, a_enter_event_loop },
+  { TR_root_create_cbk, TR_root_create_cbk, a_root_create_cbk },
+  { TR_shell_CreateInstance, TR_shell_CreateInstance, a_shell_CreateInstance },
+  /* root */
+  { TR_root_getShell, TR_root_getShell, a_root_getShell },
+  { TR_root_malloc, TR_root_malloc, a_root_malloc },
+  { TR_root_free, TR_root_free, a_root_free },
+  { TR_root_malloc_screen, TR_root_malloc_screen, a_root_malloc_screen },
+  { TR_root_free_screen, TR_root_free_screen, a_root_free_screen },
+  { TR_root_x3C, TR_root_x3C, a_root_x3C },
+  { TR_root_ucs2_to_utf8, TR_root_ucs2_to_utf8, a_zm_ucs2_to_utf8 },
+  { TR_root_utf8_to_ucs2, TR_root_utf8_to_ucs2, a_zm_utf8_to_ucs2 },
+  { TR_root_sprintf, TR_root_sprintf, a_root_sprintf },
+  { TR_root_str_to_num, TR_root_str_to_num, a_root_str_to_num },
+  { TR_root_str_ctor, TR_root_str_ctor, a_root_str_ctor },
+  { TR_root_strchr, TR_root_strchr, a_zm_strlen },
+  { TR_root_memcmp, TR_root_memcmp, a_u_memcmp },
+  { TR_root_memcpy, TR_root_memcpy, a_u_memcpy },
+  { TR_root_memset, TR_root_memset, a_u_memset },
+  { TR_root_str_assign, TR_root_str_assign, a_zm_root_str_assign },
+  { TR_root_strstr, TR_root_strstr, a_zm_strstr },
+  { TR_root_x68C, TR_root_x68C, a_zm_root_x68C },
+  { TR_root_spec_lookup, TR_root_spec_lookup, a_zm_spec_lookup },
+  { TR_root_str_find, TR_root_str_find, a_zm_strchr },
+  { TR_root_wcslen, TR_root_wcslen, a_zm_wcslen },
+  { TR_root_srand, TR_root_srand, a_root_srand },
+  { TR_root_rand, TR_root_rand, a_root_rand },
+  { TR_root_sqrt, TR_root_sqrt, a_root_sqrt },
+  { TR_root_cos, TR_root_cos, a_root_cos },
+  { TR_root_sin, TR_root_sin, a_root_sin },
+  { TR_root_atan, TR_root_atan, a_root_atan },
+  { TR_root_tan, TR_root_tan, a_root_tan },
+  /* shell */
+  { TR_shell_AddRef, TR_shell_AddRef, a_zm_shell_AddRef },
+  { TR_shell_Release, TR_shell_Release, a_zm_shell_Release },
+  { TR_shell_x0C, TR_shell_x0C, a_off_shell_0C },
+  { TR_shell_GetDeviceInfo, TR_shell_GetDeviceInfo, a_zm_shell_GetDeviceInfo },
+  { TR_shell_GetRootDir, TR_shell_GetRootDir, a_zm_shell_GetRootDir },
+  { TR_shell_SetWorkDir, TR_shell_SetWorkDir, a_off_shell_18 },
+  { TR_shell_GetWorkDir, TR_shell_GetWorkDir, a_zm_shell_GetWorkDir },
+  { TR_shell_StartApplet, TR_shell_StartApplet, a_off_shell_20 },
+  { TR_shell_CloseApplet, TR_shell_CloseApplet, a_zm_shell_CloseApplet },
+  { TR_shell_CanStartApplet, TR_shell_CanStartApplet, a_off_shell_28 },
+  { TR_shell_ActiveApplet, TR_shell_ActiveApplet, a_off_shell_2C },
+  { TR_shell_GetApplet, TR_shell_GetApplet, a_zm_shell_GetApplet },
+  { TR_shell_x34, TR_shell_x34, a_off_shell_34 },
+  { TR_shell_x38, TR_shell_x38, a_off_shell_38 },
+  { TR_shell_SetTimer, TR_shell_SetTimer, a_shell_SetTimer },
+  { TR_shell_CancelTimer, TR_shell_CancelTimer, a_zm_timer_CancelTimer },
+  { TR_shell_CancelOwnerTimer, TR_shell_CancelOwnerTimer, a_zm_timer_CancelOwnerTimer },
+  { TR_shell_GetTickCount, TR_shell_GetTickCount, a_zm_shell_GetTickCount },
+  { TR_shell_OpenWapBrowser, TR_shell_OpenWapBrowser, a_off_shell_4C },
+  { TR_shell_x50, TR_shell_x50, a_off_shell_50 },
+  { TR_shell_SetEndKeyMask, TR_shell_SetEndKeyMask, a_off_shell_54 },
+  { TR_shell_LoadDLL, TR_shell_LoadDLL, a_shell_LoadDLL },
+  { TR_shell_UnloadDLL, TR_shell_UnloadDLL, a_zm_shell_UnloadDLL },
+  { TR_shell_GetAppletMask, TR_shell_GetAppletMask, a_off_shell_60 },
+  { TR_shell_SetAppletMask, TR_shell_SetAppletMask, a_off_shell_64 },
+  { TR_shell_IsLoadGlobalLibrary, TR_shell_IsLoadGlobalLibrary, a_off_shell_68 },
+  { TR_shell_LoadGlobalLibrary, TR_shell_LoadGlobalLibrary, a_off_shell_6C },
+  { TR_shell_FreeGlobalLibrary, TR_shell_FreeGlobalLibrary, a_off_shell_70 },
+  { TR_shell_IsGlobalLibraryUseStaticMem, TR_shell_IsGlobalLibraryUseStaticMem, a_off_shell_74 },
+  { TR_shell_LoadLibraryExt, TR_shell_LoadLibraryExt, a_zm_shell_LoadLibraryExt },
+  { TR_shell_EntryApplet, TR_shell_EntryApplet, a_off_shell_7C },
+  { TR_shell_GetAppDir, TR_shell_GetAppDir, a_shell_GetAppDir },
+  { TR_shell_GetSupportHall, TR_shell_GetSupportHall, a_off_shell_84 },
+  /* fileMgr */
+  { TR_fileMgr_AddRef, TR_fileMgr_AddRef, a_off_fm_00 },
+  { TR_fileMgr_Release, TR_fileMgr_Release, a_off_fm_04 },
+  { TR_fileMgr_open_file, TR_fileMgr_open_file, a_fileMgr_open_file },
+  { TR_fileMgr_x0C, TR_fileMgr_x0C, a_zm_fileMgr_GetInfo },
+  { TR_fileMgr_x10, TR_fileMgr_x10, a_off_fm_10 },
+  { TR_fileMgr_x14, TR_fileMgr_x14, a_off_fm_14 },
+  { TR_fileMgr_x18, TR_fileMgr_x18, a_off_fm_18 },
+  { TR_fileMgr_x1C, TR_fileMgr_x1C, a_off_fm_1C },
+  { TR_fileMgr_x20, TR_fileMgr_x20, a_zm_fileMgr_TestFile },
+  { TR_fileMgr_x24, TR_fileMgr_x24, a_off_fm_24 },
+  { TR_fileMgr_x28, TR_fileMgr_x28, a_off_fm_28 },
+  { TR_fileMgr_x2C, TR_fileMgr_x2C, a_off_fm_2C },
+  { TR_fileMgr_x30, TR_fileMgr_x30, a_zm_fileMgr_StorageSupport },
+  { TR_fileMgr_x34, TR_fileMgr_x34, a_off_fm_34 },
+  { TR_fileMgr_x38, TR_fileMgr_x38, a_fileMgr_x3C },
+  { TR_file_close, TR_file_close, a_zm_file_close },
+  { TR_file_read, TR_file_read, a_zm_file_read },
+  { TR_file_write, TR_file_write, a_zm_file_write },
+  { TR_file_seek, TR_file_seek, a_zm_file_seek },
+  { TR_file_tell, TR_file_tell, a_zm_file_tell },
+  /* util 区间 */
+  { TR_util_x00, TR_util_x18, d_util_stub },
+  /* display */
+  { TR_display_AddRef, TR_display_AddRef, a_zm_display_AddRef },
+  { TR_display_Release, TR_display_Release, a_zm_display_Release },
+  { TR_display_GetMaxLayerCount, TR_display_GetMaxLayerCount, a_zm_display_GetMaxLayerCount },
+  { TR_display_CreateLayer, TR_display_CreateLayer, a_off_disp_CreateLayer },
+  { TR_display_CreateLayerExt, TR_display_CreateLayerExt, a_off_disp_CreateLayerExt },
+  { TR_display_FreeLayer, TR_display_FreeLayer, a_zm_display_FreeLayer },
+  { TR_display_FreeAllLayer, TR_display_FreeAllLayer, a_zm_display_FreeAllLayer },
+  { TR_display_GetLayerInfo, TR_display_GetLayerInfo, a_off_disp_GetLayerInfo },
+  { TR_display_SetActiveLayer, TR_display_SetActiveLayer, a_zm_display_SetActiveLayer },
+  { TR_display_SetLayerPosition, TR_display_SetLayerPosition, a_off_disp_SetLayerPosition },
+  { TR_display_Update, TR_display_Update, a_display_Update },
+  { TR_display_UpdateEx, TR_display_UpdateEx, a_zm_display_UpdateEx },
+  { TR_display_GetActiveLayer, TR_display_GetActiveLayer, a_zm_display_GetActiveLayer },
+  { TR_display_LockScreen, TR_display_LockScreen, a_off_disp_LockScreen },
+  { TR_display_UnlockScreen, TR_display_UnlockScreen, a_zm_display_UnlockScreen },
+  { TR_display_RegisterCustomFont, TR_display_RegisterCustomFont, a_off_disp_RegisterCustomFont },
+  { TR_display_SelectFont, TR_display_SelectFont, a_zm_display_SelectFont },
+  { TR_display_GetFontWidth, TR_display_GetFontWidth, a_zm_display_GetFontWidth },
+  { TR_display_GetFontHeight, TR_display_GetFontHeight, a_zm_display_GetFontHeight },
+  { TR_display_MeasureString, TR_display_MeasureString, a_display_MeasureString },
+  { TR_display_DrawText, TR_display_DrawText, a_display_DrawText },
+  { TR_display_SetTransColor, TR_display_SetTransColor, a_zm_display_SetTransColor },
+  { TR_display_SetOpacity, TR_display_SetOpacity, a_off_disp_SetOpacity },
+  { TR_display_SetClipRect, TR_display_SetClipRect, a_off_disp_SetClipRect },
+  { TR_display_GetClipRect, TR_display_GetClipRect, a_off_disp_GetClipRect },
+  { TR_display_SetPixel, TR_display_SetPixel, a_off_disp_SetPixel },
+  { TR_display_DrawLine, TR_display_DrawLine, a_off_disp_DrawLine },
+  { TR_display_DrawRect, TR_display_DrawRect, a_display_DrawRect },
+  { TR_display_FillRect, TR_display_FillRect, a_display_FillRect },
+  { TR_display_DrawRoundRect, TR_display_DrawRoundRect, a_off_disp_DrawRoundRect },
+  { TR_display_DrawCircle, TR_display_DrawCircle, a_off_disp_DrawCircle },
+  { TR_display_FillCircle, TR_display_FillCircle, a_off_disp_FillCircle },
+  { TR_display_DrawArc, TR_display_DrawArc, a_off_disp_DrawArc },
+  { TR_display_FillArc, TR_display_FillArc, a_off_disp_FillArc },
+  { TR_display_FillGradientRect, TR_display_FillGradientRect, a_off_disp_FillGradientRect },
+  { TR_display_AlphaBlendRect, TR_display_AlphaBlendRect, a_off_disp_AlphaBlendRect },
+  { TR_display_DrawImage, TR_display_DrawImage, a_off_disp_DrawImage },
+  { TR_display_DrawBitmap, TR_display_DrawBitmap, a_off_disp_DrawBitmap },
+  { TR_display_DrawBitmapEx, TR_display_DrawBitmapEx, a_display_DrawBitmapEx },
+  { TR_display_DrawBitmapFrame, TR_display_DrawBitmapFrame, a_off_disp_DrawBitmapFrame },
+  { TR_display_CreateBitmap, TR_display_CreateBitmap, a_zm_display_CreateBitmap },
+  { TR_display_LoadBitmap, TR_display_LoadBitmap, a_zm_display_LoadBitmap },
+  { TR_display_CreateImage, TR_display_CreateImage, a_off_disp_CreateImage },
+  { TR_display_BitBlt, TR_display_BitBlt, a_display_BitBlt },
+  { TR_display_Flatten, TR_display_Flatten, a_off_disp_Flatten },
+  { TR_display_StretchBlt, TR_display_StretchBlt, a_display_StretchBlt },
+  { TR_display_DrawAntialiasingLine, TR_display_DrawAntialiasingLine, a_off_disp_DrawAntialiasingLine },
+  { TR_display_DrawWLine, TR_display_DrawWLine, a_off_disp_DrawWLine },
+  { TR_display_GetDMLayerHdlr, TR_display_GetDMLayerHdlr, a_off_disp_GetDMLayerHdlr },
+  { TR_display_RelevanceLayer, TR_display_RelevanceLayer, a_off_disp_RelevanceLayer },
+  { TR_display_Refresh, TR_display_Refresh, a_zm_display_Refresh },
+  { TR_display_DrawImageExt, TR_display_DrawImageExt, a_off_disp_DrawImageExt },
+  { TR_display_DrawSysWallPaper, TR_display_DrawSysWallPaper, a_off_disp_DrawSysWallPaper },
+  { TR_display_DrawBorderText, TR_display_DrawBorderText, a_off_disp_DrawBorderText },
+  { TR_display_PushAndSetAlphaLayer, TR_display_PushAndSetAlphaLayer, a_off_disp_PushAndSetAlphaLayer },
+  { TR_display_PopAndRestoreAlphaLayer, TR_display_PopAndRestoreAlphaLayer, a_off_disp_PopAndRestoreAlphaLayer },
+  { TR_display_RotateScreen, TR_display_RotateScreen, a_off_disp_RotateScreen },
+  /* surf（精确项须先于区间） */
+  { TR_surf_release, TR_surf_release, a_zm_surf_release },
+  { TR_surf_getrect, TR_surf_getrect, a_zm_surf_getrect },
+  { TR_surf_x04, TR_surf_x50, d_surf_nop },
+  /* image */
+  { TR_image_AddRef, TR_image_AddRef, a_zm_image_AddRef },
+  { TR_image_Release, TR_image_Release, a_zm_image_Release },
+  { TR_image_SetData, TR_image_SetData, a_zm_image_SetData },
+  { TR_image_GetFrameCount, TR_image_GetFrameCount, a_zm_image_GetFrameCount },
+  { TR_image_Width, TR_image_Width, a_zm_image_Width },
+  { TR_image_Height, TR_image_Height, a_zm_image_Height },
+  { TR_image_GetType, TR_image_GetType, a_zm_image_GetType },
+  { TR_image_Decode, TR_image_Decode, a_image_Decode },
+  { TR_image_x20, TR_image_x3C, d_image_stub },
+  /* bitmap */
+  { TR_bitmap_AddRef, TR_bitmap_AddRef, a_zm_bitmap_AddRef },
+  { TR_bitmap_Release, TR_bitmap_Release, a_zm_bitmap_Release },
+  { TR_bitmap_SetTransColor, TR_bitmap_SetTransColor, a_zm_bitmap_SetTransColor },
+  { TR_bitmap_sub_25F78, TR_bitmap_sub_25F78, a_off_bmp_25F78 },
+  { TR_bitmap_GetInfo, TR_bitmap_GetInfo, a_zm_bitmap_GetInfo },
+  { TR_bitmap_sub_25F84, TR_bitmap_sub_25F84, a_off_bmp_25F84 },
+  { TR_bitmap_sub_25FF8, TR_bitmap_sub_25FF8, a_off_bmp_25FF8 },
+  /* media */
+  { TR_media_AddRef, TR_media_AddRef, a_media_AddRef },
+  { TR_media_Release, TR_media_Release, a_media_Release },
+  { TR_media_x08, TR_media_x08, a_off_media_08 },
+  { TR_media_x0C, TR_media_x0C, a_off_media_0C },
+  { TR_media_play, TR_media_play, a_media_play },
+  { TR_media_stop, TR_media_stop, a_zm_media_stop },
+  { TR_media_x18, TR_media_x18, a_zm_media_pause_music },
+  { TR_media_x1C, TR_media_x1C, a_zm_media_resume_music },
+  { TR_media_x20, TR_media_x20, a_off_media_20 },
+  { TR_media_x24, TR_media_x24, a_off_media_24 },
+  { TR_media_x28, TR_media_x28, a_off_media_28 },
+  { TR_media_x2C, TR_media_x2C, a_off_media_2C },
+  { TR_media_x30, TR_media_x30, a_off_media_30 },
+  { TR_media_x34, TR_media_x34, a_off_media_34 },
+  { TR_media_x38, TR_media_x38, a_media_x38 },
+  { TR_media_x3C, TR_media_x3C, a_off_media_3C },
+  { TR_media_x40, TR_media_x40, a_media_x40 },
+  { TR_media_x44, TR_media_x44, a_off_media_44 },
+  { TR_media_x48, TR_media_x48, a_off_media_48 },
+  { TR_media_x4C, TR_media_x4C, a_off_media_4C },
+  { TR_media_x50, TR_media_x50, a_off_media_50 },
+  { TR_media_x54, TR_media_x54, a_media_x54 },
+  { TR_media_x58, TR_media_x58, a_off_media_58 },
+  /* setting */
+  { TR_setting_AddRef, TR_setting_AddRef, a_setting_AddRef },
+  { TR_setting_Release, TR_setting_Release, a_zm_svc_release },
+  { TR_setting_x08, TR_setting_x08, a_off_set_08 },
+  { TR_setting_x0C, TR_setting_x0C, a_off_set_0C },
+  { TR_setting_x10, TR_setting_x10, a_off_set_10 },
+  { TR_setting_x14, TR_setting_x14, a_off_set_14 },
+  { TR_setting_x18, TR_setting_x18, a_setting_x18 },
+  { TR_setting_x1C, TR_setting_x1C, a_setting_x1C },
+  { TR_setting_x20, TR_setting_x20, a_setting_x20 },
+  { TR_setting_x24, TR_setting_x24, a_setting_x24 },
+  { TR_setting_x28, TR_setting_x28, a_off_set_28 },
+  { TR_setting_x2C, TR_setting_x2C, a_off_set_2C },
+  { TR_setting_x30, TR_setting_x30, a_off_set_30 },
+  { TR_setting_x34, TR_setting_x34, a_off_set_34 },
+  /* netmgr */
+  { TR_netmgr_release, TR_netmgr_release, a_zm_svc_release },
+  { TR_netmgr_x1C, TR_netmgr_x1C, a_zm_netmgr_x1C },
+  /* tapi（精确项须先于区间） */
+  { TR_tapi_x2C, TR_tapi_x2C, a_zm_tapi_x2C },
+  { TR_tapi_x40, TR_tapi_x40, a_zm_tapi_x40 },
+  { TR_tapi_release, TR_tapi_release, a_zm_svc_release },
+  { TR_tapi_x00, TR_tapi_x50, d_tapi_stub },
+  /* zip 区间 */
+  { TR_zip_x00, TR_zip_x10, d_zip_stub },
+  /* dll */
+  { TR_dll_release, TR_dll_release, a_zm_svc_release },
+  { TR_dll_init, TR_dll_init, a_zm_dll_init },
+  { TR_dll_config, TR_dll_config, a_dll_config },
+  { TR_dll_entry, TR_dll_entry, a_dll_entry },
+  /* cbk */
+  { TR_cbk_default, TR_cbk_default, a_zm_root_cbk_default },
+};
+
+/* 线性查表（首条命中即返回，故精确项须排在各自区间之前） */
+static trap_fn trap_lookup(uint32_t addr) {
+  for (size_t i = 0; i < sizeof(k_trap_table) / sizeof(k_trap_table[0]); i++) {
+    if (addr >= k_trap_table[i].lo && addr <= k_trap_table[i].hi)
+      return k_trap_table[i].fn;
+  }
+  return NULL;
+}
+
+/* 兜底：原 switch 的 default 分支（IBitmap 原生虚表 + 未接线槽告警），behavior 不变 */
+static uint32_t trap_default(trap_ctx *c) {
+  uint32_t trap_address = c->trap;
+  if (trap_address >= TRAMP_BASE + 0x1700 &&
+      trap_address < TRAMP_BASE + 0x1720) {
+    uint32_t off = trap_address - (TRAMP_BASE + 0x1700);
+    if (off == 0x10) { /* GetInfo(this, out)：RE memcpy(out, obj+8, 0x20) */
+      if (!c->r0 || !c->r1)
+        return (uint32_t)-4;
+      uint8_t info[0x20];
+      if (uc_mem_read(c->uc, c->r0 + 8, info, sizeof(info)) != UC_ERR_OK)
+        return (uint32_t)-4;
+      uc_mem_write(c->uc, c->r1, info, sizeof(info));
+      return 0;
+    } else if (off == 0x08) { /* SetTransColor(this, color) → 对象 +0x20 */
+      if (c->r0)
+        uc_mem_write(c->uc, c->r0 + 20, &c->r1, sizeof(c->r1));
+      return 0;
+    }
+    return 0; /* AddRef / Release / 其余未知槽：真机亦返回 0 */
+  }
+  if (trap_address >= TRAMP_BASE && trap_address < TRAMP_BASE + TRAMP_SIZE) {
+    uint32_t slot = trap_address - TRAMP_BASE;
+    log_error("非法的外部调用: 0x%08X (SHIM槽+0x%X) r0=0x%X r1=0x%X "
+              "r2=0x%X r3=0x%X sp[0]=0x%X sp[4]=0x%X lr=0x%X",
+              trap_address, slot, c->r0, c->r1, c->r2, c->r3, uc_read32(c->uc, c->sp),
+              uc_read32(c->uc, c->sp + 4), c->lr);
+  } else {
+    log_error("非法的外部调用: 0x%08" PRIx32, trap_address);
+  }
+  return 0;
+}
+
+void handle_trap(uc_engine *uc, uint32_t trap_address) {
   uint32_t r0 = 0, r1 = 0, r2 = 0, r3 = 0, sp = 0, lr = 0;
   /* 逐个检查寄存器读取结果，避免失败时使用未初始化值污染分发逻辑 */
   if (uc_reg_read(uc, UC_ARM_REG_R0, &r0) != UC_ERR_OK ||
@@ -322,1113 +1126,14 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   /* 统计探针（ZM_STAT=1）：在真正分发前记一笔，供"哪个槽位被疯狂调用"分析 */
   zm_stat_trap(trap_address - TRAMP_BASE);
 
-  uint32_t ret = 0;
   hook_ctx_apply(uc); /* applet 上下文镜像（见 hook.c） */
-  switch (trap_address) {
-  case TR_init_callback: {
-    /*
-     * applet 的"握手"入口。applet 启动代码在准备好之后会主动调用
-     * ROOT_TABLE_ADDR+0x118C，含义是"固件，请按下面这份规格初始化我"。
-     *
-     * 规格通过**参数**给出：applet 的握手函数（如 00000506 的 sub_F0
-     * 尾部 loc_8860）执行：
-     *     *r0 = 需要的实例字节数      （STR R2,[R0]，R2=0x50）
-     *     r1[0] = 0, r1[1] = 0, r1[2] = 事件处理回调地址
-     *     BX LR                          （返回固件）
-     * 因此固件必须传 r0 = &SIZE_SLOT、r1 = &API_SLOT，让它把这两个值
-     * 写进约定的槽位；随后固件再读取它们分配实例、并用该回调发起
-     * EV_CREATE。
-     *
-     * 旧实现把 r0 直接当成 instance 传进去（且跳 0x188），结果 applet
-     * 把 0x50/回调写进了实例内存，API_SLOT+8 里残留旧值 0x1108C，
-     * 后续事件派发全部走错分支 —— 表现为事件循环空转、零资源加载。
-     */
-    uint32_t a0 = SIZE_SLOT;
-    uint32_t a1 = API_SLOT;
-    uc_reg_write(uc, UC_ARM_REG_R0, &a0);
-    uc_reg_write(uc, UC_ARM_REG_R1, &a1);
-
-    /* 返回地址：握手函数 `BX LR` 回到这里，由宿主侧完成实例分配与
-     * 事件循环驱动（见 TR_enter_event_loop 的状态机）。 */
-    uint32_t callback_addr =
-        g_registered_loop ? g_registered_loop : TR_enter_event_loop;
-    uc_reg_write(uc, UC_ARM_REG_LR, &callback_addr);
-
-    /* 入口 = payload 偏移 0x188（`b loc_8860` 的握手 trampoline）。 */
-    uint32_t entry = APPLET_ENTRY_POINT;
-    uc_reg_write(uc, UC_ARM_REG_PC, &entry);
-    log_info("init 握手：r0=&SIZE_SLOT、r1=&API_SLOT，返回地址=0x%X",
-             callback_addr);
-    return;
-  } break;
-  case TR_register_event_loop:
-    /* ROOT_TABLE_ADDR+0x1184：applet 注册它的事件循环入口（r0=handler 地址）。
-     * 00000506 在 init 里先注册、再调 ROOT_TABLE_ADDR+0x118C()，随后返回；
-     * 模拟器据此单独驱动事件循环。 */
-    if (r0)
-      g_registered_loop = r0;
-    log_info("applet 注册事件循环入口: 0x%X", r0);
-    ret = 0;
-    break;
-
-  case TR_abort:
-    /* ROOT_TABLE_ADDR+0x14：applet 请求退出（实测 00000506 传 "aborted"）。 */
-    if (g_disasm) {
-      char msg[64];
-      read_cstr(uc, r0, msg, sizeof(msg));
-      log_info("applet 调用 abort(\"%s\")，停止模拟", msg);
-    } else {
-      log_info("applet 调用 abort，停止模拟");
-    }
-    uc_emu_stop(uc);
-    return;
-
-  case TR_enter_event_loop: {
-    /* 宿主侧驱动主循环的状态机。每次 applet 的回调返回（`pop {pc}` 到
-     * LR=TR_enter_event_loop）都会重新进入这里，按 stage 逐步推进：
-     *
-     *   stage 0：applet 刚跑完 init 握手（写了 SIZE_SLOT / API_SLOT），
-     *            这里读出实例大小与事件回调 → 分配实例 → 发 EV_CREATE。
-     *   stage 1：EV_CREATE 处理完 → 发 EV_RESUME（多家 applet 的
-     *            界面创建/资源加载都挂在这个分支上）。
-     *   stage 2：进入 SDL 事件循环等待用户交互。
-     *
-     * 每次派发事件后必须立刻 return，把控制权交回 unicorn 执行 handler；
-     * 否则 handler 永远没机会跑（表现为事件循环空转、零绘制）。 */
-    static int stage = 0;
-    static int resume_enabled = 1;
-    static int resume_inited = 0;
-
-    /* applet 调过 IShell.CloseApplet（+0x24）：它的退出回调 EV_STOP 已跑完，收工 */
-    if (zm_event_close_requested()) {
-      log_info("applet 的退出回调已跑完（CloseApplet）→ 结束模拟");
-      uc_emu_stop(uc);
-      return;
-    }
-
-    if (!resume_inited) {
-      const char *ar = getenv("ZM_AUTO_RESUME");
-      resume_enabled = (!ar || ar[0] != '0');
-      resume_inited = 1;
-    }
-
-    if (stage == 0) {
-      uint32_t size = uc_read32(uc, SIZE_SLOT);
-      uint32_t handler = uc_read32(uc, API_SLOT + 8);
-      log_info("init 握手完成：size=%u handler=0x%X（API_SLOT=[%08X %08X %08X "
-               "%08X]）",
-               size, handler, uc_read32(uc, API_SLOT),
-               uc_read32(uc, API_SLOT + 4), uc_read32(uc, API_SLOT + 8),
-               uc_read32(uc, API_SLOT + 12));
-      if (size == 0 || size > 0x40000 || handler == 0) {
-        log_error("握手结果异常（size=%u handler=0x%X），无法继续", size,
-                  handler);
-        uc_emu_stop(uc);
-        return;
-      }
-
-      /* 【按 AEE 规程构造实例】（res/安卓喜洋洋/libaee.so.c.txt:
-       *  ZMAEE_IShell_RunApplet @00035414）：
-       *    v10(&v17, v16);                 // 调 applet 的 zmaee_main 拿 size 与 3 个字
-       *    v11 = malloc(v17 + 32);         // 上下文块 = applet 报的 size + 32
-       *    ctx[0..2] = v16[0..2];          // 回填那 3 个字
-       *    *(ctx + 16) = v11;              // +16 = self（指向块首）
-       *    strncpy(ctx + 20, path, 0x40);  // +20 = 模块路径串（扩展名改成 .app）
-       *    *a3 = ctx;  *a4 = ctx + 16;     // 交给 applet 的"实例"= ctx + 16
-       * 我们以前只按 size 分配、实例指针给的是块首、且没写 self。
-       * 注意 ctx+20 == 实例+4，所以下面写文件名的偏移本来就是对的。 */
-      uint32_t blk = applet_calloc(uc, 1, size + 32);
-      uint32_t INSTANCE = blk + 16;
-      uc_write32(uc, blk + 0, uc_read32(uc, API_SLOT + 0));
-      uc_write32(uc, blk + 4, uc_read32(uc, API_SLOT + 4));
-      uc_write32(uc, blk + 8, uc_read32(uc, API_SLOT + 8));
-      uc_write32(uc, INSTANCE, blk); /* +16 = self */
-      /* 【已试过并撤回】把 CBK_OBJ+0x48 指向 INSTANCE+0x68 的猜测：
-       * 实测 applet 的上下文对象是**堆对象**（一轮 0x1A0080、另一轮 0x1A0260），
-       * 不是相对 INSTANCE 的固定偏移 → 该猜测被推翻，勿重复尝试。 */
-      /* 把 applet 短名写入 instance+4：applet 用它在运行时构造
-       * "<name>.zmr" 等资源文件名。写入前做边界校验。 */
-      const char *filename = get_filename_from_fullpath(g_app_pathname);
-      size_t fn_len = strlen(filename) + 1;
-      if (4 + fn_len <= (size_t)size + 32u)
-        uc_mem_write(uc, INSTANCE + 4, filename, fn_len);
-      else
-        log_warn("filename (len=%zu) 超出实例大小 %u，跳过写入", fn_len, size);
-
-      g_instance = INSTANCE;
-      g_handler = handler;
-      log_info("实例已分配：instance=0x%X（%u 字节），handler=0x%X", INSTANCE,
-               size, handler);
-
-      stage = 1;
-      log_info("派发 EV_CREATE(evt=0) -> handler=0x%X", g_handler);
-      dispatch_applet_event(0 /* EV_CREATE */, 0, 0);
-      log_info("EV_CREATE 之后：访问 [CBK_OBJ+0x48] = 0x%X（我们初始化的是 0x%X）",
-               uc_read32(uc, CBK_OBJ + 0x48), CBK_CTX);
-
-      /* [CBK_OBJ+0x48] 的纠正放在 zm_shell_CreateInstance 里做（见该函数）：
-       * applet 的上下文对象是在 EV_CREATE 之后由 sub_319C 建的，扫描时机太早。 */
-      return;
-    }
-
-    if (stage == 1) {
-      stage = 2;
-      if (resume_enabled) {
-        log_info("派发 EV_RESUME(evt=3) -> handler=0x%X", g_handler);
-        dispatch_applet_event(3, 0, 0);
-        return;
-      }
-    }
-
-    /* stage >= 2：进入 SDL 事件循环等待用户交互。
-     * 返回 false → 模拟结束；返回 true → 已派发点击，继续执行 handler。
-     * 必须 uc_emu_stop + return，否则会 fall-through 到 default
-     * 误报"非法的外部调用"，且 PC 继续执行 TRAMP 区下一条指令导致越界。 */
-    uint32_t hold_ms = 0;
-    const char *env = getenv("ZM_GFX_HOLD_MS");
-    if (env && *env)
-      hold_ms = (uint32_t)strtoul(env, NULL, 0);
-    /* 关窗/超时后的收尾：
-     *   1) 已派发过 EV_STOP → 直接收工（**必须先判**，否则会再次进入事件循环，
-     *      而 SDL_QUIT 已被消费，循环再也不返回 → 只能被 timeout -k 强杀）。
-     *   2) 否则在 ZM_EXIT_EVENT=1 时先派发 EV_STOP(evt=1)，让 applet 自己跑完
-     *      收尾（依据 00000506 入口 sub_87C8：evt=0 建屏、evt=1 释放屏幕；
-     *      那条链路到 sub_9270：ISetting[+0x18](0) 关声音、pauseMusic、
-     *      取消定时器、释放 UI 并存盘 data/farm）—— 也就是"applet 自己的
-     *      退出回调"。handler 返回后回到本 trap，再走 1) 收工。
-     * 默认关闭（ZM_EXIT_EVENT=1 开启）：部分 applet 的退出路径会踩到已释放
-     * 的对象，开启前先确认该 applet 稳定。 */
-    static int exit_dispatched = 0;
-    if (exit_dispatched) {
-      uc_emu_stop(uc);
-      return;
-    }
-    if (!zm_display_event_loop(on_touch_click, hold_ms)) {
-      const char *ex = getenv("ZM_EXIT_EVENT");
-      if (ex && *ex && ex[0] != '0') {
-        exit_dispatched = 1;
-        log_info("派发 EV_STOP(evt=1) -> handler=0x%X（让 applet 自己收尾）",
-                 g_handler);
-        dispatch_applet_event(1, 0, 0);
-        return;
-      }
-      uc_emu_stop(uc);
-    }
-    return;
-  } //
-  break;
-    /* ---- ROOT_TABLE_ADDR ---- */
-  case TR_root_getShell:
-    ret = G_SHELL_ADDR;
-    break;
-  case TR_root_malloc: {
-    /* 注意：真实签名是 malloc(size=r0, ctx=r1)，返回值直接是对象指针。
-     * 之前误当成 (ctx, size) 来打日志，才让"0x823200 不属于堆"看起来矛盾。 */
-    uint32_t a_size = r0;
-    uint32_t a_ctx = r1;
-    ret = applet_malloc(uc, r0);
-    /* 总是打（debug 级）：排查"同一地址是否被发了两次 / 是否 free 后复用" */
-    log_debug("malloc(size=%u ctx=0x%X) lr=0x%X -> 0x%X", a_size, a_ctx, lr,
-              ret);
-    break;
-  }
-  case TR_root_free:
-    log_debug("free(0x%X) lr=0x%X", r0, lr);
-    applet_free(uc, r0);
-    ret = 0;
-    break; /* free(r0=ptr) */
-  case TR_root_malloc_screen:
-    /* ROOT+0x30 = ZMAEE_MallocScreenMem(size) = malloc(size)
-     * （参考 libaee.so.c.txt:45030）。00000502 用它要整屏缓冲 0x25800；
-     * 以前这里是未接线槽 → 返回 0 → applet 的 NULL 分支读地址 0 的 blob 头
-     * 当对象表 → blx 到 0x7C000000 崩。 */
-    ret = applet_malloc(uc, r0);
-    log_debug("MallocScreenMem(0x%X) = 0x%X (lr=0x%X)", r0, ret, lr);
-    break;
-  case TR_root_free_screen:
-    log_debug("FreeScreenMem(0x%X) lr=0x%X", r0, lr);
-    applet_free(uc, r0);
-    ret = 0;
-    break;
-  case TR_root_x3C: /* 中性桩（见 emu_root_traps.h）：返回 0 */
-    ret = 0;
-    break;
-  case TR_root_ucs2_to_utf8:
-    /* ROOT+0x24 = ZMAEE_Ucs2_2_Utf8(ucs2_src, 字符数, utf8_dst, 字节容量)
-     * → 返回写入字节数（参考 libaee.so.c.txt:52664）。 */
-    ret = zm_ucs2_to_utf8(uc, r0, r1, r2, r3);
-    break;
-  case TR_root_utf8_to_ucs2:
-    /* ROOT_TABLE_ADDR[0x20] = ZMAEE_Utf8_2_Ucs2(utf8_src=r0, 源字节数=r1,
-     * ucs2_dst=r2, 目标字符容量=r3) → 返回写入的字符数。
-     * 详见 emu_root_traps.h 的 TR_root_utf8_to_ucs2 注释与 zm_str.c 的实现
-     * （旧实现按 memcpy 处理，是误判）。 */
-    ret = zm_utf8_to_ucs2(uc, r0, r1, r2, r3);
-    break;
-  case TR_root_sprintf:
-    /*
-     * ROOT_TABLE_ADDR[0x6C] sprintf(dst=r0, fmt=r1, va_area=r2)
-     *
-     * zmaee 约定：r2 指向一个由 applet 自带"溢出变参"助手构造的参数区，
-     * 布局为 [变参个数][第1个变参][第2个变参]...，每个变参占 **8 字节**
-     * （值在槽首）。实测 00000506 sub_18EDC / 00001b62 同型助手：
-     *   sub_98c90 扫描格式串，按 %d/%s/%x/%f... 逐个把 r2/r3/栈上的实参
-     *   存到 slot = r6 + n*8 + 4，最后 strb 计数到 r6+0；随后调用本槽。
-     * 因此这里必须用 U_VA_MEM8（addr = r2），而不是 4 字节连续布局——
-     * 旧实现按 4 字节槽取参，第 2 个变参就会读到 0，sprintf 结果被截断
-     * （实测 "%s\\%s" 只输出 "res\"，长度 4）。
-     *
-     * 换用 ulibc 后，格式串支持完整的 flags/width/precision/length 语法，
-     * 且输出上限由 512 字节提高到 64KB。
-     */
-    {
-      u_va va;
-      u_va_start_mem8(&va, uc, r2, 0);
-      ret = (uint32_t)u_sprintf(uc, r0, r1, &va);
-      if (g_disasm) {
-        char fmt[128], outp[256];
-        uint32_t lr = 0;
-        uc_reg_read(uc, UC_ARM_REG_LR, &lr);
-        read_cstr(uc, r1, fmt, sizeof(fmt));
-        read_cstr(uc, r0, outp, sizeof(outp));
-        log_debug("sprintf lr=0x%X [%u参数]: fmt=\"%s\" out=\"%s\" ret=%u", lr,
-                  uc_read32(uc, r2), fmt, outp, ret);
-      }
-    }
-    break;
-  case TR_root_str_to_num:
-    /* ROOT_TABLE_ADDR[0x74] = 数值字符串解析：strtol(str=r0, endptr=r1, base=r2)。
-     * RE 详见 emu_root_traps.h 的 ZM_StrToNum 注释：帮助页的标记解析器用它把
-     * "#FF0000" 拆成的三段两字符转成颜色分量，恒以 (buf, 0, 16) 调用；
-     * 未接线时该槽返回 0，实测每轮报 3716 次"非法的外部调用"、颜色塌成黑。 */
-    ret = (uint32_t)u_strtol(uc, r0, r1, (int)r2);
-    break;
-  case TR_root_str_ctor:
-    /* ROOT_TABLE_ADDR[0x88] str_ctor(dst=r0, src=r1)：含 '\0' 一起拷，返回 dst */
-    ret = u_strcpy(uc, r0, r1);
-    break;
-  case TR_root_strchr:
-    /* ROOT_TABLE_ADDR[0x90] = zmaee_strlen(s=r0)，返回字符串长度（**不是** strchr）。
-     *
-     * 逆向证据（两个 applet 的实际用法一致，全是"长度"语义）：
-     *   00000506 sub_313C/88AB8：sprintf("%s\\%s",...) 后取长度，作为
-     *       IImage::SetData(0, name, len) 的 len → 再据此读文件；
-     *   00001b62 0xB7DAC：长度 +1 后与缓冲上限比较，再调 strcpy 家族；
-     *   00001b62 0xB91C0：长度 & 0xFF 当字节长度用。
-     * 旧实现按 strchr 处理，遇到 r1 为残留脏值时返回 0，导致 applet 拿到
-     * len=0 → malloc(0)/Read(0 字节) → 后续解引用野指针崩溃。 */
-    ret = zm_strlen(uc, r0);
-    break;
-  case TR_root_memcmp:
-    /* ROOT_TABLE_ADDR[0x50] memcmp(a=r0, b=r1, n=r2)
-     * RE zmaee_memcmp @0x363E8（tramp 桩 0xb9b50）；00001b62 调用后
-     * cmp r0,#0 判断，返回值当布尔用。 */
-    ret = (uint32_t)u_memcmp(uc, r0, r1, r2);
-    break;
-  case TR_root_memcpy:
-    /* ROOT_TABLE_ADDR[0x5C] memcpy(dst=r0, src=r1, n=r2)
-     * RE zmaee_memcpy @0x36470（tramp 桩 0xb9b40）；00001b62 定长 4
-     * 字节拷贝，返回值当 dst 用。 */
-    ret = u_memcpy(uc, r0, r1, r2);
-    break;
-  case TR_root_memset:
-    /* ROOT_TABLE_ADDR[0x60] memset(dst=r0, val=r1, len=r2) */
-    ret = u_memset(uc, r0, r1, r2);
-    break;
-  case TR_root_str_assign:
-    /* ROOT_TABLE_ADDR[0x78] str_assign(str_obj=r0, cstr=r1)：把 C 串赋给 zmaee
-     * 字符串对象（写 data_ptr/len/内联缓冲三元组）。实现久备，
-     * 此前因伪索引槽位冲突未接；00001b62 高频调用此槽。 */
-    ret = zm_root_str_assign(uc, r0, r1);
-    break;
-  case TR_root_strstr:
-    /* ROOT_TABLE_ADDR[0xB0] = zmaee_strstr(haystack=r0, needle=r1)。
-     * 命中返回子串地址，未命中返回 0。 */
-    ret = zm_strstr(uc, r0, r1);
-    break;
-  case TR_root_x68C:
-    ret = zm_root_x68C(uc, r0, r1, r2, r3);
-    break;
-  case TR_root_spec_lookup:
-    /* ROOT_TABLE_ADDR[0xA4] = zmaee_strpbrk(str=r0, charset=r1)。
-     * applet 的 sprintf 包装（00000506 sub_98C90）用它统计格式串里的转换符
-     * 个数，返回值必须是**原串内地址**（旧实现返回宿主缓冲，导致扫描指针
-     * 跳飞、变参个数少算）。 */
-    ret = zm_spec_lookup(uc, r0, r1);
-    break;
-  case TR_root_str_find:
-    /*
-     * ROOT_TABLE_ADDR[0xA8] str_find(str_obj_or_cstr=r0, ch=r1)
-     * 仍是 zm_strchr：它带 zmaee 特有的"字符串对象 vs 裸 C 串"启发式
-     * （判断 data_ptr 是否等于 ptr+12 的内联布局），属 zmaee 领域知识，
-     * 不该塞进 ulibc。见 zm_str.c。
-     */
-    ret = zm_strchr(uc, r0, r1);
-    break;
-  /* ---- shell（g_aee_shell_vtbl @ .data:0x64440，34 槽）---- */
-  case TR_shell_AddRef:
-    ret = zm_shell_AddRef(uc, r0);
-    break;
-  case TR_shell_Release:
-    ret = zm_shell_Release(uc, r0);
-    break;
-  case TR_shell_CreateInstance: /* 旧称 queryInterface：按服务号返回对象 */
-    ret = zm_shell_CreateInstance(uc, r1, r2);
-    break;
-  case TR_shell_x0C: /* RE sub_34DE4，未知 */
-    ret = zm_shell_stub(uc, 0x0C, r0, r1, r2, r3);
-    break;
-  case TR_shell_GetDeviceInfo: /* 旧称 getSystemInfo：写设备信息 */
-    ret = zm_shell_GetDeviceInfo(uc, r1);
-    break;
-  case TR_shell_GetRootDir:
-    ret = zm_shell_GetRootDir(uc); /* 返回目录字符串指针（以前是返回 0 的桩 ✗） */
-    break;
-  case TR_shell_SetWorkDir:
-    ret = zm_shell_stub(uc, 0x18, r0, r1, r2, r3);
-    break;
-  case TR_shell_GetWorkDir:
-    ret = zm_shell_GetWorkDir(uc);
-    break;
-  case TR_shell_StartApplet:
-    ret = zm_shell_stub(uc, 0x20, r0, r1, r2, r3);
-    break;
-  case TR_shell_CloseApplet: /* +0x24 = CloseApplet(bRetToIdle)：applet 请求关闭 */
-    ret = zm_shell_CloseApplet(uc, r1);
-    break;
-  case TR_shell_CanStartApplet:
-    ret = zm_shell_stub(uc, 0x28, r0, r1, r2, r3);
-    break;
-  case TR_shell_ActiveApplet:
-    ret = zm_shell_stub(uc, 0x2C, r0, r1, r2, r3);
-    break;
-  case TR_shell_GetApplet:
-    /* RE（nativeAEERepaint）：GetApplet(shell, 0) 返回当前 applet 对象，
-     * 随后调 (*applet_vt+8)(applet, 4, 0, 0) 做重绘。
-     * g_instance 由 create_cbk 时记录（trap.c:238）。 */
-    ret = zm_shell_GetApplet(uc, r1);
-    break;
-  case TR_shell_x34: /* RE sub_34764，未知 */
-    ret = zm_shell_stub(uc, 0x34, r0, r1, r2, r3);
-    break;
-  case TR_shell_x38: /* RE sub_34C1C，未知 */
-    ret = zm_shell_stub(uc, 0x38, r0, r1, r2, r3);
-    break;
-  case TR_shell_SetTimer: /* RE：a2=r1=时长ms cb=r2 owner=r3 a5=sp[0] */
-    ret = zm_timer_SetTimer(uc, r1, r2, r3, uc_read32(uc, sp));
-    break;
-  case TR_shell_CancelTimer: /* RE：按 timer ID 取消 */
-    ret = zm_timer_CancelTimer(uc, r1);
-    break;
-  case TR_shell_CancelOwnerTimer: /* RE：删全部 entry[1]==owner（r1）的定时器 */
-    ret = zm_timer_CancelOwnerTimer(uc, r1);
-    break;
-  case TR_shell_GetTickCount: /* 单调毫秒时间戳 */
-    ret = zm_shell_GetTickCount(uc);
-    break;
-  case TR_shell_OpenWapBrowser:
-    ret = zm_shell_stub(uc, 0x4C, r0, r1, r2, r3);
-    break;
-  case TR_shell_x50: /* RE sub_3474C，未知 */
-    ret = zm_shell_stub(uc, 0x50, r0, r1, r2, r3);
-    break;
-  case TR_shell_SetEndKeyMask:
-    ret = zm_shell_stub(uc, 0x54, r0, r1, r2, r3);
-    break;
-  case TR_shell_LoadDLL: /* RE sub_35230：applet 实测传 dll 名 */
-    ret = zm_shell_LoadDLL(uc, r1, r2, r3);
-    break;
-  case TR_shell_UnloadDLL: /* RE sub_346D8 */
-    ret = zm_shell_UnloadDLL(uc, r1);
-    break;
-  case TR_shell_GetAppletMask:
-    ret = zm_shell_stub(uc, 0x60, r0, r1, r2, r3);
-    break;
-  case TR_shell_SetAppletMask:
-    ret = zm_shell_stub(uc, 0x64, r0, r1, r2, r3);
-    break;
-  case TR_shell_IsLoadGlobalLibrary:
-    ret = zm_shell_stub(uc, 0x68, r0, r1, r2, r3);
-    break;
-  case TR_shell_LoadGlobalLibrary:
-    ret = zm_shell_stub(uc, 0x6C, r0, r1, r2, r3);
-    break;
-  case TR_shell_FreeGlobalLibrary:
-    ret = zm_shell_stub(uc, 0x70, r0, r1, r2, r3);
-    break;
-  case TR_shell_IsGlobalLibraryUseStaticMem:
-    ret = zm_shell_stub(uc, 0x74, r0, r1, r2, r3);
-    break;
-  case TR_shell_LoadLibraryExt: /* 旧称 loadDLL2：载 zmsys006.dll */
-    ret = zm_shell_LoadLibraryExt(uc, r0, r1, r2, r3);
-    break;
-  case TR_shell_EntryApplet:
-    ret = zm_shell_stub(uc, 0x7C, r0, r1, r2, r3);
-    break;
-  case TR_shell_GetAppDir:
-    ret = zm_shell_GetAppDir(uc, r1, r2);
-    break;
-  case TR_shell_GetSupportHall:
-    ret = zm_shell_stub(uc, 0x84, r0, r1, r2, r3);
-    break;
-  /* ---- fs / file（IFileMgr g_filemgr_vtbl @.data:0x64038，16 槽）---- */
-  case TR_fileMgr_AddRef:
-    ret = zm_fileMgr_stub(uc, 0x00, r0, r1, r2, r3);
-    break;
-  case TR_fileMgr_Release:
-    ret = zm_fileMgr_stub(uc, 0x04, r0, r1, r2, r3);
-    break;
-  case TR_fileMgr_open_file:
-    log_debug("fs_open(r0=0x%X)", r0); // 此处的 r0 是 FileMgr的地址
-    log_debug("G_FileMgr_ADDR=0x%X", G_FileMgr_ADDR);
-
-    if (r0 == 0) {
-      ret = 0;
-    } else {
-      ret = zm_fileMgr_open_file(uc, r1); // 这地方为什么是r1呀
-    }
-    break;
-  case TR_fileMgr_x0C: /* RE sub_2A550 = IFileMgr::GetInfo(mgr, name, out) */
-    ret = zm_fileMgr_GetInfo(uc, r0, r1, r2);
-    break;
-  case TR_fileMgr_x10: /* RE sub_2A4E0 */
-    ret = zm_fileMgr_stub(uc, 0x10, r0, r1, r2, r3);
-    break;
-  case TR_fileMgr_x14: /* RE sub_2A45C */
-    ret = zm_fileMgr_stub(uc, 0x14, r0, r1, r2, r3);
-    break;
-  case TR_fileMgr_x18: /* RE sub_2A3F4 */
-    ret = zm_fileMgr_stub(uc, 0x18, r0, r1, r2, r3);
-    break;
-  case TR_fileMgr_x1C: /* RE sub_2A344 */
-    ret = zm_fileMgr_stub(uc, 0x1C, r0, r1, r2, r3);
-    break;
-  case TR_fileMgr_x20: /* RE sub_2A7BC：TestFile，存在 0/不存在 -1/参数 -4 */
-    ret = zm_fileMgr_TestFile(uc, r0, r1);
-    break;
-  case TR_fileMgr_x24: /* RE sub_2A2D0 */
-    ret = zm_fileMgr_stub(uc, 0x24, r0, r1, r2, r3);
-    break;
-  case TR_fileMgr_x28: /* RE sub_29EA0 */
-    ret = zm_fileMgr_stub(uc, 0x28, r0, r1, r2, r3);
-    break;
-  case TR_fileMgr_x2C: /* RE sub_29E7C */
-    ret = zm_fileMgr_stub(uc, 0x2C, r0, r1, r2, r3);
-    break;
-  case TR_fileMgr_x30: /* RE sub_29E40：存储区支持查询（'C'/'E'/'T'） */
-    ret = zm_fileMgr_StorageSupport(uc, r0, r1);
-    break;
-  case TR_fileMgr_x34: /* RE sub_29E08 */
-    ret = zm_fileMgr_stub(uc, 0x34, r0, r1, r2, r3);
-    break;
-  case TR_fileMgr_x38: /* RE sub_29E00 */
-    ret = zm_fileMgr_stub(uc, 0x38, r0, r1, r2, r3);
-    break;
-  case TR_fileMgr_x3C:
-    /* 00000001 实测：sub_68D8 @0x68F4 读 [vt+0x3C] 后 BLX，
-     *   R0 = IFileMgr 对象，R1 = UI 对象+0xC，R2 = &sub_68D8（回调），R3 = 0；
-     *   返回值被写进 UI 对象 +0x10（类表+0x20 → 0xD054 的 LDR R0,[R0,#0x10]
-     *   之后把它当 this 用）。此前这格不在表里（枚举只到 0x38），读表外 →
-     *   返回 0 → NULL 当 this → 崩在 pc=0x1EDC。
-     * 语义待从参数/回调确认（像"异步取数据 + 完成回调"），先接线：打参数 +
-     * 走既有 stub（返回 0），先保证不再读到表外的随机值。 */
-    log_debug("[FileMgr+0x3C] r0=0x%X r1=0x%X r2=0x%X r3=0x%X lr=0x%X", r0, r1,
-              r2, r3, lr);
-    ret = zm_fileMgr_stub(uc, 0x3C, r0, r1, r2, r3);
-    break;
-  case TR_file_close:
-    ret = zm_file_close(uc, r0);
-    break; /* file.close(r0=this/file_id) */
-  case TR_file_read:
-    ret = zm_file_read(uc, r0, r1, r2);
-    break;
-  case TR_file_write: /* +0x0C = ZMAEE_IFile_Write(ifile, buf, len)：applet 存档 */
-    ret = zm_file_write(uc, r0, r1, r2);
-    break;
-  case TR_file_seek:
-    ret = zm_file_seek(uc, r0, r1, r2);
-    break;
-  case TR_file_tell:
-    /*
-     * FILE_VT_ADDR[0x24] = ZMAEE_IFile_Tell（逆向实测），返回当前读写位置。
-     * 取文件总大小的惯用法是 Seek(0,SEEK_END) 后调用本槽位。
-     */
-    ret = zm_file_tell(uc, r0);
-    break;
-  /* ---- ZMAEE IDisplay 原生虚表（g_aee_display_vtbl）---- */
-  case TR_util_x00: ret = zm_util_stub(uc, 0x00, r0, r1, r2, r3); break;
-  case TR_util_x04: ret = zm_util_stub(uc, 0x04, r0, r1, r2, r3); break;
-  case TR_util_x08: ret = zm_util_stub(uc, 0x08, r0, r1, r2, r3); break;
-  case TR_util_x0C: ret = zm_util_stub(uc, 0x0C, r0, r1, r2, r3); break;
-  case TR_util_x10: ret = zm_util_stub(uc, 0x10, r0, r1, r2, r3); break;
-  case TR_util_x14: ret = zm_util_stub(uc, 0x14, r0, r1, r2, r3); break;
-  case TR_util_x18: ret = zm_util_stub(uc, 0x18, r0, r1, r2, r3); break;
-  case TR_display_AddRef:
-    ret = zm_display_AddRef(uc, r0);
-    break;
-  case TR_display_Release:
-    ret = zm_display_Release(uc, r0);
-    break;
-  case TR_display_GetMaxLayerCount:
-    ret = zm_display_GetMaxLayerCount(uc, r0);
-    break;
-  case TR_display_CreateLayer:
-    ret = zm_display_CreateLayer(uc, 0x0CU, r0, r1, r2, r3);
-    break;
-  case TR_display_CreateLayerExt:
-    ret = zm_display_CreateLayerExt(uc, 0x10U, r0, r1, r2, r3);
-    break;
-  case TR_display_FreeLayer:
-    ret = zm_display_FreeLayer(uc, r0, r1);
-    break;
-  case TR_display_FreeAllLayer: /* +0x18：按真机反编译实现（清活动层 + 释放层 1..15） */
-    ret = zm_display_FreeAllLayer(uc, r0);
-    break;
-  case TR_display_GetLayerInfo:
-    ret = zm_display_GetLayerInfo(uc, 0x1CU, r0, r1, r2, r3);
-    break;
-  case TR_display_SetActiveLayer: /* 真机虚表 +0x20 = SetActiveLayer(display, idx) */
-    ret = zm_display_SetActiveLayer(uc, r0, r1);
-    break;
-  case TR_display_SetLayerPosition:
-    ret = zm_display_SetLayerPosition(uc, 0x24U, r0, r1, r2, r3);
-    break;
-  case TR_display_Update:
-    /* RE：Update(display, x, y, w, h) —— x/y/w 在 r1/r2/r3，h 在第 5 个参数。 */
-    ret = zm_display_Update(uc, r0, r1, r2, r3, getArg(uc, 4));
-    break;
-  case TR_display_UpdateEx: /* 真机虚表 +0x2C = UpdateEx(display, rect, count, layerList)
-                             * 四个参数正好在 r0~r3，无需取栈参数。 */
-    ret = zm_display_UpdateEx(uc, r0, r1, r2, r3);
-    break;
-  case TR_display_GetActiveLayer:
-    ret = zm_display_GetActiveLayer(uc, r0);
-    break;
-  case TR_display_LockScreen: /* 真机虚表 +0x34 = LockScreen（实测被调，功能未知） */
-    ret = zm_display_stub(uc, 0x34, r0, r1, r2, r3);
-    break;
-  case TR_display_UnlockScreen:
-    ret = zm_display_UnlockScreen(uc, r0);
-    break;
-  case TR_display_RegisterCustomFont:
-    ret = zm_display_RegisterCustomFont(uc, 0x3CU, r0, r1, r2, r3);
-    break;
-  case TR_display_SelectFont: /* 真机虚表 +0x40 = SelectFont(this, idx) */
-    ret = zm_display_SelectFont(uc, r0, r1);
-    break;
-  case TR_display_GetFontWidth:
-    ret = zm_display_GetFontWidth(uc, r0, r1);
-    break;
-  case TR_display_GetFontHeight: /* 真机虚表 +0x48 = GetFontHeight（实现待 RE 校准） */
-    ret = zm_display_GetFontHeight(uc);
-    break;
-  case TR_display_MeasureString: /* 真机虚表 +0x4C = MeasureString(disp, str_ptr, len, width_out, sp[metrics]) */
-    ret = zm_display_MeasureString(uc, r0, r1, r2, r3, sp);
-    break;
-  case TR_display_DrawText:
-    ret = zm_display_DrawText(uc, r1, r2, r3, sp);
-    break;
-  case TR_display_SetTransColor:
-    ret = zm_display_SetTransColor(uc, r0, r1, r2);
-    break;
-  case TR_display_SetOpacity:
-    ret = zm_display_SetOpacity(uc, 0x58U, r0, r1, r2, r3);
-    break;
-  case TR_display_SetClipRect:
-    ret = zm_display_SetClipRect(uc, 0x5CU, r0, r1, r2, r3);
-    break;
-  case TR_display_GetClipRect:
-    ret = zm_display_GetClipRect(uc, 0x60U, r0, r1, r2, r3);
-    break;
-  case TR_display_SetPixel:
-    ret = zm_display_SetPixel(uc, 0x64U, r0, r1, r2, r3);
-    break;
-  case TR_display_DrawLine:
-    ret = zm_display_DrawLine(uc, 0x68U, r0, r1, r2, r3);
-    break;
-  case TR_display_DrawRect:
-    ret = zm_display_DrawRect(uc, r1, r2, r3, sp);
-    break;
-  case TR_display_FillRect:
-    ret = zm_display_FillRect(uc, r1, r2, r3, sp);
-    break;
-  case TR_display_DrawRoundRect:
-    ret = zm_display_DrawRoundRect(uc, 0x74U, r0, r1, r2, r3);
-    break;
-  case TR_display_DrawCircle:
-    ret = zm_display_DrawCircle(uc, 0x78U, r0, r1, r2, r3);
-    break;
-  case TR_display_FillCircle:
-    ret = zm_display_FillCircle(uc, 0x7CU, r0, r1, r2, r3);
-    break;
-  case TR_display_DrawArc:
-    ret = zm_display_DrawArc(uc, 0x80U, r0, r1, r2, r3);
-    break;
-  case TR_display_FillArc:
-    ret = zm_display_FillArc(uc, 0x84U, r0, r1, r2, r3);
-    break;
-  case TR_display_FillGradientRect:
-    ret = zm_display_FillGradientRect(uc, 0x88U, r0, r1, r2, r3);
-    break;
-  case TR_display_AlphaBlendRect:
-    ret = zm_display_AlphaBlendRect(uc, 0x8CU, r0, r1, r2, r3);
-    break;
-  case TR_display_DrawImage:
-    ret = zm_display_DrawImage(uc, 0x90U, r0, r1, r2, r3);
-    break;
-  case TR_display_DrawBitmap:
-    ret = zm_display_DrawBitmap(uc, 0x94U, r0, r1, r2, r3);
-    break;
-  case TR_display_DrawBitmapEx:
-    if (g_disasm) {
-      static int watch_done = 0;
-      if (!watch_done && r3 >= 0x820000) {
-        uint32_t b0 = uc_read32(uc, r3), b1 = uc_read32(uc, r3 + 4);
-        uint32_t pc0 = 0;
-        uc_reg_read(uc, UC_ARM_REG_R4, &pc0);
-        log_debug("WATCH bmp=0x%X first=[%08X %08X] R4=0x%X", r3, b0, b1, pc0);
-        watch_done = 1;
-      }
-      uint32_t b0 = uc_read32(uc, r3), b1 = uc_read32(uc, r3 + 4);
-      uint32_t b2 = uc_read32(uc, r3 + 8);
-      log_debug("DrawBitmapEx lr=0x%X x=%u y=%u bmp=0x%X(=[%08X %08X %08X]) "
-                "rect=0x%X mode=%u",
-                lr, r1, r2, r3, b0, b1, b2, getArg(uc, 4), getArg(uc, 5));
-    }
-    ret = zm_display_DrawBitmapEx(uc, 0x98U, r0, r1, r2, r3);
-    break;
-  case TR_display_DrawBitmapFrame:
-    ret = zm_display_DrawBitmapFrame(uc, 0x9CU, r0, r1, r2, r3);
-    break;
-  case TR_display_CreateBitmap:
-    ret = zm_display_CreateBitmap(uc, r0, r1, r2, r3);
-    break;
-  case TR_display_LoadBitmap:
-    ret = zm_display_LoadBitmap(uc, r0, r1);
-    break;
-  case TR_display_CreateImage:
-    ret = zm_display_CreateImage(uc, 0xA8U, r0, r1, r2, r3);
-    break;
-  case TR_display_BitBlt:
-    if (g_disasm) {
-      uint32_t s0 = uc_read32(uc, r3), s1 = uc_read32(uc, r3 + 4);
-      uint32_t s2 = uc_read32(uc, r3 + 8), s3 = uc_read32(uc, r3 + 12);
-      log_debug("BitBlt lr=0x%X dx=%u dy=%u surf=0x%X(=[%08X %08X %08X %08X]) "
-                "rect=0x%X mode=%u flags=%u",
-                lr, r1, r2, r3, s0, s1, s2, s3, getArg(uc, 4), getArg(uc, 5),
-                getArg(uc, 6));
-    }
-    ret = zm_display_BitBlt(uc, 0xACU, r0, r1, r2, r3);
-    break;
-  case TR_display_Flatten:
-    ret = zm_display_Flatten(uc, 0xB0U, r0, r1, r2, r3);
-    break;
-  case TR_display_StretchBlt: {
-    static uint32_t sn = 0;
-    if (sn++ < 6)
-      log_info("[StretchBlt] lr=0x%X r0=0x%X r1=0x%X r2=0x%X r3=0x%X", lr, r0, r1,
-               r2, r3);
-    ret = zm_display_StretchBlt(uc, 0xB4U, r0, r1, r2, r3);
-    break;
-  }
-    break;
-  case TR_display_DrawAntialiasingLine:
-    ret = zm_display_DrawAntialiasingLine(uc, 0xB8U, r0, r1, r2, r3);
-    break;
-  case TR_display_DrawWLine:
-    ret = zm_display_DrawWLine(uc, 0xBCU, r0, r1, r2, r3);
-    break;
-  case TR_display_GetDMLayerHdlr:
-    ret = zm_display_GetDMLayerHdlr(uc, 0xC0U, r0, r1, r2, r3);
-    break;
-  case TR_display_RelevanceLayer:
-    ret = zm_display_RelevanceLayer(uc, 0xC4U, r0, r1, r2, r3);
-    break;
-  case TR_display_Refresh:
-    ret = zm_display_Refresh(uc);
-    break;
-  case TR_display_DrawImageExt:
-    ret = zm_display_DrawImageExt(uc, 0xCCU, r0, r1, r2, r3);
-    break;
-  case TR_display_DrawSysWallPaper:
-    ret = zm_display_DrawSysWallPaper(uc, 0xD0U, r0, r1, r2, r3);
-    break;
-  case TR_display_DrawBorderText:
-    ret = zm_display_DrawBorderText(uc, 0xD4U, r0, r1, r2, r3);
-    break;
-  case TR_display_PushAndSetAlphaLayer:
-    ret = zm_display_PushAndSetAlphaLayer(uc, 0xD8U, r0, r1, r2, r3);
-    break;
-  case TR_display_PopAndRestoreAlphaLayer:
-    ret = zm_display_PopAndRestoreAlphaLayer(uc, 0xDCU, r0, r1, r2, r3);
-    break;
-  case TR_display_RotateScreen:
-    ret = zm_display_RotateScreen(uc, 0xE0U, r0, r1, r2, r3);
-    break;
-  /* ---- ZMAEE IBitmap 原生虚表（g_aee_bitmap_vtbl）---- */
-  /* ---- ZMAEE IImage（IDisplay::CreateImage 造出的解码器对象）---- */
-  /* ---- ZMAEE surface 门面（IImage::Decode 的 out 对象）---- */
-  case TR_surf_release:
-    ret = zm_surf_release(uc, r0);
-    break;
-  case TR_surf_getrect:
-    ret = zm_surf_getrect(uc, r0, r1);
-    break;
-  case TR_surf_x04:
-  case TR_surf_x08:
-  case TR_surf_x0C:
-  case TR_surf_x14:
-  case TR_surf_x18:
-  case TR_surf_x1C:
-  case TR_surf_x20:
-  case TR_surf_x24:
-  case TR_surf_x28:
-  case TR_surf_x2C:
-  case TR_surf_x30:
-  case TR_surf_x34:
-  case TR_surf_x38:
-  case TR_surf_x3C:
-  case TR_surf_x40:
-  case TR_surf_x44:
-  case TR_surf_x48:
-  case TR_surf_x4C:
-  case TR_surf_x50:
-    ret = zm_surf_nop(uc, trap_address - TRAMP_BASE);
-    break;
-  case TR_image_AddRef:
-    ret = zm_image_AddRef(uc, r0);
-    break;
-  case TR_image_Release:
-    ret = zm_image_Release(uc, r0);
-    break;
-  case TR_image_SetData:
-    ret = zm_image_SetData(uc, r0, r1, r2, r3);
-    break;
-  case TR_image_GetFrameCount:
-    ret = zm_image_GetFrameCount(uc, r0);
-    break;
-  case TR_image_Width:
-    ret = zm_image_Width(uc, r0);
-    break;
-  case TR_image_Height:
-    ret = zm_image_Height(uc, r0);
-    break;
-  case TR_image_GetType:
-    ret = zm_image_GetType(uc, r0);
-    break;
-  case TR_image_Decode:
-    ret = zm_image_DecodeToBitmap(uc, r0, r1, r2, r3, sp);
-    break;
-  case TR_image_x20:
-  case TR_image_x24:
-  case TR_image_x28:
-  case TR_image_x2C:
-  case TR_image_x30:
-  case TR_image_x34:
-  case TR_image_x38:
-  case TR_image_x3C:
-    ret = zm_image_stub(uc, trap_address - TRAMP_BASE, r0, r1, r2, r3);
-    break;
-  case TR_bitmap_AddRef:
-    ret = zm_bitmap_AddRef(uc, r0);
-    break;
-  case TR_bitmap_Release:
-    ret = zm_bitmap_Release(uc, r0);
-    break;
-  case TR_bitmap_SetTransColor:
-    ret = zm_bitmap_SetTransColor(uc, r0, r1);
-    break;
-  case TR_bitmap_sub_25F78:
-    ret = zm_bitmap_sub_25F78(uc, 0x0CU, r0, r1, r2, r3);
-    break;
-  case TR_bitmap_GetInfo:
-    ret = zm_bitmap_GetInfo(uc, r0, r1);
-    break;
-  case TR_bitmap_sub_25F84:
-    ret = zm_bitmap_sub_25F84(uc, 0x14U, r0, r1, r2, r3);
-    break;
-  case TR_bitmap_sub_25FF8:
-    ret = zm_bitmap_sub_25FF8(uc, 0x18U, r0, r1, r2, r3);
-    break;
-  /* ---- ZMAEE IMedia（音频，0x100000C，g_aee_media_vtbl，25 槽）---- */
-  case TR_media_AddRef:
-    log_info("IMedia.AddRef called");
-    ret = 1; /* 单例 */
-    break;
-  case TR_media_Release:
-    log_info("IMedia.Release called");
-    ret = zm_svc_release(uc);
-    break;
-  case TR_media_x08:
-    ret = zm_media_stub(uc, 0x08, r0, r1, r2, r3);
-    break;
-  case TR_media_x0C:
-    ret = zm_media_stub(uc, 0x0C, r0, r1, r2, r3);
-    break;
-  case TR_media_play: /* +0x10：命令分发器 loc_32E80（cmd=r1 低16位，第5参数起在栈上） */
-    ret = zm_media_command(uc, r0, r1, r2, r3, sp);
-    break;
-  case TR_media_stop: /* +0x14：停止播放 */
-    ret = zm_media_stop(uc);
-    break;
-  case TR_media_x18: /* +0x18 = pauseMusic（JNI 同名），applet"声音关"靠它 */
-    ret = zm_media_pause_music(uc);
-    break;
-  case TR_media_x1C: /* +0x1C = resumeMusic（JNI 同名），applet"声音开"靠它 */
-    ret = zm_media_resume_music(uc);
-    break;
-  case TR_media_x20:
-    ret = zm_media_stub(uc, 0x20, r0, r1, r2, r3);
-    break;
-  case TR_media_x24:
-    ret = zm_media_stub(uc, 0x24, r0, r1, r2, r3);
-    break;
-  case TR_media_x28:
-    ret = zm_media_stub(uc, 0x28, r0, r1, r2, r3);
-    break;
-  case TR_media_x2C:
-    ret = zm_media_stub(uc, 0x2C, r0, r1, r2, r3);
-    break;
-  case TR_media_x30:
-    ret = zm_media_stub(uc, 0x30, r0, r1, r2, r3);
-    break;
-  case TR_media_x34:
-    ret = zm_media_stub(uc, 0x34, r0, r1, r2, r3);
-    break;
-  case TR_media_x38: /* RE sub_32BDC：固定返回 -1 */
-    ret = (uint32_t)-1;
-    break;
-  case TR_media_x3C:
-    ret = zm_media_stub(uc, 0x3C, r0, r1, r2, r3);
-    break;
-  case TR_media_x40: /* RE sub_32BE8：固定返回 -1 */
-    ret = (uint32_t)-1;
-    break;
-  case TR_media_x44:
-    ret = zm_media_stub(uc, 0x44, r0, r1, r2, r3);
-    break;
-  case TR_media_x48:
-    ret = zm_media_stub(uc, 0x48, r0, r1, r2, r3);
-    break;
-  case TR_media_x4C:
-    ret = zm_media_stub(uc, 0x4C, r0, r1, r2, r3);
-    break;
-  case TR_media_x50:
-    ret = zm_media_stub(uc, 0x50, r0, r1, r2, r3);
-    break;
-  case TR_media_x54: /* +0x54：sub_33128 = 同一分发器的 thunk */
-    ret = zm_media_command(uc, r0, r1, r2, r3, sp);
-    break;
-  case TR_media_x58:
-    ret = zm_media_stub(uc, 0x58, r0, r1, r2, r3);
-    break;
-
-  /* ---- ZMAEE ISetting（0x100000B，g_aee_setting_vtbl，14 槽）---- */
-  case TR_setting_AddRef:
-    ret = 1; /* 单例 */
-    break;
-  case TR_setting_Release:
-    ret = zm_svc_release(uc);
-    break;
-  case TR_setting_x08:
-    ret = zm_setting_stub(uc, 0x08, r0, r1, r2, r3);
-    break;
-  case TR_setting_x0C:
-    ret = zm_setting_stub(uc, 0x0C, r0, r1, r2, r3);
-    break;
-  case TR_setting_x10:
-    ret = zm_setting_stub(uc, 0x10, r0, r1, r2, r3);
-    break;
-  case TR_setting_x14:
-    ret = zm_setting_stub(uc, 0x14, r0, r1, r2, r3);
-    break;
-  case TR_setting_x18: /* +0x18 = 声音开关（键 "on"），RE 见 zm_shell.c */
-    /* 调用点一定要记：applet 里"开始"用 on=1、"停止"用 on=0（+pauseMusic），
-     * 排查"开关方向不对"时全靠这个 lr 定位是哪支函数在说话。 */
-    log_info("ISetting[0x18] lr=0x%X on=%u", lr, r1);
-    ret = zm_setting_set_sound(uc, r1);
-    break;
-  case TR_setting_x1C:
-    if (g_disasm)
-      log_debug("ISetting[0x1C] 调用点 lr=0x%X r0=0x%X r1=0x%X r2=0x%X r3=0x%X",
-                lr, r0, r1, r2, r3);
-    ret = zm_setting_stub(uc, 0x1C, r0, r1, r2, r3);
-    break;
-  case TR_setting_x20:
-    if (g_disasm)
-      log_debug("ISetting[0x20] 调用点 lr=0x%X r0=0x%X r1=0x%X r2=0x%X r3=0x%X",
-                lr, r0, r1, r2, r3);
-    ret = zm_setting_stub(uc, 0x20, r0, r1, r2, r3);
-    break;
-  case TR_setting_x24: /* 保留既有"写 0"行为，applet 依赖其分支判断 */
-    ret = zm_setting_x24(uc, r1, r2);
-    break;
-  case TR_setting_x28:
-    ret = zm_setting_stub(uc, 0x28, r0, r1, r2, r3);
-    break;
-  case TR_setting_x2C:
-    ret = zm_setting_stub(uc, 0x2C, r0, r1, r2, r3);
-    break;
-  case TR_setting_x30:
-    ret = zm_setting_stub(uc, 0x30, r0, r1, r2, r3);
-    break;
-  case TR_setting_x34:
-    ret = zm_setting_stub(uc, 0x34, r0, r1, r2, r3);
-    break;
-
-  /* ---- 服务对象（IShell.CreateInstance 返回）/ FS / DLL / CBK ---- */
-  case TR_netmgr_release:
-    ret = zm_svc_release(uc);
-    break;
-  case TR_netmgr_x1C:
-    ret = zm_netmgr_x1C(uc, r0, r1, r2, r3);
-    break;
-  case TR_tapi_x00:
-  case TR_tapi_x08:
-  case TR_tapi_x0C:
-  case TR_tapi_x10:
-  case TR_tapi_x14:
-  case TR_tapi_x18:
-  case TR_tapi_x1C:
-  case TR_tapi_x20:
-  case TR_tapi_x24:
-  case TR_tapi_x28:
-  case TR_tapi_x30:
-  case TR_tapi_x34:
-  case TR_tapi_x38:
-  case TR_tapi_x3C:
-  case TR_tapi_x44:
-  case TR_tapi_x48:
-  case TR_tapi_x4C:
-  case TR_tapi_x50:
-    ret = zm_tapi_stub(uc, trap_address - TAPI_VT_ADDR, r0, r1, r2, r3);
-    break;
-  case TR_tapi_release:
-    ret = zm_svc_release(uc);
-    break;
-  case TR_tapi_x2C:
-    ret = zm_tapi_x2C(uc, r0, r1, r2, r3);
-    break;
-  case TR_tapi_x40:
-    ret = zm_tapi_x40(uc, r0, r1, r2, r3);
-    break;
-
-  /* ZMAEE IZip 虚表（ZIP_VT_ADDR，5 槽） */
-  case TR_zip_x00:
-  case TR_zip_x04:
-  case TR_zip_x08:
-  case TR_zip_x0C:
-  case TR_zip_x10:
-    ret = zm_zip_stub(uc, trap_address - ZIP_VT_ADDR, r0, r1, r2, r3);
-    break;
-  case TR_dll_release: /* +0x04 = Release（00000506 付费流程实测）→ 与 NetMgr/Tapi 同款 */
-    ret = zm_svc_release(uc);
-    break;
-  case TR_dll_init:
-    ret = zm_dll_init(uc);
-    break;
-  case TR_dll_config:
-    ret = zm_dll_config(uc, r1, r2, r3);
-    break;
-  case TR_dll_entry:
-    ret = zm_dll_entry(uc, r1, r2, r3);
-    break;
-  case TR_cbk_default:
-    ret = zm_root_cbk_default(uc, r0, r1, r2, r3);
-    break;
-  case TR_root_wcslen:
-    /* ROOT_TABLE_ADDR[0xD8] = zmaee_wcslen(ptr=r0)：宽字符串长度（字符数）。
-     * 旧实现返回 SDL_GetTicks（猜测），实测调用点全是"取长度"，详见
-     * emu_root_traps.h 与 zm_str.c 的 zm_wcslen 注释。 */
-    ret = zm_wcslen(uc, r0);
-    break;
-  case TR_root_create_cbk:
-    /* 【已试并撤回】把 [CBK_OBJ+0x48] 指到 applet 传进 create_cbk 的 r3
-     * （00000502 恒为 0x1A0090）：00000502 无变化，00000001/00000506 反而崩。 */
-    /*
-     * ROOT_TABLE_ADDR[0x154]：返回回调对象 CBK_OBJ（其 vt[+8] 随后会被 applet 覆写）。
-     * 这是 zmaee 领域语义而非 libc，故走 zm_root；此前实现被注释掉，
-     * 导致 applet 00000440 在真实堆下走到此处时报"非法的外部调用"。
-     */
-    ret = zm_root_create_cbk(uc);
-    /* 建 CBK_OBJ+0x4C 指向的 applet 自管堆（只做一次）。
-     * ★ 必须放在 create_cbk **之后**：它要向 applet 堆要内存，而 CBK 对象自己
-     * 也是从同一个堆分配的 —— 先要的话会把 CBK 的地址整体往后挪。 */
-    cbk_heap_init_once(uc);
-    break;
-  case TR_root_srand:
-    zm_root_srand(r0);
-    ret = 0;
-    break;
-  case TR_root_rand:
-    ret = zm_root_rand();
-    break;
-  case TR_root_sqrt:
-    ret = zm_root_math(uc, ZM_MATH_SQRT, r0, r1);
-    break;
-  case TR_root_cos:
-    ret = zm_root_math(uc, ZM_MATH_COS, r0, r1);
-    break;
-  case TR_root_sin:
-    ret = zm_root_math(uc, ZM_MATH_SIN, r0, r1);
-    break;
-  case TR_root_atan:
-    ret = zm_root_math(uc, ZM_MATH_ATAN, r0, r1);
-    break;
-  case TR_root_tan:
-    ret = zm_root_math(uc, ZM_MATH_TAN, r0, r1);
-    break;
-  default:
-    /* ---- ZMAEE IBitmap 原生虚表（BITMAP_VT_ADDR = SHIM_VT_BASE + 0x1700，
-     * 7 槽：0x1700~0x1718）----
-     * 这张表此前完全没接线：00000001 调 +0x10(GetInfo) 上千次，全部落到这里
-     * 打"非法的外部调用"错误日志并返回 0 —— 既刷爆日志（进游戏后每帧上千条，
-     * 界面卡死）又让 applet 一直拿到错的位图信息。
-     * （这里按**槽位数值**分支而不是加 case：直接加 case 会与既有 case 常量
-     * 重复，说明这些跳板值已被别处占用，待后续统一整理。） */
-    if (trap_address >= TRAMP_BASE + 0x1700 &&
-        trap_address < TRAMP_BASE + 0x1720) {
-      uint32_t off = trap_address - (TRAMP_BASE + 0x1700);
-      if (off == 0x10) { /* GetInfo(this, out)：RE memcpy(out, obj+8, 0x20) */
-        if (!r0 || !r1) {
-          ret = (uint32_t)-4;
-        } else {
-          uint8_t info[0x20];
-          if (uc_mem_read(uc, r0 + 8, info, sizeof(info)) != UC_ERR_OK)
-            ret = (uint32_t)-4;
-          else {
-            uc_mem_write(uc, r1, info, sizeof(info));
-            ret = 0;
-          }
-        }
-      } else if (off == 0x08) { /* SetTransColor(this, color) → 对象 +0x20 */
-        if (r0)
-          uc_mem_write(uc, r0 + 20, &r1, sizeof(r1));
-        ret = 0;
-      } else {
-        ret = 0; /* AddRef / Release / 三个未知槽：真机亦返回 0 */
-      }
-      break;
-    }
-    /* ROOT_TABLE_ADDR 槽位尚未接线。打印调用现场寄存器，便于按参数签名反推该槽
-     * 对应的 libc 函数（ROOT_TABLE_ADDR 在安卓变体里是普通全局函数指针表，
-     * 无 g_aee_root_vtbl 符号可查）。 */
-    if (trap_address >= TRAMP_BASE &&
-        trap_address < TRAMP_BASE + TRAMP_SIZE) {
-      uint32_t slot = trap_address - TRAMP_BASE;
-      log_error("非法的外部调用: 0x%08X (SHIM槽+0x%X) r0=0x%X r1=0x%X "
-                "r2=0x%X r3=0x%X sp[0]=0x%X sp[4]=0x%X lr=0x%X",
-                trap_address, slot, r0, r1, r2, r3, uc_read32(uc, sp),
-                uc_read32(uc, sp + 4), lr);
-    } else {
-      log_error("非法的外部调用: 0x%08" PRIx32, trap_address);
-    }
-    // pause_console(); // 仅注释掉阻塞，让模拟器继续往下跑（暴露更深的下一层）
-    break;
-  }
+  trap_ctx c = { uc, trap_address, r0, r1, r2, r3, lr, sp, false };
+  trap_fn fn = trap_lookup(trap_address);
+  uint32_t ret = fn ? fn(&c) : trap_default(&c);
 
   /* 带上槽号：排查"某个返回值被 applet 存进对象、之后当指针用"的场景时，
    * 只打 r0 的值分不清是哪个槽返回的。这里只改调试输出，不改任何行为。 */
+  if (!c.handled) {
   if (trap_address >= TRAMP_BASE && trap_address < TRAMP_BASE + TRAMP_SIZE)
     log_debug("applet 调用外部[槽+0x%X] 返回 r0=0x%X (入参 r0=0x%X r1=0x%X "
               "r2=0x%X r3=0x%X lr=0x%X)",
@@ -1441,4 +1146,5 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   uc_reg_write(uc, UC_ARM_REG_R0, &ret);
 
   uc_reg_write(uc, UC_ARM_REG_PC, &lr);
+  }
 }
