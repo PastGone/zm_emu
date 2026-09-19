@@ -138,6 +138,11 @@ uint32_t zm_dll_init(uc_engine *uc);
 uint32_t zm_dll_config(uc_engine *uc, uint32_t a1, uint32_t a2, uint32_t a3);
 uint32_t zm_dll_entry(uc_engine *uc, uint32_t a1, uint32_t a2, uint32_t a3);
 
+
+/* 目录类槽位（真机返回**字符串指针**；以前是返回 0 的桩 ✗） */
+uint32_t zm_shell_GetRootDir(uc_engine *uc);
+uint32_t zm_shell_GetWorkDir(uc_engine *uc);
+uint32_t zm_shell_GetAppDir(uc_engine *uc, uint32_t buf, uint32_t cap);
 #endif /* ZM_SHELL_H */
 
 /* IUtil（0x1000013）的观测探针，见 zm_shell.c */

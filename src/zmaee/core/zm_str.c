@@ -118,6 +118,88 @@ uint32_t zm_utf8_to_ucs2(uc_engine *uc, uint32_t src, uint32_t src_bytes,
 }
 
 /**
+ * @brief root[0x24] = ZMAEE_Ucs2_2_Utf8：UCS-2 → UTF-8 转换拷贝
+ *
+ * 与 root[0x20]（zm_utf8_to_ucs2）互为反向。真机反编译
+ * （ZMAEE_Ucs2_2_Utf8(a1=ucs2源, a2=源**字符**数, a3=utf8目标,
+ * a4=目标**字节**容量)，见参考 libaee.so.c.txt:52664）：
+ *   - 逐个取 16 位码元，按 1 / 2 / 3 字节 UTF-8 编码写进目标；
+ *   - 每格先判容量 a4：**装不下就停**（注意是 `a4 <= 已写+需要`，即要给
+ *     收尾 NUL 留位置）；超过 0x7FF 的码元按 3 字节编（不做代理对处理）；
+ *   - 输入读尽（a2 个字符用完）或读到 0 码元即停；
+ *   - 结尾一定在 a3 + 写入字节数 处补一个 0；
+ *   - 返回 **R0 = 写入的字节数**（不含收尾 NUL）。
+ *
+ * 实测（00000502）：sub_1CD78 用它把对象里 11 个字符的宽串
+ * （r0=源, r1=0xB, r2=栈缓冲, r3=0x40）转成窄串后与字面量比较。
+ *
+ * @param src        UCS-2 源（客户机地址，r0）
+ * @param src_chars  源**字符**数（r1）
+ * @param dst        UTF-8 目标（r2）
+ * @param dst_bytes  目标**字节**容量（r3，含收尾 NUL 的位置）
+ * @return 写入的 UTF-8 字节数（不含收尾 NUL）
+ */
+uint32_t zm_ucs2_to_utf8(uc_engine *uc, uint32_t src, uint32_t src_chars,
+                         uint32_t dst, uint32_t dst_bytes) {
+  uint16_t w = 0;
+  uint32_t written = 0; /* 已写入的字节数（= 返回值） */
+
+  if (!src || !dst || src_chars == 0 ||
+      uc_mem_read(uc, src, &w, 2) != UC_ERR_OK || w == 0) {
+    uc_write16(uc, dst, 0); /* 真机：早退也在目标开头补 NUL */
+    return 0;
+  }
+
+  for (uint32_t i = 0;; i++) {
+    uint8_t out[3];
+    uint32_t n;
+    if (w <= 0x7F) {
+      if (dst_bytes <= written + 1)
+        break;
+      out[0] = (uint8_t)w;
+      n = 1;
+    } else if (w <= 0x7FF) {
+      if (dst_bytes <= written + 2)
+        break;
+      out[0] = (uint8_t)((w >> 6) | 0xC0);
+      out[1] = (uint8_t)((w & 0x3F) | 0x80);
+      n = 2;
+    } else {
+      if (dst_bytes <= written + 3)
+        break;
+      out[0] = (uint8_t)((w >> 12) | 0xE0);
+      out[1] = (uint8_t)(((w >> 6) & 0x3F) | 0x80);
+      out[2] = (uint8_t)((w & 0x3F) | 0x80);
+      n = 3;
+    }
+    uc_mem_write(uc, dst + written, out, n);
+    written += n;
+    if (src_chars <= i + 1)
+      break; /* 源读尽 */
+    if (uc_mem_read(uc, src + 2 * (i + 1), &w, 2) != UC_ERR_OK)
+      break;
+    if (w == 0)
+      break;
+  }
+
+  if (getenv("ZM_LOG_UCS2")) {
+    char out[64] = {0};
+    char in[64] = {0};
+    uint32_t n = written < 40 ? written : 40;
+    uc_mem_read(uc, dst, out, n);
+    uc_mem_read(uc, src, in, 40);
+    char hex[3 * 24 + 1];
+    for (int k = 0; k < 24; k++) snprintf(hex + k * 3, 4, "%02X ", (uint8_t)in[k]);
+    log_info("[UCS2]   src 原始 24 字节: %s", hex);
+    log_info("[UCS2] src=0x%X chars=%u first_w=0x%X -> dst=0x%X bytes=%u \"%s\"",
+             src, src_chars, (unsigned)((uint8_t)in[0] | ((uint8_t)in[1] << 8)),
+             dst, written, out);
+  }
+  uc_write16(uc, dst + written, 0); /* 真机：结尾一定补 NUL（只写 1 字节即可） */
+  return written;
+}
+
+/**
  * @brief root[0xA4] = zmaee_strpbrk(str, charset)：找集合中任一字符的首次出现
  *
  * 逆向证据（00000506 的 sprintf 包装 sub_98EDC 内部）：

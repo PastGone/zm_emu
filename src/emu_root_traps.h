@@ -10,6 +10,23 @@ enum ZM_ROOT_TABLE {
   ZM_Free = 0x0cU,
   ZM_Abort = 0x14U,
   ZM_Utf8ToUcs2 = 0x20U, /* 旧名 ZM_StrCopy：见下方 TR_root_utf8_to_ucs2 说明 */
+  /* +0x30 / +0x34 = ZMAEE_MallocScreenMem / ZMAEE_FreeScreenMem。
+   * RE（参考 libaee.so.c.txt:45018/45030）：两者就是 malloc/free 的别名：
+   *   void *ZMAEE_MallocScreenMem(size_t a1) { return malloc(a1); }
+   *   void  ZMAEE_FreeScreenMem(void *a1)    { free(a1); }
+   * 实测 00000502 在 0x1461C 用 +0x30 要 0x25800（=240*320*2，整屏缓冲）
+   * 时落到 default 返回 0 → applet 走错误分支、拿 NULL 对象解引用 → 崩在
+   * pc=0x7C000000（地址 0 是 blob 头，被当成对象表读）。 */
+  ZM_MallocScreen = 0x30U,
+  ZM_FreeScreen = 0x34U,
+  /* +0x24 = ZMAEE_Ucs2_2_Utf8：+0x20（Utf8_2_Ucs2）的反向转换。
+   * RE（参考 libaee.so.c.txt:52664）：(ucs2_src, 源字符数, utf8_dst,
+   * 目标字节容量) → 返回写入字节数。实测 00000502 的 sub_1CD78 用它把
+   * 对象里的 11 字符宽串转成窄串再比字面量（r0=源 r1=0xB r2=栈 r3=0x40）。 */
+  ZM_Ucs2ToUtf8 = 0x24U,
+  /* +0x3C = 中性桩：目前只被 CBK 管理器 +0x30 那个"对象方法"槽借用
+   * （见 trap.c 的 cbk_heap_init_once）。返回 0。 */
+  ZM_x3C = 0x3CU,
   ZM_SRand = 0x40U,
   ZM_Rand = 0x44U,
   ZM_MemCmp = 0x50U,
@@ -47,6 +64,10 @@ enum ZM_ROOT_TABLE {
 #define TR_root_getShell TRAP(ROOT_TABLE_ADDR + ZM_GetShell)
 #define TR_root_malloc TRAP(ROOT_TABLE_ADDR + ZM_Malloc)
 #define TR_root_free TRAP(ROOT_TABLE_ADDR + ZM_Free)
+#define TR_root_malloc_screen TRAP(ROOT_TABLE_ADDR + ZM_MallocScreen)
+#define TR_root_free_screen TRAP(ROOT_TABLE_ADDR + ZM_FreeScreen)
+#define TR_root_ucs2_to_utf8 TRAP(ROOT_TABLE_ADDR + ZM_Ucs2ToUtf8)
+#define TR_root_x3C TRAP(ROOT_TABLE_ADDR + ZM_x3C)
 /* ROOT_TABLE_ADDR+0x20 = **ZMAEE_Utf8_2_Ucs2**（UTF-8 窄串 → UCS-2 转换拷贝）
  *
  * 真机：(a1=utf8 源, a2=源**字节数**, a3=UCS-2 目标, a4=目标**字符容量**)，

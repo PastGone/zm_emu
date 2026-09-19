@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dirent.h> /* opendir/readdir：找 *.app 主文件名 */
 #include <unistd.h> /* access/F_OK（TestFile 存在性检查） */
 #include <iconv.h>  /* GBK→UTF-8（applet 文件名为固件 GBK 编码） */
 
@@ -30,6 +31,53 @@ static char s_data_dir[1024] = {0};
 /* ========== 内部工具 ========== */
 static void read_filename(uc_engine *uc, uint32_t ptr, char *buf, size_t cap) {
   zm_read_str_obj(uc, ptr, buf, cap);
+}
+
+/* 在目录树里递归找一个**文件名完全匹配 tail** 的文件（深度受限）。
+ * 用于"applet 的路径前缀缺失/脏"时的兼容回退（见 zm_fileMgr_open_file）。 */
+static int find_file_rec(const char *dir, const char *tail, int depth, char *out,
+                         size_t out_cap) {
+  if (depth < 0)
+    return 0;
+  DIR *d = opendir(dir);
+  if (!d)
+    return 0;
+  struct dirent *e;
+  int ok = 0;
+  while (!ok && (e = readdir(d))) {
+    if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, ".."))
+      continue;
+    size_t tn = strlen(tail), dn = strlen(e->d_name);
+    int hit = 0;
+    if (!strcmp(e->d_name, tail))
+      hit = 1;
+    else if (tn > 3 && dn > 3) {
+      /* 脏前缀会吃掉/多出几个字节 → 允许互为后缀 */
+      if (tn <= dn && !strcmp(e->d_name + (dn - tn), tail))
+        hit = 1;
+      else if (dn <= tn && !strcmp(tail + (tn - dn), e->d_name))
+        hit = 1;
+    }
+    if (hit) {
+      snprintf(out, out_cap, "%s/%s", dir, e->d_name);
+      ok = 1;
+      break;
+    }
+    if (depth > 0 && e->d_name[0] != '.') {
+      char sub[1280];
+      snprintf(sub, sizeof(sub), "%s/%s", dir, e->d_name);
+      DIR *sd = opendir(sub);
+      if (sd) {
+        closedir(sd);
+        if (find_file_rec(sub, tail, depth - 1, out, out_cap)) {
+          ok = 1;
+          break;
+        }
+      }
+    }
+  }
+  closedir(d);
+  return ok;
 }
 
 /* GBK→UTF-8（applet 的中文文件名为固件 GBK 编码，宿主文件系统是
@@ -301,9 +349,45 @@ uint32_t zm_fileMgr_StorageSupport(uc_engine *uc, uint32_t r0, uint32_t type) {
 }
 
 uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr) {
+  if (getenv("ZM_LOG_OPEN")) {
+    uint8_t raw[48] = {0};
+    uc_mem_read(uc, filename_ptr, raw, 47);
+    uint32_t lr = 0;
+    uc_reg_read(uc, UC_ARM_REG_LR, &lr);
+    uint32_t f0 = 0, f1 = 0, f2 = 0, f3 = 0;
+    uc_mem_read(uc, filename_ptr, &f0, 4);
+    uc_mem_read(uc, filename_ptr + 4, &f1, 4);
+    uc_mem_read(uc, filename_ptr + 8, &f2, 4);
+    uc_mem_read(uc, filename_ptr + 12, &f3, 4);
+    char at0[64] = {0}, at1[64] = {0};
+    if (f0) uc_mem_read(uc, f0, at0, 63);
+    if (f1) uc_mem_read(uc, f1, at1, 63);
+    log_info("[OPEN] ptr=0x%X lr=0x%X raw=\"%s\"", filename_ptr, lr, (char *)raw);
+    log_info("[OPEN]  fields: [0]=0x%X [4]=0x%X [8]=0x%X [12]=0x%X | str@[0]=\"%s\" str@[4]=\"%s\"",
+             f0, f1, f2, f3, at0, at1);
+    char hx[3 * 32 + 1];
+    for (int k = 0; k < 32; k++) snprintf(hx + k * 3, 4, "%02X ", raw[k]);
+    log_info("[OPEN]  对象 32 字节: %s", hx);
+    if (f0) {
+      uint8_t b[32] = {0};
+      char h2[3 * 32 + 1];
+      uc_mem_read(uc, f0 - 4, b, 32);
+      for (int k = 0; k < 32; k++) snprintf(h2 + k * 3, 4, "%02X ", b[k]);
+      log_info("[OPEN]  data-4 处 32 字节: %s", h2);
+    }
+  }
+
   (void)uc;
   char name[256];
   read_filename(uc, filename_ptr, name, sizeof(name));
+  /* ★ applet 的文件名是固件 **GBK** 编码，宿主文件系统是 UTF-8 —— 必须转换。
+   * 这条路径以前漏了 ✗（同文件里 GetInfo/TestFile/read_file 都有转换 ✓），
+   * 于是 00000502 的资源加载阶段路径前缀乱码、找不到 0005.rms / info.dat ✗。 */
+  if (has_high_byte(name)) {
+    char utf[512];
+    if (gbk_to_utf8(name, utf, sizeof(utf)) > 0)
+      snprintf(name, sizeof(name), "%s", utf);
+  }
   char rel[512];
   int cls = convert_file_name(name, rel, sizeof(rel));
   if (cls < 0) {
@@ -326,6 +410,39 @@ uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr) {
 
   char full_path[1280];
   snprintf(full_path, sizeof(full_path), "%s%s", s_data_dir, rel);
+  /* ★ 退化名回退：当 applet 请求的文件名只剩后缀（如 ".dat"，主文件名为空）时，
+   * 回退到**该 applet 目录下 *.app 的主文件名 + 该后缀**（00000502/ →
+   * 00000502.dat ✓，000004051/ 里是 00000405.app → 00000405.dat ✓）。
+   * 主文件名本该由引擎提供（applet 自己的包/id），我们没给 → 名字里那段是空的；
+   * 这个回退让链路至少能找到它自己的数据文件。实测：00000502 / 000004e9 的
+   * 崩点由 0x80E291E8 前进到 0x17F998（并开始加载 c2sraiden/info.dat 等真实
+   * 资源）。ZM_NO_DATFALLBACK=1 可关闭。 */
+  if (!getenv("ZM_NO_DATFALLBACK") && name[0] == '.' && name[1]) {
+    char stem[64] = {0};
+    DIR *d = opendir(s_data_dir);
+    if (d) {
+      struct dirent *e;
+      while ((e = readdir(d))) {
+        const char *dot = strrchr(e->d_name, '.');
+        if (dot && !strcmp(dot, ".app")) {
+          size_t n = (size_t)(dot - e->d_name);
+          if (n >= sizeof(stem))
+            n = sizeof(stem) - 1;
+          memcpy(stem, e->d_name, n);
+          stem[n] = '\0';
+          break;
+        }
+      }
+      closedir(d);
+    }
+    if (!stem[0]) {
+      const char *slash = strrchr(s_data_dir, '/');
+      snprintf(stem, sizeof(stem), "%s",
+               (slash && slash[1]) ? slash + 1 : "app");
+    }
+    snprintf(full_path, sizeof(full_path), "%s/%s%s", s_data_dir, stem, name);
+    log_info("[FB] 退化名回退: \"%s\" → %s", name, full_path);
+  }
 
   FILE *fp = fopen(full_path, "rb");
   /* 回退：00000405 的 \config.b 实际在 app_list/ 子目录下
@@ -337,8 +454,46 @@ uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr) {
     if (fp)
       snprintf(full_path, sizeof(full_path), "%s", alt);
   }
+  /* ★ 兼容回退：applet 的路径前缀本该由引擎提供（工作目录），我们这边是空的/
+   * 脏的 → 名字形如 "?n?info.dat"。此时取名字里的**可打印尾部**（最后一个非
+   * 可打印字节之后的部分），到 applet 目录下**递归**找同名文件（深度≤3）。
+   * 实测价值：00000502 要的 c2sraiden/info.dat 就在它自己目录下 ✓。 */
+  if (!fp && !getenv("ZM_NO_DEEPFIND")) {
+    /* 取**最长的可打印 ASCII 后缀**：脏前缀是高字节（GBK/UTF-8 残留），
+     * 从最后一个非 ASCII 字节之后开始算。 */
+    const char *tail = name;
+    {
+      size_t n = strlen(name);
+      while (n > 0 && ((unsigned char)name[n - 1] >= 0x20 &&
+                       (unsigned char)name[n - 1] < 0x80))
+        n--;
+      tail = name + n;
+    }
+    if (tail != name && *tail) {
+      char found[1280];
+      if (find_file_rec(s_data_dir, tail, 3, found, sizeof(found))) {
+        snprintf(full_path, sizeof(full_path), "%s", found);
+        fp = fopen(full_path, "rb");
+        if (fp)
+          log_info("[DEEP] 前缀脏 → 递归命中: \"%s\" → %s", name, full_path);
+      }
+    }
+  }
   if (!fp) {
     log_warn("zm_fs_open: 找不到文件 \"%s\" (全路径: %s)", name, full_path);
+    /* 实验开关：文件不存在时也返回一个"空文件句柄"，用来判定上游那条链
+     * （00000502：FileMgr[8] 的返回值 → 对象 +0x10 → 类表条目就绪标志）
+     * 是不是只差"非 0 返回值"。默认关闭。 */
+    if (getenv("ZM_OPEN_DUMMY")) {
+      uint8_t *z = (uint8_t *)calloc(1, 1);
+      g_file_data = z;
+      g_file_size = 0;
+      g_file_pos = 0;
+      g_file_dirty = 0;
+      g_file_path[0] = '\0';
+      log_info("fs.open(\"%s\") -> FILE1 (ZM_OPEN_DUMMY 空句柄)", name);
+      return FILE1;
+    }
     return 0;
   }
 

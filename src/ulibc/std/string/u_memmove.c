@@ -26,7 +26,8 @@ uint32_t u_memmove(uc_engine *uc, uint32_t dst, uint32_t src, uint32_t n) {
         break;
       done += chunk;
     }
-    return done;
+    /* 真机 zmaee_memmove 返回 dst（同 memcpy），不是拷贝长度 */
+    return dst;
   }
   return u_memcpy(uc, dst, src, n);
 }

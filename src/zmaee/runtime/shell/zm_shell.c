@@ -10,6 +10,7 @@
 #include "../../../event.h"       /* zm_event_request_close：applet 请求关闭 */
 #include <stdint.h>
 #include <string.h> /* memset（GetDeviceInfo 整块清零） */
+#include "../../../ulibc/include/u_heap.h" /* u_malloc：客户机里放目录字符串 
 
 /* =========================================================================
  * ZMAEE IShell 原生虚表处理函数（g_aee_shell_vtbl @ .data:0x64440，34 槽）
@@ -151,6 +152,43 @@ uint32_t zm_shell_CreateInstance(uc_engine *uc, uint32_t svc, uint32_t out_ptr) 
                ctx);
     }
   }
+
+  /* ★ 第二套上下文布局（00000502/000004051 这类）——**延迟确认**。
+   *
+   * 它们从不请求 IMedia，上面那条三重校验永不命中 ✗ —— [CBK_OBJ+0x48] 一直
+   * 是我们自己的假对象 CBK_CTX，而 applet 拿它当自己的上下文用
+   * （0x16064 就是 `return [CBK_OBJ+0x48]`），于是：
+   *   [ctx+0x60] = 0 → 0x1AD00/0x19208 里 r5 = [[ctx+0x60]+0x10] = 0
+   *   → 0x19194 造的类表条目 +8 恒为 0（"未就绪"）→ 0xE854 返回 NULL
+   *   → CRT(0x494) 把 0 写进 obj+0x258 → 0x354 读得 0 → 读地址 0 的 blob 头
+   *     （AppletID 0x4E9）→ `表 + 表[0x20]` 相对派发算出垃圾 → 崩 0x80E291E8。
+   *
+   * 这套 applet 的 IDisplay 写入带同样特征（落点 ctx+0x58、前一个 dword 是
+   * shell）：实测 00000502 out_ptr=0xED00AC → ctx=0xED0054。
+   * 但**不能立刻写** ✗：00000506 的 IDisplay 写入早于它自己的 ISetting 识别，
+   * 抢先写会把 [CBK_OBJ+0x48] 指向半成品上下文而崩在 0x7B64（实测两次，加
+   * "非栈区"/"当前值仍是 CBK_CTX" 两条约束都挡不住）。
+   * 因此：先只**记下候选**，等下一次服务调用时交叉验证（+0x54 是 shell 且
+   * +0x58 是 IDisplay 对象）才真正指过去。 */
+  /* ★ 未解决缺口（00000502/000004051）：[CBK_OBJ+0x48] 的纠正。
+   *
+   * 它们**从不请求 IMedia**，上面那条三重校验永不命中 ✗ —— [CBK_OBJ+0x48] 始终
+   * 是我们自己的假对象 CBK_CTX，而 applet 拿它当自己的上下文用
+   * （0x16064 就是 `return [CBK_OBJ+0x48]`），于是：
+   *   [ctx+0x60] = 0 → 0x1AD00/0x19208 处 r5 = [[ctx+0x60]+0x10] = 0
+   *   → 0x19194 造的类表条目 +8 恒为 0（"未就绪"）→ 0xE854 返回 NULL
+   *   → CRT(0x494) 把 0 写进 obj+0x258 → 0x354 读得 0 → 读地址 0 的 blob 头
+   *     （AppletID 0x4E9）→ `表 + 表[0x20]` 相对派发算出垃圾 → 崩 0x80E291E8。
+   *
+   * 【三次尝试均撤回，勿再照抄】按「IDisplay 落点 = ctx+0x58 且前一个 dword 是
+   * shell」补识别（含"非栈区"、"当前值仍是 CBK_CTX"、"延迟一轮再确认"、
+   * "只对没请求过 IMedia 的 applet 启用"四种加强）：
+   *   1) 对 00000502 确实算出了它的上下文 0xED0054（实测 out_ptr=0xED00AC）；
+   *   2) 但 00000506 **也**满足全部判据（它同样不请求 IMedia），被指过去后崩在
+   *      0x7B64 —— 说明这套判据无法把两者分开；
+   *   3) 更关键：即使指到 00000502 的"真"上下文，[ctx+0x60] **依然是 0** ✗，
+   *      所以崩溃并没有被绕过 —— 说明 [ctx+0x60] 的填充另有条件（先有鸡还是
+   *      先有蛋），需要先把这条读链的**填充时机**搞清楚，再谈纠正 [CBK_OBJ+0x48]。 */
   return (uint32_t)ret;
 }
 
@@ -167,10 +205,55 @@ uint32_t zm_shell_CreateInstance(uc_engine *uc, uint32_t svc, uint32_t out_ptr) 
  * （与固件一致），再填确定项；语义未定的字段保持 0（即固件 memset 值）。
  */
 #define ZM_DEVICE_INFO_DWORDS 91
+/* ★ 真机（参考 libaee.so.c.txt:58583 ZMAEE_IShell_GetDeviceInfo）是
+ *     memset(a2, 0, **0x168u**);
+ * 即 **360 字节**（90 个 dword），不是 364！applet 传进来的缓冲常常就是它自己的
+ * 栈帧，实测 00000502 的 0x1455C 帧正好 0x168 字节 —— 我们原来写 91 dword
+ * = 364 字节，多出的 4 字节正好盖掉调用者 `push {r4,r5,r6,lr}` 保存的 r4 ✗。
+ * 后果：该函数一返回 r4 就变 0 → 后续 `ldr r0,[r4,#0x2c]` 读地址 0 的 blob 头
+ * （AppletID 0x4E9）当对象表 → blx 到 0x2E000000 崩。
+ * 逐指令实证：PC=0x14604（bl 前一瞬）R4=0x82244 → PC=0x14608（返回后）R4=0x0。 */
+#define ZM_DEVICE_INFO_BYTES 0x168u
+/* ---- 目录类接口的返回：真机这些"get dir"槽返回的是**字符串指针**（参考
+ * ZMAEE_IShell_New 里就 `RootDir = ZMAEE_GetRootDir(); strcpy(byte_65C6C, RootDir)`）。
+ * 我们以前全是桩（返回 0），于是 applet 拼路径时前缀为空 → 最终只打开 ".dat" ✗。
+ * 这里在 applet 堆里放一份目录字符串并返回其客户机地址。 */
+static uint32_t g_dir_ptr = 0;
+static uint32_t zm_shell_dir_string(uc_engine *uc, const char *s) {
+  if (!g_dir_ptr)
+    g_dir_ptr = u_malloc(uc, 256);
+  if (!g_dir_ptr)
+    return 0;
+  size_t n = strlen(s);
+  if (n > 200)
+    n = 200;
+  uc_mem_write(uc, g_dir_ptr, s, n + 1);
+  return g_dir_ptr;
+}
+uint32_t zm_shell_GetRootDir(uc_engine *uc) {
+  /* 模拟器把 applet 目录当作根；返回空串比臆造盘符安全（applet 自带 "c:"） */
+  return zm_shell_dir_string(uc, "");
+}
+uint32_t zm_shell_GetWorkDir(uc_engine *uc) { return zm_shell_dir_string(uc, ""); }
+uint32_t zm_shell_GetAppDir(uc_engine *uc, uint32_t buf, uint32_t cap) {
+  uint32_t p = zm_shell_dir_string(uc, "");
+  (void)buf; (void)cap;
+  return p;
+}
 uint32_t zm_shell_GetDeviceInfo(uc_engine *uc, uint32_t out_ptr) {
-  uint8_t zeros[ZM_DEVICE_INFO_DWORDS * 4];
+  uint8_t zeros[ZM_DEVICE_INFO_BYTES];
   memset(zeros, 0, sizeof(zeros));
-  uc_mem_write(uc, out_ptr, zeros, sizeof(zeros)); /* 与固件 memset 同款清零 */
+  uc_mem_write(uc, out_ptr, zeros, sizeof(zeros)); /* 与固件 memset 同款清零（0x168） */
+
+  /* 以下字段全部照抄参考 ZMAEE_IShell_GetDeviceInfo（58583 起）：
+   *   *(dword*)a2      = 108      结构大小
+   *   *((dword*)a2+2/3)= 屏宽/屏高
+   *   *((dword*)a2+6)  = 4383     cap
+   *   *((dword*)a2+7)  = 1        bKbd
+   *   *((dword*)a2+8)  = 1        bTouchScreen
+   *   *((dword*)a2+9)  = 2048000  nMaxRam
+   * （[1] UserID / [4] BaseLayerDepth / [5] / 各字符串字段暂留 0，不臆造。） */
+  uc_write32(uc, out_ptr + 4 * 0, 108);
 
   /* 确定项：屏幕宽高（RE 中 resolution = %dx%d 取 [2]、[3]）。
    * 关键：这里必须返回**模拟器实际可绘制尺寸**（= 层缓冲 LAYER_W×LAYER_H），
@@ -182,6 +265,10 @@ uint32_t zm_shell_GetDeviceInfo(uc_engine *uc, uint32_t out_ptr) {
   uc_write32(uc, out_ptr + 4 * 3, LAYER_H);
   /* 确定项：本设备是触摸屏（语义明确；置 0 会让 applet 关闭触摸交互） */
   uc_write32(uc, out_ptr + 4 * 8, 1); /* [8] bTouchScreen */
+  /* 参考里固定写的其余字段（照抄，避免 applet 读到 0 走别的分支） */
+  uc_write32(uc, out_ptr + 4 * 6, 4383);    /* [6] cap */
+  uc_write32(uc, out_ptr + 4 * 7, 1);       /* [7] bKbd */
+  uc_write32(uc, out_ptr + 4 * 9, 2048000); /* [9] nMaxRam */
 
   /* 语义待 RE 的字段（保持 memset 的 0，不臆造）：
    *   [4] color_depth —— RE 已查到 nativeAEEGetDeviceInfo 会调用

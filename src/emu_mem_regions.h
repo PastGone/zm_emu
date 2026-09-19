@@ -35,6 +35,21 @@
 #define HEAP_SIZE (6 * ONE_MB)
 #define HEAP_END (HEAP_BASE + HEAP_SIZE)
 
+/* CBK 自管堆（applet 通过 [CBK_OBJ+0x4C] 自己管理的那个分配器）的专用区。
+ *
+ * ★ 位置必须独立：既不能向 applet 自己的堆要（`applet_malloc`/u_malloc 会把
+ * applet 堆起点整体后移，00000001 立刻崩），也不能放在 blob 区里（会与
+ * applet 的静态数据/我们自己造的堆对象撞车）。
+ * 放在 TRAMP 之后，1MB。
+ *
+ * ★ 大小必须够：RE 0x15DDC 每次“补桶”都要向堆管理器要 0x8000(32KB)
+ * （0x15E1C `mov r1,#128,#28` = 0x8000），而桶有 4 个（步长 4/8/0x10/0x20）
+ * → 4*32KB = 128KB。给 128KB 时第 4 个桶（0x1c 这类请求用）必然补桶失败 →
+ * 0x191B4 的 0x1c 分配返回 0 → 类表条目为 NULL → 对 NULL 做相对虚表派发 →
+ * 崩在 0x80E291E8。给 1MB。 */
+#define CBKHEAP_BASE (TRAMP_BASE + TRAMP_SIZE)
+#define CBKHEAP_SIZE (1 * ONE_MB)
+
 #define SHIM_FT_BASE (HEAP_END) /* 函数表 */
 #define SHIM_FT_SIZE (HALF_MB / 2)
 

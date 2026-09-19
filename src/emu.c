@@ -40,6 +40,8 @@ int zm_emu_map_memory() {
   uc_err err;
   err = uc_mem_map(g_uc, BLOB_BASE, BLOB_SIZE, UC_PROT_ALL);
   err = uc_mem_map(g_uc, STACK_BASE, STACK_SIZE, UC_PROT_ALL);
+  /* CBK 自管堆专用区（见 emu_mem_regions.h：不能用 blob 区，会撞 applet 的 BSS） */
+  err = uc_mem_map(g_uc, CBKHEAP_BASE, CBKHEAP_SIZE, UC_PROT_ALL);
   err = uc_mem_map(g_uc, HEAP_BASE, HEAP_SIZE, UC_PROT_ALL);
   err = uc_mem_map(g_uc, SHIM_BASE, SHIM_SIZE, UC_PROT_ALL);
   err = uc_mem_map(g_uc, TRAMP_BASE, TRAMP_SIZE, UC_PROT_ALL);
@@ -153,6 +155,20 @@ int zm_emu_build_vtables() {
 
   // shell（root.getShell 返回；G_SHELL_ADDR 对象 → SHELL_VT_ADDR = g_aee_shell_vtbl）
   err = uc_write32(g_uc, G_SHELL_ADDR, SHELL_VT_ADDR);
+  /* ★ shell 对象 +4 = **内联的工作目录字符串**（参考 ZMAEE_IShell_New：
+   *   RootDir = ZMAEE_GetRootDir(); zmaee_strcpy(shell+4, RootDir);
+   *   ZMAEE_IShell_GetWorkDir(shell) 就是 `return shell + 4;`）。
+   * applet 的路径模板正是 `"%sinfo.dat"` / `"%s%04d.rms"`，那个 %s 读的就是这里 ✗
+   * —— 我们以前这里是 0，于是文件名前缀全是脏字节/空，资源永远找不到。
+   * 我们的根就是 applet 自己的目录（FileMgr 会自动补 s_data_dir），所以这里给
+   * 空串（+ 一个 NUL 兜底）。 */
+  {
+    const char *workdir = getenv("ZM_WORKDIR") ? getenv("ZM_WORKDIR") : "";
+    size_t wl = strlen(workdir);
+    if (wl > 200)
+      wl = 200;
+    uc_mem_write(g_uc, G_SHELL_ADDR + 4, workdir, wl + 1);
+  }
 
   /* FileMgr_VT_ADDR[0x30]：enumFile — sub_82584 枚举 app_list 下文件 */
   // err = uc_write32(g_uc, FileMgr_VT_ADDR + 0x30, TR_fileMgr_enum);
@@ -356,6 +372,7 @@ int zm_emu_add_hooks() {
   uc_hook hook_code_handle;
   uc_hook hook_unmapped_mem_handle;
   uc_hook hook_shim_mem_handle;
+static uc_hook hook_ctx_handle;
 
   uc_err err;
   log_info("添加钩子");
@@ -380,6 +397,16 @@ int zm_emu_add_hooks() {
     log_error("uc_hook_add failed, err: %d\n", err);
     return -1;
   }
+  /* applet 上下文镜像钩子：默认关闭（实测对 00000502 无改善、且可能引入
+   * 误判，见 hook.c 的说明）。需要复现时设 ZM_CTXHOOK=1。 */
+  if (!getenv("ZM_NO_CTXHOOK")) {
+    err = uc_hook_add(g_uc, &hook_ctx_handle, UC_HOOK_MEM_WRITE,
+                      (void *)hook_ctx_mirror, NULL, HEAP_BASE + 0x60u,
+                      HEAP_BASE + 0x64u);
+    if (err != UC_ERR_OK)
+      log_warn("上下文镜像钩子添加失败, err=%d", err);
+  }
+
   log_info("钩子添加完成");
   return 0;
 }

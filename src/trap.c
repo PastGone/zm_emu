@@ -1,4 +1,5 @@
 #include "./trap.h"
+#include "hook.h" /* hook_ctx_apply：applet 上下文镜像 */
 #include "./log/log.h"
 #include "./test/zm_stat.h" /* zm_stat_trap：槽位调用次数统计（ZM_STAT=1） */
 #include <inttypes.h> /* PRIx32，用于第 294 行格式化输出 */
@@ -81,20 +82,36 @@ static void cbk_heap_init_once(uc_engine *uc) {
   /* 0x15DDC 每次“补桶”会向管理器要 0x8000(32KB)（RE：0x15E1C `mov r1,#128,#28`
    * = 0x8000），128KB 几个桶就见底 → 分配返回 0 → applet 拿到 NULL 后又去
    * Release(0) → 崩（实测 pc=0x173D4 / 0x52069AD8）。给足 1MB。 */
-  /* 堆大小可用 ZM_HEAP_KB 调（排查用；默认 128KB） */
+  /* 堆大小可用 ZM_HEAP_KB 调（排查用；默认 0x1F000，给管理器/分配器留头部） */
   const char *ekb = getenv("ZM_HEAP_KB");
-  const uint32_t HEAP_BYTES =
-      (ekb && atoi(ekb) > 0) ? (uint32_t)atoi(ekb) * 1024u : 0x20000u;
-  /* ★ 不能向 applet 自己的堆要这几块（`applet_malloc`/u_malloc）：实测会把
-   * applet 堆起点整体后移，害得 00000001 这种本来正常的 applet 立刻崩
-   * （pc=0x34 写 NULL+0x34，逐项 bisect 定位）。改从 blob 区尾部取：
-   * payload 只到 0x1D074，0x80000 之后是同样已映射且闲置的零页。 */
-  uint32_t region = BLOB_BASE + 0x80000u;               /* 128KB 堆区 */
-  uint32_t mgr = region + HEAP_BYTES;                   /* 管理器 0x10 字节 */
-  uint32_t al = mgr + 0x10u;                            /* 分配器 0x40 字节 */
-  if (al + 0x40u > BLOB_BASE + BLOB_SIZE) {
-    log_warn("cbk 堆初始化失败：专用区越界");
+  uint32_t HEAP_BYTES =
+      (ekb && atoi(ekb) > 0) ? (uint32_t)atoi(ekb) * 1024u : 0x1F000u;
+  /* 布局：专用区开头放管理器(0x10) + 分配器(0x40)，其余留给堆区。
+   * ★ 既不能向 applet 自己的堆要内存（`applet_malloc`/u_malloc：会把 applet
+   * 堆起点整体后移，00000001 立刻崩），也不能放在 blob 里（会与 applet 的
+   * 静态数据/我们自己造的堆对象撞车）。用独立的 CBKHEAP 映射区（见
+   * emu_mem_regions.h）。 */
+  /* 管理器放到**专用区尾部**的保留块里（0x100 字节）：
+   * 有些 applet（00000710 实测）会做 `[[CBK_OBJ+0x4C]] → [...+0x30] → blx`，
+   * 即把 [CBK+0x4C] 当"带虚表的对象"用；而 00000502 那条路又把 [CBK+0x4C]
+   * 的 [+0] 当**堆管理器**读（0x15DDC: `ldr r0,[r0]`）。
+   * 两者要同时满足 ⇒ 让 [+0] 仍指管理器，但把管理器搬到一个**独立保留块**，
+   * 这样它的 +0x30 就不与分配器的桶字段重叠，可以安全地填一个跳板。 */
+  uint32_t mgr = CBKHEAP_BASE + CBKHEAP_SIZE - 0x100u;  /* 保留块（尾部 0x100） */
+  uint32_t al = CBKHEAP_BASE + 0x10u;                   /* 分配器 0x40 字节 */
+  uint32_t region = CBKHEAP_BASE + 0x50u;               /* 堆区起点 */
+  if (HEAP_BYTES > CBKHEAP_SIZE - 0x150u)               /* 给开头 0x50 + 尾部 0x100 */
+    HEAP_BYTES = CBKHEAP_SIZE - 0x150u;
+  if (HEAP_BYTES < 0x8000u) {
+    log_warn("cbk 堆初始化失败：区太小(%u)", HEAP_BYTES);
     return;
+  }
+  /* 管理器的 +0x30 填一个**有效跳板**：00000710 这类 applet 会
+   * `r0=[ctx+0x4C]; r1=1; r2=[[r0]+0x30]; blx r2`（结果按字节当 bool 用）。
+   * 先填"返回 0"的中性桩（见 emu_root_traps.h 的 ZM_x3C），保证不再跳飞。 */
+  {
+    uint32_t stub = TR_root_x3C;
+    uc_mem_write(uc, mgr + 0x30, &stub, 4);
   }
 
   /* 分配器与管理器清零（桶的 [0]=块链、[+4]=空闲头 全 0 = 空） */
@@ -146,12 +163,24 @@ static void cbk_heap_init_once(uc_engine *uc) {
   /* 管理器 { +4 首块, +8 区末 }；分配器 [0] = 管理器 */
   {
     uint32_t first = region;
+    /* 【已试并撤回】曾把"区末"取成跳板地址（TRAMP_BASE+0x3C），想让它同时满足
+     * "分配上限"与"对象槽 [8] 可调用"两件事 —— 实测 20 个 applet 全部变成
+     * 0~1 秒 `exit=1`（不崩但直接走错误分支），属**回退** ✗。保持真值。 */
     uint32_t end = region + HEAP_BYTES;
     uc_mem_write(uc, mgr + 4, &first, 4);
     uc_mem_write(uc, mgr + 8, &end, 4);
     uc_mem_write(uc, al, &mgr, 4);
+    /* 【已试并撤回】把 +8 也换成跳板（想让它兼作"对象槽 [8]"）：实测分配器
+     * 立刻坏 —— 00000502 退到 0x7B080C、000007xx 全家退回 0x18/0x78 ✗。
+     * 说明 +8 必须是真"区末"，与 00000710 想要的"可调用槽 [8]"**硬冲突** ✗。
+     * 保留真值；想复现那次实验可设 ZM_STUB8=1。 */
+    if (getenv("ZM_STUB8")) {
+      uint32_t stub = TR_root_x3C;
+      uc_mem_write(uc, mgr + 8, &stub, 4);
+    }
   }
   
+    if (!getenv("ZM_NO_CBKPTR"))
     uc_mem_write(uc, CBK_OBJ + 0x4C, &al, 4);
   log_info("create_cbk 自管堆已建：分配器=0x%X 管理器=0x%X 区=0x%X..0x%X", al, mgr,
            region, region + HEAP_BYTES);
@@ -292,6 +321,7 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   zm_stat_trap(trap_address - TRAMP_BASE);
 
   uint32_t ret = 0;
+  hook_ctx_apply(uc); /* applet 上下文镜像（见 hook.c） */
   switch (trap_address) {
   case TR_init_callback: {
     /*
@@ -505,6 +535,27 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     applet_free(uc, r0);
     ret = 0;
     break; /* free(r0=ptr) */
+  case TR_root_malloc_screen:
+    /* ROOT+0x30 = ZMAEE_MallocScreenMem(size) = malloc(size)
+     * （参考 libaee.so.c.txt:45030）。00000502 用它要整屏缓冲 0x25800；
+     * 以前这里是未接线槽 → 返回 0 → applet 的 NULL 分支读地址 0 的 blob 头
+     * 当对象表 → blx 到 0x7C000000 崩。 */
+    ret = applet_malloc(uc, r0);
+    log_debug("MallocScreenMem(0x%X) = 0x%X (lr=0x%X)", r0, ret, lr);
+    break;
+  case TR_root_free_screen:
+    log_debug("FreeScreenMem(0x%X) lr=0x%X", r0, lr);
+    applet_free(uc, r0);
+    ret = 0;
+    break;
+  case TR_root_x3C: /* 中性桩（见 emu_root_traps.h）：返回 0 */
+    ret = 0;
+    break;
+  case TR_root_ucs2_to_utf8:
+    /* ROOT+0x24 = ZMAEE_Ucs2_2_Utf8(ucs2_src, 字符数, utf8_dst, 字节容量)
+     * → 返回写入字节数（参考 libaee.so.c.txt:52664）。 */
+    ret = zm_ucs2_to_utf8(uc, r0, r1, r2, r3);
+    break;
   case TR_root_utf8_to_ucs2:
     /* ROOT_TABLE_ADDR[0x20] = ZMAEE_Utf8_2_Ucs2(utf8_src=r0, 源字节数=r1,
      * ucs2_dst=r2, 目标字符容量=r3) → 返回写入的字符数。
@@ -629,13 +680,13 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     ret = zm_shell_GetDeviceInfo(uc, r1);
     break;
   case TR_shell_GetRootDir:
-    ret = zm_shell_stub(uc, 0x14, r0, r1, r2, r3);
+    ret = zm_shell_GetRootDir(uc); /* 返回目录字符串指针（以前是返回 0 的桩 ✗） */
     break;
   case TR_shell_SetWorkDir:
     ret = zm_shell_stub(uc, 0x18, r0, r1, r2, r3);
     break;
   case TR_shell_GetWorkDir:
-    ret = zm_shell_stub(uc, 0x1C, r0, r1, r2, r3);
+    ret = zm_shell_GetWorkDir(uc);
     break;
   case TR_shell_StartApplet:
     ret = zm_shell_stub(uc, 0x20, r0, r1, r2, r3);
@@ -713,6 +764,8 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     ret = zm_shell_stub(uc, 0x7C, r0, r1, r2, r3);
     break;
   case TR_shell_GetAppDir:
+    ret = zm_shell_GetAppDir(uc, r1, r2);
+    break;
     ret = zm_shell_stub(uc, 0x80, r0, r1, r2, r3);
     break;
   case TR_shell_GetSupportHall:
@@ -1290,6 +1343,8 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     ret = zm_wcslen(uc, r0);
     break;
   case TR_root_create_cbk:
+    /* 【已试并撤回】把 [CBK_OBJ+0x48] 指到 applet 传进 create_cbk 的 r3
+     * （00000502 恒为 0x1A0090）：00000502 无变化，00000001/00000506 反而崩。 */
     /*
      * ROOT_TABLE_ADDR[0x154]：返回回调对象 CBK_OBJ（其 vt[+8] 随后会被 applet 覆写）。
      * 这是 zmaee 领域语义而非 libc，故走 zm_root；此前实现被注释掉，

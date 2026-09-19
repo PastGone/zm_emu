@@ -92,7 +92,9 @@ void hook_shim_mem(uc_engine *uc, uc_mem_type type, uint64_t address, int size,
 bool hook_mem_write_watch(uc_engine *uc, uc_mem_type type, uint64_t address,
                           int size, int64_t value, void *user_data) {
   static int n = 0;
-  if (n < 300) {
+  const char *cap = getenv("ZM_MW_MAX");
+  int lim = cap ? atoi(cap) : 300;
+  if (n < lim) {
     uint32_t pc = 0, lr = 0;
     uc_reg_read(uc, UC_ARM_REG_PC, &pc);
     uc_reg_read(uc, UC_ARM_REG_LR, &lr);
@@ -127,4 +129,47 @@ bool hook_mem_unmapped(uc_engine *uc, uc_mem_type type, uint64_t address,
            address, size, pc, lr, r0, r1, r2, r3, root_slot, root0, root8,
            rootc);
   return false;
+}
+/**
+ * applet 上下文钩子（挂在 [HEAP_BASE+0x60, +4)）。
+ *
+ * 实测（00000502）：applet 把自己的上下文指针写进 [HEAP_BASE+0x60]
+ * （内存观察：`写 0x1a0060 = 0xed005c`，LR=0x16710），而 applet 侧读的是
+ * `[[CBK_OBJ+0x48]+0x60]`（0x16064 → 0x1AD00）。它**从不写** [CBK_OBJ+0x48]。
+ *
+ * 但它会先后写入多个值（最早的 `0x1A0098` 是它自建的分配器 ✗），而且真正
+ * 上下文被指向的字段可能要稍后才填好 —— 所以这里**只记录候选**，
+ * 由 trap 入口（hook_ctx_apply）在候选满足条件时再真正镜像过去。
+ */
+static uint32_t g_ctx_cand = 0;
+uint32_t hook_ctx_candidate(void) { return g_ctx_cand; }
+
+bool hook_ctx_mirror(uc_engine *uc, uc_mem_type type, uint64_t address, int size,
+                     int64_t value, void *user_data) {
+  (void)uc; (void)type; (void)address; (void)size; (void)user_data;
+  uint32_t v = (uint32_t)value;
+  /* 只认**落在 CBK 自管堆里**的候选：真上下文实测是 0xED005C（从 CBK 堆分配
+   * 的对象 ✓），而 applet 早期写的 0x1A0098 是它**自己堆里**的自建分配器 ✗。
+   * 用地址区间就能干净分开，不必猜字段内容。 */
+  if (v < CBKHEAP_BASE || v >= CBKHEAP_BASE + CBKHEAP_SIZE)
+    return true;
+  g_ctx_cand = v;
+  uint32_t cur = 0;
+  if (uc_mem_read(uc, CBK_OBJ + 0x48, &cur, 4) == UC_ERR_OK && cur != v) {
+    uc_mem_write(uc, CBK_OBJ + 0x48, &v, 4);
+    uint32_t sub = 0;
+    uc_mem_read(uc, v + 0x60u, &sub, 4);
+    log_info("applet 上下文镜像：[HEAP_BASE+0x60]=0x%X（其 +0x60=0x%X）→ "
+             "[CBK_OBJ+0x48]",
+             v, sub);
+  }
+  return true;
+}
+
+/**
+ * 由 trap 入口调用：候选的 +0x60 非 0（applet 正是读 [ctx+0x60]）时才镜像，
+ * 且只在 [CBK_OBJ+0x48] 仍是我们的假对象 CBK_CTX 时动手。
+ */
+void hook_ctx_apply(uc_engine *uc) {
+  (void)uc; /* 镜像已在 hook 内立即完成（见 hook_ctx_mirror） */
 }

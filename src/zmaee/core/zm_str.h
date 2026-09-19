@@ -78,6 +78,22 @@ uint32_t zm_utf8_to_ucs2(uc_engine *uc, uint32_t src, uint32_t src_bytes,
                          uint32_t dst, uint32_t dst_words);
 
 /**
+ * @brief root[0x24] = ZMAEE_Ucs2_2_Utf8：UCS-2 → UTF-8 转换拷贝
+ *
+ * 与 root[0x20] 互为反向。真机签名 (ucs2_src, 源字符数, utf8_dst,
+ * 目标字节容量)，返回**写入字节数**，结尾一定补 NUL。
+ * 参考反编译见 libaee.so.c.txt:52664，实现见 zm_str.c。
+ *
+ * @param src        UCS-2 源（客户机地址，r0）
+ * @param src_chars  源字符数（r1）
+ * @param dst        UTF-8 目标（r2）
+ * @param dst_bytes  目标字节容量（r3，含收尾 NUL 的位置）
+ * @return 写入的 UTF-8 字节数（不含收尾 NUL）
+ */
+uint32_t zm_ucs2_to_utf8(uc_engine *uc, uint32_t src, uint32_t src_chars,
+                         uint32_t dst, uint32_t dst_bytes);
+
+/**
  * @brief root[0xD8] = zmaee_wcslen：宽字符串（UCS-2）长度（**字符数**）
  *
  * 证据见 zm_str.c 的注释（5 处调用点皆是"取长度"，其中两处 `LSL#1` 把

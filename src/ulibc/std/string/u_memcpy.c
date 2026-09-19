@@ -23,5 +23,10 @@ uint32_t u_memcpy(uc_engine *uc, uint32_t dst, uint32_t src, uint32_t n) {
       break;
     done += chunk;
   }
-  return done;
+  /* ★ 返回值必须与真机一致：参考里是 `void *zmaee_memcpy(void *a1, const void
+   * *a2, size_t a3)` —— 返回 **dst 指针**（libaee.so.c.txt:60803），不是拷贝长度！
+   * 实测 00000502：ROOT+0x5C 返回 0x14（长度）✗，而调用方是把它当 dst 用的
+   * （我们自己 trap.c 的注释也写着"返回值当 dst 用"），于是 applet 拼文件名时
+   * 前缀丢失、最终只打开 ".dat" ✗ —— 修好后它才能走到真正的资源加载。 */
+  return done == n ? dst : dst;
 }
