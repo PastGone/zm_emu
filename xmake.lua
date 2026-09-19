@@ -10,6 +10,10 @@ add_requires("capstone", {system = false,configs = {static = true}}) -- 声明�
 target("zm_emu")
     set_kind("binary")
 --    
+    -- xmake run 默认在二进制所在目录启动，而 applet 资源相对项目根存放；
+    -- 这里把运行目录设回项目根，使相对路径 applet/... 始终可解析。
+    set_rundir(os.projectdir())
+--    
     add_files("src/*.c")        
     add_files("src/**/*.c")
     -- 

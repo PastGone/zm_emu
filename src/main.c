@@ -84,10 +84,10 @@ int main() {
   // 打开 applet 文件
   //  测试文件1（向后兼容验证）,已测试通过
   // 整个框架就是在这个这个东西就是起点,如果这个东西不通过那就是破坏了兼容性
-  char *filename = "/home/apollo/文档/古时游戏/zm_emu/applet/00000102/"
+  char *filename = "applet/00000102/"
                    "00000102.app"; //
 
-  // char *filename = "/home/apollo/文档/古时游戏/zm_emu/applet/00000001/"
+  // char *filename = "applet/00000001/"
   //                  "00000001.app"; // 测试文件1（向后兼容验证）
 
   /*
@@ -106,8 +106,7 @@ int main() {
         snprintf(applet_path, sizeof(applet_path), "%s", sel);
       else
         snprintf(applet_path, sizeof(applet_path),
-                 "/home/apollo/文档/古时游戏/zm_emu/applet/%s/%s.app", sel,
-                 sel);
+                 "applet/%s/%s.app", sel, sel);
       filename = applet_path;
     }
     snprintf(g_app_pathname, sizeof(g_app_pathname), "%s", filename);
