@@ -754,10 +754,20 @@ static uint32_t a_enter_event_loop(trap_ctx *c) {
              "%08X]）",
              size, handler, uc_read32(uc, API_SLOT), uc_read32(uc, API_SLOT + 4),
              uc_read32(uc, API_SLOT + 8), uc_read32(uc, API_SLOT + 12));
-    if (size == 0 || size > 0x40000 || handler == 0) {
-      log_error("握手结果异常（size=%u handler=0x%X），无法继续", size, handler);
+    /* 宽松握手补丁：部分 applet（如 Hello World demo）往 SIZE_SLOT 写的
+     * 是指针/自引用地址（如 0x7A8100，恰为该槽自身地址）而非整数实例大小，
+     * 导致 size 为 0 或远超 0x40000 上限。只要 handler 有效就继续，size 改
+     * 用兜底值——实例不可能太大，0x2000 足够且安全。 */
+    if (handler == 0) {
+      log_error("握手结果异常：handler=0，无法继续");
       uc_emu_stop(uc);
       return 0;
+    }
+    if (size == 0 || size > 0x40000) {
+      const uint32_t FALLBACK_SIZE = 0x2000;
+      log_warn("握手 size 异常（0x%X），按宽松握手使用兜底大小 %u 字节继续",
+               size, FALLBACK_SIZE);
+      size = FALLBACK_SIZE;
     }
 
     uint32_t blk = applet_calloc(uc, 1, size + 32);

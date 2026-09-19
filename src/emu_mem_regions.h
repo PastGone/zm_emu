@@ -30,6 +30,11 @@ static constexpr uint32_t BLOB_SIZE = 1 * ONE_MB;
 static constexpr uint32_t STACK_BASE = BLOB_BASE + BLOB_SIZE;
 static constexpr uint32_t STACK_SIZE = 1 * HALF_MB;
 static constexpr uint32_t STACK_TOP = STACK_BASE + STACK_SIZE;
+/* 栈顶 red-zone：部分 applet（如 00000459）的裸函数 sub_698 用 POP 弹掉的
+ * 寄存器数比调用方 sub_3BC 用 PUSH 压入的多 2 个，会越界读 STACK_TOP 之上约
+ * 8 字节。初始 SP 不顶在 STACK_TOP，而是下沉 STACK_REDZONE，让这段越界读落
+ * 在映射区内（不影响 HEAP/SHIM 布局，普通 applet 也仅是多了点头部余量）。 */
+static constexpr uint32_t STACK_REDZONE = 0x200;
 
 static constexpr uint32_t HEAP_BASE = STACK_TOP + ONE_MB / 8;
 static constexpr uint32_t HEAP_SIZE = 6 * ONE_MB;

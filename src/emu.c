@@ -447,7 +447,7 @@ static void trace_code_hook(uc_engine *uc, uint64_t address, uint32_t size,
 }
 
 int zm_emu_start_applet() {
-  uint32_t stack_ptr = STACK_TOP;
+  uint32_t stack_ptr = STACK_TOP - STACK_REDZONE;
   uc_reg_write(g_uc, UC_ARM_REG_SP, &stack_ptr);
 
   uc_reg_write(
