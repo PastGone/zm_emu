@@ -5,3 +5,7 @@ ZM_TEST_DISPLAY=1 ZM_TEST_SEC=0 ./test_all.sh 00000001
 
 ZM_TEST_DISPLAY=1 ZM_TEST_SEC=0 ./test_all.sh 00000102 00000506 00000001 
 
+
+//扫描工具
+cd ./go_tools/applet_scan
+go run . /home/apollo/文档/古时游戏/zm_emu/applet -o ../../applet_headers.csv
