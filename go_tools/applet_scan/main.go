@@ -21,7 +21,7 @@ import (
 	"strings"
 )
 
-// csvColumns CSV 表头顺序
+// csvColumns CSV 表头顺序（字段名与 src/tool/paser_info.h 的 AppletHeader 对齐）
 var csvColumns = []string{
 	"File",
 	"Path",
@@ -34,13 +34,16 @@ var csvColumns = []string{
 	"PayloadSize",
 	"AppName",
 	"IconName",
-	"Type_Hex",
-	"ScreenWSmall",
-	"ScreenHSmall",
-	"ScreenW",
-	"ScreenH",
+	"ProgramUID_Hex",
+	"ActivationType",
+	"ActivationType_Hex",
+	"ActivationKey_Hex",
+	"UnknownDataLength",
+	"MinScreenWidth",
+	"MinScreenHeight",
+	"MaxScreenWidth",
+	"MaxScreenHeight",
 	"Reserved0x010_Hex",
-	"Unknown0x084_Hex",
 	"Unknown0x184_Hex",
 }
 
@@ -166,13 +169,16 @@ func parseOne(root, path string) ([]string, error) {
 		fmt.Sprintf("%d", h.PayloadSize),
 		h.AppName,
 		h.IconName,
-		fmt.Sprintf("0x%02X", h.Type),
-		fmt.Sprintf("%d", h.ScreenWSmall),
-		fmt.Sprintf("%d", h.ScreenHSmall),
-		fmt.Sprintf("%d", h.ScreenW),
-		fmt.Sprintf("%d", h.ScreenH),
+		hexBytes(h.ProgramUID),
+		fmt.Sprintf("%d", h.ActivationType),
+		fmt.Sprintf("0x%08X", h.ActivationType),
+		hexBytes(h.ActivationKey),
+		fmt.Sprintf("%d", h.UnknownDataLength),
+		fmt.Sprintf("%d", h.MinScreenWidth),
+		fmt.Sprintf("%d", h.MinScreenHeight),
+		fmt.Sprintf("%d", h.MaxScreenWidth),
+		fmt.Sprintf("%d", h.MaxScreenHeight),
 		fmt.Sprintf("0x%08X", h.Reserved0x010),
-		fmt.Sprintf("0x%08X", h.Unknown0x084),
 		fmt.Sprintf("0x%08X", h.Unknown0x184),
 	}
 	return rec, nil

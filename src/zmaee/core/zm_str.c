@@ -244,6 +244,32 @@ uint32_t zm_spec_lookup(uc_engine *uc, uint32_t str_addr,
 }
 
 /**
+ * @brief ptr 处是否"像裸 C 串"：从 ptr 起直到 NUL 的字节全是可打印 ASCII
+ *
+ * 用于把"被误判成字符串对象的普通文本缓冲"捞回来。判据很硬：字符串对象
+ * 的头 4 字节是**数据指针**（如 0x001B90C4，含 >=0x80 的字节），不可能
+ * 整段都是可打印 ASCII；而文本缓冲（sprintf 的输出、显示缓冲）满足。
+ *
+ * @param out_len 非 NULL 时回填扫描出的长度（不含收尾 NUL）
+ */
+static bool looks_like_text(uc_engine *uc, uint32_t p, uint32_t *out_len) {
+  uint32_t n = 0;
+  for (; n < 4096u; n++) {
+    uint8_t c = 0;
+    if (uc_mem_read(uc, p + n, &c, 1) != UC_ERR_OK)
+      return false;
+    if (c == 0) {
+      if (out_len)
+        *out_len = n;
+      return true;
+    }
+    if (c < 0x20 || c >= 0x7F)
+      return false;
+  }
+  return false;
+}
+
+/**
  * @brief root.str_find → zm_strchr：在字符串对象或裸 C 串中查找字符
  *
  * 先按 zmaee 字符串对象（+0=data_ptr, +4=len）解析；解析失败则把
@@ -279,6 +305,18 @@ uint32_t zm_strchr(uc_engine *uc, uint32_t str_obj_ptr, uint32_t ch) {
     }
   }
 
+  /*
+   * 与 zm_strlen 同款兜底：as_obj 判定成立但解引用出来是空串、而 str_obj_ptr
+   * 本身是段可打印文本时，说明是把文本缓冲误判成了对象（首 4 字节被当成
+   * data_ptr、紧接着的 0 被当成 len）。此时按裸 C 串处理。
+   */
+  if (as_obj) {
+    uint32_t dn = 0;
+    if (looks_like_text(uc, data_ptr, &dn) && dn == 0 &&
+        looks_like_text(uc, str_obj_ptr, NULL))
+      as_obj = false;
+  }
+
   uint32_t base = as_obj ? data_ptr : str_obj_ptr;
   char cstr[256];
   read_cstr(uc, base, cstr, sizeof(cstr));
@@ -305,8 +343,15 @@ static uint32_t resolve_str_ptr(uc_engine *uc, uint32_t p) {
     if (data_ptr != 0 && len < 4096) {
       uint8_t first = 0;
       if (uc_mem_read(uc, data_ptr, &first, 1) == UC_ERR_OK &&
-          (first == 0 || (first >= 0x20 && first < 0x80)))
+          (first == 0 || (first >= 0x20 && first < 0x80))) {
+        /* 同 zm_strlen 的兜底：文本缓冲被误判成对象（解引用是空串、
+         * 而 p 本身就是可打印文本）时，按裸 C 串返回。 */
+        uint32_t dn = 0;
+        if (looks_like_text(uc, data_ptr, &dn) && dn == 0 &&
+            looks_like_text(uc, p, NULL))
+          return p;
         return data_ptr;
+      }
     }
   }
   return p;
@@ -411,8 +456,25 @@ uint32_t zm_strlen(uc_engine *uc, uint32_t str_obj_ptr) {
     }
   }
 
-  if (as_obj)
-    return len;
+  if (as_obj) {
+    if (len != 0)
+      return len;
+    /*
+     * len == 0 有两种可能：
+     *   (a) 真·空字符串对象 → 长度就是 0；
+     *   (b) 普通文本缓冲被上面的启发式误判成对象 —— 实测 000007ca 计算器：
+     *       显示缓冲 S+0xA4 = "3\0\0\0…" 的头 8 字节被读成
+     *       {data_ptr=0x33('3'), len=0}，而 data_ptr=0x33 落在 blob 里
+     *       且首字节恰好是 0，于是"对象"判定成立、直接返回 len=0。
+     *       后果：按 "=" 算出 3 之后长度被写成 0 → 数字一个都画不出来。
+     * 用"ptr 本身是不是可打印文本"区分：对象头是指针（含非 ASCII 字节），
+     * 文本缓冲不是。这样 (a) 仍返回 0，(b) 能拿到真实长度。
+     */
+    uint32_t n = 0;
+    if (looks_like_text(uc, str_obj_ptr, &n))
+      return n;
+    return 0;
+  }
 
   return u_strlen(uc, str_obj_ptr);
 }

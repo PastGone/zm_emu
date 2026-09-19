@@ -658,6 +658,59 @@ static uint32_t a_root_sprintf(trap_ctx *c) {
 static uint32_t a_root_str_to_num(trap_ctx *c) {
   return (uint32_t)u_strtol(c->uc, c->r0, c->r1, (int)c->r2);
 }
+
+/* 把 double 结果按 ARM EABI 拆成 r0(低)/r1(高)。trap 框架只回写 r0，
+ * 高 32 位需 handler 自己写 r1。 */
+static uint32_t trap_ret_double(uc_engine *uc, double v) {
+  uint64_t bits;
+  memcpy(&bits, &v, sizeof(bits));
+  uint32_t hi = (uint32_t)(bits >> 32);
+  uc_reg_write(uc, UC_ARM_REG_R1, &hi);
+  return (uint32_t)(bits & 0xFFFFFFFFu);
+}
+
+/* ROOT_TABLE[0x70] = 字符串→double（CString::ToDouble / atof）。
+ * r0 指向以 0 结尾的 ASCII（CString 内联数据在 +0）。 */
+static uint32_t a_root_atof(trap_ctx *c) {
+  double v = u_strtod_ex(c->uc, c->r0, NULL);
+  if (getenv("ZM_SHOW_TRACE"))
+    log_info("[atof] str@0x%X => %g", c->r0, v);
+  return trap_ret_double(c->uc, v);
+}
+
+/* ROOT_TABLE[0x12C] = zmaee 的双精度二元运算（applet 侧包装是 sub_44E8）
+ *
+ * 调用约定是**标准 AAPCS**：
+ *   r0:r1 = 左操作数 lhs（小端：r0 低 32 位、r1 高 32 位）
+ *   r2:r3 = 右操作数 rhs
+ *   [sp+0] = 运算符选择器：0=+ 1=- 2=× 3=÷（其余返回 0）
+ *   返回 r0:r1 = 结果；**由调用方自己 STM 写回内存**，本 handler 不动内存。
+ *
+ * 【踩过的坑】最早写成"从栈上 sp+32 取操作数地址、再减 8 取另一个"，
+ * 那个偏移只对 sub_10B4（四则运算）那个调用点碰巧成立；M+/M- 是另一处
+ * 调用点（sub_1D9C 的 loc_25D8），sp+32 根本不是操作数地址，于是取到
+ * lhs=rhs=0 —— 表现为"M+ 存不进去、MR 读出来永远是 0（像 MC）"。
+ * 按 AAPCS 从寄存器取参后，两个调用点同时正确。
+ *
+ * 【顺序】必须是 lhs op rhs（先按的 op 后按的）：1-2 得 -1、1÷2 得 0.5。 */
+static uint32_t a_root_f_op(trap_ctx *c) {
+  int op = (int)uc_read32(c->uc, c->sp + 0);
+  uint64_t lb = ((uint64_t)c->r1 << 32) | (uint64_t)c->r0;
+  uint64_t rb = ((uint64_t)c->r3 << 32) | (uint64_t)c->r2;
+  double lhs = 0.0, rhs = 0.0, r = 0.0;
+  memcpy(&lhs, &lb, sizeof(lhs));
+  memcpy(&rhs, &rb, sizeof(rhs));
+  switch (op) {
+  case 0: r = lhs + rhs; break;
+  case 1: r = lhs - rhs; break;
+  case 2: r = lhs * rhs; break;
+  case 3: r = (rhs != 0.0) ? lhs / rhs : 0.0; break;
+  default: r = 0.0; break;
+  }
+  if (getenv("ZM_SHOW_TRACE"))
+    log_info("[f_op] op=%d %g <op> %g => %g (lr=0x%X)", op, lhs, rhs, r, c->lr);
+  return trap_ret_double(c->uc, r);
+}
 static uint32_t a_root_str_ctor(trap_ctx *c) {
   return u_strcpy(c->uc, c->r0, c->r1);
 }
@@ -849,6 +902,8 @@ static const struct { uint32_t lo, hi; trap_fn fn; } k_trap_table[] = {
   { TR_root_utf8_to_ucs2, TR_root_utf8_to_ucs2, a_zm_utf8_to_ucs2 },
   { TR_root_sprintf, TR_root_sprintf, a_root_sprintf },
   { TR_root_str_to_num, TR_root_str_to_num, a_root_str_to_num },
+  { TR_root_atof, TR_root_atof, a_root_atof },
+  { TR_root_x12C, TR_root_x12C, a_root_f_op },
   { TR_root_str_ctor, TR_root_str_ctor, a_root_str_ctor },
   { TR_root_strchr, TR_root_strchr, a_zm_strlen },
   { TR_root_memcmp, TR_root_memcmp, a_u_memcmp },
@@ -1094,6 +1149,25 @@ static uint32_t trap_default(trap_ctx *c) {
   }
   if (trap_address >= TRAMP_BASE && trap_address < TRAMP_BASE + TRAMP_SIZE) {
     uint32_t slot = trap_address - TRAMP_BASE;
+    if (getenv("ZM_SHOW_TRACE") && (slot == 0x70 || slot == 0x12C)) {
+      log_info("[SHIM细] slot=0x%X r0=%08X r1=%08X r2=%08X r3=%08X lr=%08X",
+               slot, c->r0, c->r1, c->r2, c->r3, c->lr);
+      for (int i = 0; i < 10; i++)
+        log_info("[SHIM细]   sp+%02d = %08X", i * 4,
+                 uc_read32(c->uc, c->sp + (uint32_t)i * 4));
+      if (slot == 0x70) {
+        uint32_t dp = uc_read32(c->uc, c->r0 + 0);
+        uint32_t ln = uc_read32(c->uc, c->r0 + 4);
+        uint8_t bb[32];
+        if (dp)
+          uc_mem_read(c->uc, dp, bb, sizeof(bb));
+        log_info("[SHIM细] CString@%08X dp=%08X len=%08X "
+                 "data=%02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X",
+                 c->r0, dp, ln, bb[0], bb[1], bb[2], bb[3], bb[4], bb[5],
+                 bb[6], bb[7], bb[8], bb[9], bb[10], bb[11], bb[12], bb[13],
+                 bb[14], bb[15]);
+      }
+    }
     log_error("非法的外部调用: 0x%08X (SHIM槽+0x%X) r0=0x%X r1=0x%X "
               "r2=0x%X r3=0x%X sp[0]=0x%X sp[4]=0x%X lr=0x%X",
               trap_address, slot, c->r0, c->r1, c->r2, c->r3, uc_read32(c->uc, c->sp),

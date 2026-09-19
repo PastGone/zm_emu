@@ -132,8 +132,8 @@ int main() {
   /* 层/窗口/GetDeviceInfo 的统一尺寸：取自 .app 头部的主屏尺寸（真源）。
    * 按编译期容量上限 LAYER_MAX_W/H 夹紧（静态数组/region 尺寸按上限预留）。 */
   {
-    int w = (int)g_header.ScreenW;
-    int h = (int)g_header.ScreenH;
+    int w = (int)g_header.MaxScreenWidth;
+    int h = (int)g_header.MaxScreenHeight;
     if (w <= 0)
       w = 240;
     if (h <= 0)
@@ -215,7 +215,7 @@ int main() {
   zm_emu_start_applet();
 
   // 调试 & 自测（已拆至 test/test_diag.c）//diag 的意思是诊断
-  // zm_diag_dump_buttons(g_uc);
+  zm_diag_dump_buttons(g_uc);
   // // zm_diag_audio_test(g_uc);
   // zm_diag_run_event_loop();
 

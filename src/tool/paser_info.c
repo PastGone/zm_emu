@@ -3,67 +3,14 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "paser_info.h" /* AppletHeader：唯一定义在这里，本文件不再另抄一份 */
+
 /* 头部固定大小 (392 字节) */
 #define HEADER_SIZE 0x188
 
 /* =========================================================================
- * 结构体定义：使用主机字节序，所有多字节整数已转换为本地字节序
+ * 字段一律先按偏移从裸字节读出、再做 LE→主机字节序转换后存入结构体
  * ========================================================================= */
-typedef struct {
-  /* 起始 0x000，长度 4 —— AppletID（LE uint32） */
-  uint32_t AppletID;
-
-  /* 起始 0x004，长度 4 —— 版本号（LE uint32） */
-  uint32_t Version;
-
-  /* 起始 0x008，长度 4 —— 标志位（LE uint32），已观察 0x02/0x10/0x20 三类 */
-  uint32_t Flags;
-
-  /* 起始 0x00C，长度 4 —— 负载大小（LE uint32），0x188 + 此值 = 文件大小，9/9
-   * 验证 */
-  uint32_t PayloadSize;
-
-  /* 起始 0x010，长度 4 —— 保留字段（推测），9/9 全零 */
-  uint32_t Reserved_0x010;
-
-  /* 起始 0x014，长度 32 —— 应用名称（UTF-8，0 终止） */
-  char AppName[32];
-
-  /* 起始 0x034，长度 32 —— 图标文件名（ASCII，通常为 "icon.zbmp"） */
-  char IconName[32];
-
-  /* 起始 0x054，长度 32 —— 保留字段（推测），9/9 全零 */
-  uint8_t Reserved_0x054[32];
-
-  /* 起始 0x074，长度 1 —— 类型（单字节，枚举特征，如 0x61 重复出现） */
-  uint8_t Type;
-
-  /* 起始 0x075，长度 15 —— 签名/校验数据（算法未还原，非裸 MD5） */
-  uint8_t SignatureData[15];
-
-  /* 起始 0x084，长度 4 —— 未知字段（待定），有重复值（0x190 / 0x7FFFFFFF） */
-  uint32_t Unknown_0x084;
-
-  /* 起始 0x088，长度 236 —— 保留/扩展数据区，部分样本有非零数据 */
-  uint8_t Extended[236];
-
-  /* 起始 0x174，长度 4 —— 小尺寸的屏幕宽度 */
-  uint32_t ScreenW_Small;
-
-  /* 起始 0x178，长度 4 —— 小尺寸的屏幕高度 */
-  uint32_t ScreenH_Small;
-
-  /* 起始 0x17C，长度 4 —— 大尺寸的屏幕宽度 */
-  uint32_t ScreenW;
-
-  /* 起始 0x180，长度 4 —— 大尺寸的屏幕高度，另外会被注入一个槽 */
-  uint32_t ScreenH;
-
-  /* 起始 0x184，长度 4 —— 未知字段，疑似高16位/低16位两个子字段 */
-  uint32_t Unknown_0x184;
-
-  /* 之后为负载（Payload），不包含在此结构体中 */
-} AppletHeader;
 
 static uint32_t le32_to_host(const uint8_t *buf) {
   return (uint32_t)buf[0] | ((uint32_t)buf[1] << 8) | ((uint32_t)buf[2] << 16) |
@@ -93,14 +40,15 @@ bool parse_app_header(FILE *fp, AppletHeader *header) {
   memcpy(header->AppName, raw + 0x014, 32);
   memcpy(header->IconName, raw + 0x034, 32);
   memcpy(header->Reserved_0x054, raw + 0x054, 32);
-  header->Type = raw[0x074];
-  memcpy(header->SignatureData, raw + 0x075, 15);
-  header->Unknown_0x084 = le32_to_host(raw + 0x084);
-  memcpy(header->Extended, raw + 0x088, 236);
-  header->ScreenW_Small = le32_to_host(raw + 0x174);
-  header->ScreenH_Small = le32_to_host(raw + 0x178);
-  header->ScreenW = le32_to_host(raw + 0x17C);
-  header->ScreenH = le32_to_host(raw + 0x180);
+  memcpy(header->ProgramUID, raw + 0x074, 16);
+  header->ActivationType = le32_to_host(raw + 0x084);
+  memcpy(header->ActivationKey, raw + 0x088, 16);
+  header->UnknownDataLength = le32_to_host(raw + 0x098);
+  memcpy(header->UnknownData, raw + 0x09C, 216);
+  header->MinScreenWidth = le32_to_host(raw + 0x174);
+  header->MinScreenHeight = le32_to_host(raw + 0x178);
+  header->MaxScreenWidth = le32_to_host(raw + 0x17C);
+  header->MaxScreenHeight = le32_to_host(raw + 0x180);
   header->Unknown_0x184 = le32_to_host(raw + 0x184);
 
   /* 不再检查“镜像”相等性，因为已被新样本推翻
@@ -123,18 +71,26 @@ void print_header(const AppletHeader *h) {
   printf("Reserved_0x010  : 0x%08X\n", h->Reserved_0x010);
   printf("AppName         : \"%.*s\"\n", 32, h->AppName);
   printf("IconName        : \"%.*s\"\n", 32, h->IconName);
-  printf("Type            : 0x%02X\n", h->Type);
-  printf("SignatureData   : ");
-  for (int i = 0; i < 15; i++)
-    printf("%02X ", h->SignatureData[i]);
+  printf("ProgramUID      : ");
+  for (int i = 0; i < 16; i++)
+    printf("%02X ", h->ProgramUID[i]);
   printf("\n");
-  printf("Unknown_0x084   : 0x%08X\n", h->Unknown_0x084);
-  printf("ScreenW_Small(0x174)   : 0x%08X (%u)\n", h->ScreenW_Small,
-         h->ScreenW_Small);
-  printf("ScreenH_Small(0x178)   : 0x%08X (%u)\n", h->ScreenH_Small,
-         h->ScreenH_Small);
-  printf("ScreenW (0x17C) : 0x%08X (%u px)\n", h->ScreenW, h->ScreenW);
-  printf("ScreenH (0x180) : 0x%08X (%u px)\n", h->ScreenH, h->ScreenH);
+  printf("ActivationType  : 0x%08X (%u)\n", h->ActivationType,
+         h->ActivationType);
+  printf("ActivationKey   : ");
+  for (int i = 0; i < 16; i++)
+    printf("%02X ", h->ActivationKey[i]);
+  printf("\n");
+  printf("UnknownDataLen  : 0x%08X (%u)\n", h->UnknownDataLength,
+         h->UnknownDataLength);
+  printf("MinScreenW(0x174) : 0x%08X (%u)\n", h->MinScreenWidth,
+         h->MinScreenWidth);
+  printf("MinScreenH(0x178) : 0x%08X (%u)\n", h->MinScreenHeight,
+         h->MinScreenHeight);
+  printf("MaxScreenW(0x17C) : 0x%08X (%u px)\n", h->MaxScreenWidth,
+         h->MaxScreenWidth);
+  printf("MaxScreenH(0x180) : 0x%08X (%u px)\n", h->MaxScreenHeight,
+         h->MaxScreenHeight);
   printf("Unknown_0x184   : 0x%08X (高16位:0x%04X, 低16位:0x%04X)\n",
          h->Unknown_0x184, (h->Unknown_0x184 >> 16) & 0xFFFF,
          h->Unknown_0x184 & 0xFFFF);

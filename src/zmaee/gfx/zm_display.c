@@ -1478,6 +1478,55 @@ bool zm_display_event_loop(void (*on_click)(uint32_t x, uint32_t y),
     return false;
   }
 
+  /* 诊断：ZM_CLICK="x,y;x,y;..." 自动按序点击（无头复现用）。
+   * 每 ~12 帧触发下一个点击（penDown+penUp），到达末尾后停止注入。
+   * 仅在设置了该环境变量时启用，不影响正常交互。 */
+  {
+    static int inited = 0;
+    static int n = 0;
+    static int frm = 0;
+    static uint16_t cx_[64], cy_[64];
+    if (!inited) {
+      inited = 1;
+      const char *s = getenv("ZM_CLICK");
+      if (s && *s) {
+        const char *p = s;
+        while (n < 64 && *p) {
+          int x = 0, y = 0;
+          while (*p && (*p < '0' || *p > '9'))
+            p++;
+          if (!*p)
+            break;
+          while (*p >= '0' && *p <= '9') {
+            x = x * 10 + (*p - '0');
+            p++;
+          }
+          while (*p && (*p < '0' || *p > '9'))
+            p++;
+          while (*p >= '0' && *p <= '9') {
+            y = y * 10 + (*p - '0');
+            p++;
+          }
+          cx_[n] = (uint16_t)x;
+          cy_[n] = (uint16_t)y;
+          n++;
+        }
+        if (n > 0)
+          log_info("ZM_CLICK: 注入 %d 个点击", n);
+      }
+    }
+    if (n > 0) {
+      frm++;
+      if (frm % 12 == 1) {
+        int k = (frm - 1) / 12;
+        if (k < n) {
+          on_touch_click(cx_[k], cy_[k]);
+          return true;
+        }
+      }
+    }
+  }
+
   /* 先检查是否有待处理的触摸事件（case 10 penUp 跟在 case 9 之后） */
   if (zm_event_dispatch_pending())
     return true; /* 已设置寄存器 → 让模拟器执行 handler */
@@ -2057,6 +2106,9 @@ uint32_t zm_display_DrawText(uc_engine *uc, uint32_t rect_ptr,
   uint32_t color = uc_read32(uc, sp);
   uint32_t flags = uc_read32(uc, sp + 8);
   /* 字号来自字体上下文（SelectFont 选中的类型 → 大小），不是栈参数 */
+  if (getenv("ZM_SHOW_TRACE"))
+    log_info("[DrawText] rect=0x%X text=\"%s\" len=%u color=0x%X flags=0x%X",
+             rect_ptr, text, text_len, color, flags);
   fb_draw_text(uc, rect_ptr, text, color, g_font_size, flags);
   return 0;
 }
@@ -2491,6 +2543,23 @@ static int blit_surface_region(uc_engine *uc, uint32_t obj, int dx, int dy,
       rgba = owned;
     } else {
       return 0;
+    }
+  }
+
+  /* 诊断追踪（ZM_SHOW_TRACE=1）：把计算器显示条/错误图标的每次绘制连同
+   * 源矩形打出来，确认按 "=" 后结果数字是否真的被画、画在哪个源矩形。
+   * 这两个地址来自固定 BITMAP_POOL 布局，稳定可比对。 */
+  if (getenv("ZM_SHOW_TRACE")) {
+    if (obj == 0x7C8440U || obj == 0x7C8480U || obj == 0x7C84C0U) {
+      int rx = 0, ry = 0, rw = 0, rh = 0;
+      if (rect_ptr) {
+        rx = (int)uc_read32(uc, rect_ptr);
+        ry = (int)uc_read32(uc, rect_ptr + 4);
+        rw = (int)uc_read32(uc, rect_ptr + 8);
+        rh = (int)uc_read32(uc, rect_ptr + 12);
+      }
+      log_info("[显示条] obj=0x%X %dx%d 目标=(%d,%d) rect={%d,%d,%d,%d} mode=%d",
+               obj, w, h, dx, dy, rx, ry, rw, rh, mode & 7);
     }
   }
 

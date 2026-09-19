@@ -33,6 +33,7 @@ enum ZM_ROOT_TABLE : uint32_t {
   ZM_MemCpy = 0x5CU,
   ZM_Memset = 0x60U,
   ZM_Sprintf = 0x6cU,
+  ZM_AtOf = 0x70U, /* 字符串→double（CString::ToDouble / atof），计算器解析输入用 */
   ZM_StrToNum = 0x74U,
   ZM_StrAssign = 0x78U,
   ZM_StrCtor = 0x88U,
@@ -94,6 +95,7 @@ enum ZM_ROOT_TRAPS : uint32_t {
    * 这个槽以前没接线（走 default 分支返回 0），实测**每轮 3716 次**
    * "非法的外部调用"，颜色全部塌成黑。 */
   TR_root_str_to_num = TRAP(ROOT_TABLE_ADDR + ZM_StrToNum),
+  TR_root_atof = TRAP(ROOT_TABLE_ADDR + ZM_AtOf),
   TR_root_str_ctor = TRAP(ROOT_TABLE_ADDR + ZM_StrCtor),
   TR_root_spec_lookup = TRAP(ROOT_TABLE_ADDR + ZM_SpecLookup),
 
