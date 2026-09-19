@@ -1,5 +1,15 @@
 package main
 
+// zmspx_render.go - 将 .zmspx 动画渲染为 GIF —— 修正版
+//
+// 修正点:
+//   1. renderFrame 使用 frame.CanvasWidth/CanvasHeight (解析层已修正为 maxX-minX / maxY-minY),
+//      并把关键帧坐标减去 bbox 原点: 贴图位置 = (kf.X - frame.X0, kf.Y - frame.Y0)。
+//      原版直接用 kf.X/kf.Y 贴图, 对于 bbox 原点为负的精灵(如 glod 的 bbox=(-9,-9,8,8))会整体偏移。
+//   2. 支持关键帧取向 flags: bit1 = 左右翻转, bit0 = 上下翻转 (原来完全忽略, 导致 battery 的
+//      左右两半、arrow_left/right、net 的四象限等镜像部件渲染错误)。
+//   3. buildPalette 改用 color.NRGBA 入调色板, 避免 GIF 颜色被预乘两次而偏暗。
+
 import (
 	"fmt"
 	"image"
@@ -12,11 +22,16 @@ import (
 	"strings"
 )
 
-// zmspx_render.go - 将 .zmspx 动画渲染为 GIF
-// 逻辑与 python_zmspx/zmspx_render.py 完全一致。
-
-// pasteWithAlpha 将 src 以 alpha 合成到 dst 上 (与 Pillow paste 行为一致)
-// 公式: out = (src*a + dst*(255-a) + 127) / 255, a = src 的 alpha
+// pasteWithAlpha 把 src 以标准 source-over 方式合成到 dst 上 (二者都是非预乘 NRGBA)。
+//
+// 原版工具用的是 out = (src*a + dst*(255-a) + 127)/255 —— 这是把 dst 当作完全不透明
+// 的近似式；当 dst 是透明/半透明像素时，颜色会被压暗、alpha 还会被算成 a*a/255，
+// 叠图帧因此整体偏暗发灰。这里改为精确的 over 公式（与 Pillow alpha_composite 一致到 ±1）：
+//
+//	sa = src.A, da = dst.A
+//	numA = sa*255 + da*(255-sa)          // 合成后 alpha 的 16 位精度值
+//	outA = (numA + 127) / 255            // 四舍五入回 8 位
+//	outC = (src.C*sa*255 + dst.C*da*(255-sa) + (numA-1)/2) / numA
 func pasteWithAlpha(dst, src *image.NRGBA, ox, oy int) {
 	sb := src.Bounds()
 	db := dst.Bounds()
@@ -31,34 +46,81 @@ func pasteWithAlpha(dst, src *image.NRGBA, ox, oy int) {
 				continue
 			}
 			sp := src.NRGBAAt(x, y)
-			a := int(sp.A)
-			if a == 0 {
+			sa := int(sp.A)
+			if sa == 0 {
 				continue
 			}
-			if a == 255 {
+			if sa == 255 {
 				dst.SetNRGBA(dx, dy, sp)
 				continue
 			}
 			dp := dst.NRGBAAt(dx, dy)
-			out := color.NRGBA{
-				R: uint8((int(sp.R)*a + int(dp.R)*(255-a) + 127) / 255),
-				G: uint8((int(sp.G)*a + int(dp.G)*(255-a) + 127) / 255),
-				B: uint8((int(sp.B)*a + int(dp.B)*(255-a) + 127) / 255),
-				A: uint8((int(sp.A)*a + int(dp.A)*(255-a) + 127) / 255),
+			da := int(dp.A)
+			numA := sa*255 + da*(255-sa)
+			out := color.NRGBA{A: uint8((numA + 127) / 255)}
+			cv := [3]int{}
+			spv := [3]int{int(sp.R), int(sp.G), int(sp.B)}
+			dpv := [3]int{int(dp.R), int(dp.G), int(dp.B)}
+			for i := 0; i < 3; i++ {
+				num := spv[i]*sa*255 + dpv[i]*da*(255-sa)
+				v := (num + (numA-1)/2) / numA
+				if v > 255 {
+					v = 255
+				}
+				cv[i] = v
 			}
+			out.R, out.G, out.B = uint8(cv[0]), uint8(cv[1]), uint8(cv[2])
 			dst.SetNRGBA(dx, dy, out)
 		}
 	}
 }
 
+// flipH 左右翻转 (关键帧 flags bit1)
+func flipH(src *image.NRGBA) *image.NRGBA {
+	b := src.Bounds()
+	dst := image.NewNRGBA(b)
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			dst.SetNRGBA(b.Max.X-1-(x-b.Min.X), y, src.NRGBAAt(x, y))
+		}
+	}
+	return dst
+}
+
+// flipV 上下翻转 (关键帧 flags bit0)
+func flipV(src *image.NRGBA) *image.NRGBA {
+	b := src.Bounds()
+	dst := image.NewNRGBA(b)
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			dst.SetNRGBA(x, b.Max.Y-1-(y-b.Min.Y), src.NRGBAAt(x, y))
+		}
+	}
+	return dst
+}
+
 // renderFrame 渲染单帧画面: 在画布上按关键帧指示组合多个纹理
 func renderFrame(z *ZmspxFile, textures map[int]*image.NRGBA, frameIndex int) *image.NRGBA {
 	frame := z.Frames[frameIndex]
-	canvas := image.NewNRGBA(image.Rect(0, 0, frame.CanvasWidth, frame.CanvasHeight))
+	w, h := frame.CanvasWidth, frame.CanvasHeight
+	if w <= 0 || h <= 0 { // 保护: 极少数帧 box 退化
+		w, h = 1, 1
+	}
+	canvas := image.NewNRGBA(image.Rect(0, 0, w, h))
 	for _, kf := range frame.Keyframes {
-		if tex, ok := textures[kf.TextureIndex]; ok {
-			pasteWithAlpha(canvas, tex, kf.X, kf.Y)
+		tex, ok := textures[kf.TextureIndex]
+		if !ok {
+			continue
 		}
+		img := tex
+		if kf.FlipH() {
+			img = flipH(img)
+		}
+		if kf.FlipV() {
+			img = flipV(img)
+		}
+		// bbox 原点对齐: 关键帧坐标是"画布绝对坐标", 画布原点等于 bbox 左上角
+		pasteWithAlpha(canvas, img, kf.X-frame.X0, kf.Y-frame.Y0)
 	}
 	return canvas
 }
@@ -164,7 +226,7 @@ func renderGif(filepath0, outputDir string, delay, scale int, debugDir string) [
 			}
 		}
 
-		// 调试: 导出未量化的渲染帧 (PNG)，用于与 Python 渲染帧对比
+		// 调试: 导出未量化的渲染帧 (PNG)，用于与参考实现对比
 		if debugDir != "" {
 			_ = os.MkdirAll(debugDir, 0755)
 			for i, img := range normalized {
@@ -223,7 +285,7 @@ func encodeGIF(path string, frames []*image.NRGBA, delay int) error {
 	g := &gif.GIF{
 		Image:     paletted,
 		Delay:     delays,
-		LoopCount: 0,   // 0 = 无限循环
+		LoopCount: 0, // 0 = 无限循环
 		Disposal:  disposal,
 	}
 
@@ -255,13 +317,14 @@ func buildPalette(frames []*image.NRGBA) color.Palette {
 
 	pal := color.Palette{}
 	// 透明色放最前
-	pal = append(pal, color.RGBA{0, 0, 0, 0})
+	pal = append(pal, color.NRGBA{0, 0, 0, 0})
 	count := 1
 	for _, key := range order {
 		if count >= 256 {
 			break
 		}
-		c := color.RGBA{
+		// 用 NRGBA 作为调色板项: GIF 编码时会按 alpha 预乘, 颜色才不会偏亮
+		c := color.NRGBA{
 			R: uint8(key >> 24),
 			G: uint8(key >> 16),
 			B: uint8(key >> 8),
@@ -270,11 +333,10 @@ func buildPalette(frames []*image.NRGBA) color.Palette {
 		pal = append(pal, c)
 		count++
 	}
-	// 若颜色超过 255 个，补足到接近 256 或截断
 	return pal
 }
 
-// saveFramePNG 调试用: 将帧保存为 PNG (用于与 Python 渲染帧对比)
+// saveFramePNG 调试用: 将帧保存为 PNG (用于与参考实现对比)
 func saveFramePNG(path string, img *image.NRGBA) error {
 	f, err := os.Create(path)
 	if err != nil {

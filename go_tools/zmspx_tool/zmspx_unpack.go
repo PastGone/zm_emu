@@ -1,5 +1,14 @@
 package main
 
+// zmspx_unpack.go - 解包 .zmspx 文件: 提取纹理 PNG、帧 PNG 和元数据 JSON —— 修正版
+//
+// 修正点:
+//   1. "RGBA" 模式: 32bpp 纹理在文件中是 B,G,R,A 字节序, 原版直接 copy 导致 R/B 通道互换,
+//      现在按 BGRA 读取并交换为 NRGBA。
+//   2. "LA" 模式: type=0x101 (257) 实际是 16bpp RGB565 小端, 原版当 LA88 灰度图导出,
+//      现在按 RGB565 展开为 RGB。
+//   3. 新增 frames/ 目录: 按关键帧(含取向 flags)把纹理合成为每帧 PNG。
+
 import (
 	"fmt"
 	"image"
@@ -10,9 +19,6 @@ import (
 	"sort"
 	"strings"
 )
-
-// zmspx_unpack.go - 解包 .zmspx 文件，提取纹理 PNG 和元数据 JSON
-// 逻辑与 python_zmspx/zmspx_unpack.py 完全一致。
 
 // extractTextureImage 从 zmspx 文件中提取单个纹理为 NRGBA 图像
 // 使用 NRGBA (非预乘 alpha) 以保持原始像素字节与 Pillow 一致
@@ -27,25 +33,46 @@ func extractTextureImage(z *ZmspxFile, texIndex int) *image.NRGBA {
 	}
 
 	pixelData := z.GetPixelData(texIndex)
-	mode := tex.PixelMode()
 	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+	need := w * h * tex.BPP
+	if len(pixelData) < need {
+		fmt.Fprintf(os.Stderr, "    警告: 纹理 %d 数据不足 (需 %d, 实际 %d), 已跳过\n",
+			texIndex, need, len(pixelData))
+		return img
+	}
 
-	switch mode {
-	case "RGBA":
-		copy(img.Pix, pixelData[:w*h*4])
-	case "LA":
+	switch tex.PixelMode() {
+	case "BGRA":
+		// 32bpp: 字节序 B,G,R,A -> R,G,B,A
 		for i := 0; i < w*h; i++ {
-			l := pixelData[i*2]
-			a := pixelData[i*2+1]
-			img.SetNRGBA(i%w, i/w, color.NRGBA{l, l, l, a})
+			img.Pix[i*4+0] = pixelData[i*4+2] // R
+			img.Pix[i*4+1] = pixelData[i*4+1] // G
+			img.Pix[i*4+2] = pixelData[i*4+0] // B
+			img.Pix[i*4+3] = pixelData[i*4+3] // A
 		}
-	case "L":
+	case "RGB565":
+		// 16bpp 小端: 0xRRRRRGGGGGGBBBBB
 		for i := 0; i < w*h; i++ {
-			l := pixelData[i]
-			img.SetNRGBA(i%w, i/w, color.NRGBA{l, l, l, 255})
+			v := int(pixelData[i*2]) | int(pixelData[i*2+1])<<8
+			r := (v >> 11) & 0x1F
+			g := (v >> 5) & 0x3F
+			b := v & 0x1F
+			img.Pix[i*4+0] = uint8(r * 255 / 31)
+			img.Pix[i*4+1] = uint8(g * 255 / 63)
+			img.Pix[i*4+2] = uint8(b * 255 / 31)
+			img.Pix[i*4+3] = 255
+		}
+	case "PAL8":
+		// 8bpp 调色板: 本样例未出现, 暂无调色板来源, 先按灰度输出并提示
+		fmt.Fprintf(os.Stderr, "    提示: 纹理 %d 为 8bpp 调色板格式, 未实现调色板查找\n", texIndex)
+		for i := 0; i < w*h; i++ {
+			img.Pix[i*4+0] = pixelData[i]
+			img.Pix[i*4+1] = pixelData[i]
+			img.Pix[i*4+2] = pixelData[i]
+			img.Pix[i*4+3] = 255
 		}
 	default:
-		copy(img.Pix, pixelData[:w*h*4])
+		copy(img.Pix, pixelData[:need])
 	}
 	return img
 }
@@ -94,6 +121,25 @@ func unpack(path0, outputDir string) *ZmspxFile {
 			continue
 		}
 		f.Close()
+	}
+
+	// ── 合成并导出每一帧 (含关键帧取向) ──
+	if z.NumFrames > 0 {
+		frameDir := filepath.Join(outputDir, "frames")
+		_ = os.MkdirAll(frameDir, 0755)
+		textures := loadAllTextures(z)
+		fmt.Printf("  合成 %d 帧...\n", z.NumFrames)
+		for _, fr := range z.Frames {
+			img := renderFrame(z, textures, fr.Index)
+			if fr.CanvasWidth <= 0 || fr.CanvasHeight <= 0 {
+				fmt.Printf("    提示: 帧 %d 为空帧占位 (bbox 未初始化, nk=%d)\n", fr.Index, fr.NumKeyframes)
+			}
+			p := filepath.Join(frameDir, fmt.Sprintf("frame_%02d_%dx%d.png",
+				fr.Index, img.Rect.Dx(), img.Rect.Dy()))
+			if err := saveFramePNG(p, img); err != nil {
+				fmt.Printf("    错误: 帧 %d 保存失败: %v\n", fr.Index, err)
+			}
+		}
 	}
 
 	// ── 保存元数据 JSON ──
