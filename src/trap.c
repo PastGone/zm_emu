@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
+#include <stddef.h>
 
 #include "./emu.h"
 #include "./tool/odds.h"
@@ -765,8 +767,6 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
     break;
   case TR_shell_GetAppDir:
     ret = zm_shell_GetAppDir(uc, r1, r2);
-    break;
-    ret = zm_shell_stub(uc, 0x80, r0, r1, r2, r3);
     break;
   case TR_shell_GetSupportHall:
     ret = zm_shell_stub(uc, 0x84, r0, r1, r2, r3);

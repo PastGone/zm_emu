@@ -38,17 +38,26 @@ uint8_t g_cscode[16];
 
 int zm_emu_map_memory() {
   uc_err err;
-  err = uc_mem_map(g_uc, BLOB_BASE, BLOB_SIZE, UC_PROT_ALL);
-  err = uc_mem_map(g_uc, STACK_BASE, STACK_SIZE, UC_PROT_ALL);
+  /* 逐个检查：原实现把 6 次映射的返回值连续赋给同一个 err，只验最后一次，
+   * 导致前面任何一次映射失败都被后面的成功覆盖、被静默吞掉。这里每次映射后
+   * 立即判错并返回，避免“映射残缺却继续跑”的难查崩溃。 */
+#define ZM_MAP(base, size)                                                    \
+  do {                                                                        \
+    err = uc_mem_map(g_uc, (base), (size), UC_PROT_ALL);                       \
+    if (err != UC_ERR_OK) {                                                   \
+      log_error("uc_mem_map(" #base ") failed, err: %d\n", err);              \
+      return -1;                                                              \
+    }                                                                         \
+  } while (0)
+
+  ZM_MAP(BLOB_BASE, BLOB_SIZE);
+  ZM_MAP(STACK_BASE, STACK_SIZE);
   /* CBK 自管堆专用区（见 emu_mem_regions.h：不能用 blob 区，会撞 applet 的 BSS） */
-  err = uc_mem_map(g_uc, CBKHEAP_BASE, CBKHEAP_SIZE, UC_PROT_ALL);
-  err = uc_mem_map(g_uc, HEAP_BASE, HEAP_SIZE, UC_PROT_ALL);
-  err = uc_mem_map(g_uc, SHIM_BASE, SHIM_SIZE, UC_PROT_ALL);
-  err = uc_mem_map(g_uc, TRAMP_BASE, TRAMP_SIZE, UC_PROT_ALL);
-  if (err != UC_ERR_OK) {
-    log_error("uc_mem_map failed, err: %d\n", err);
-    return -1;
-  }
+  ZM_MAP(CBKHEAP_BASE, CBKHEAP_SIZE);
+  ZM_MAP(HEAP_BASE, HEAP_SIZE);
+  ZM_MAP(SHIM_BASE, SHIM_SIZE);
+  ZM_MAP(TRAMP_BASE, TRAMP_SIZE);
+#undef ZM_MAP
 
   /*
    * 客户机堆策略（见 emu.h 中 g_ulibc_heap 的说明）。
@@ -68,7 +77,17 @@ int zm_emu_map_memory() {
 }
 
 int zm_emu_build_vtables() {
-  uc_err err;
+  uc_err werr = UC_ERR_OK;
+  /* 原实现把每次 uc_write32 的返回值连赋给同一个 err 后只验最后一次，前面的
+   * 写入失败会被后面的成功覆盖、被静默吞掉。W(addr,val) 记录首个失败并打日志。 */
+#define W(addr, val)                                                          \
+  do {                                                                        \
+    uc_err _e = uc_write32(g_uc, (addr), (val));                              \
+    if (_e != UC_ERR_OK && werr == UC_ERR_OK) {                               \
+      werr = _e;                                                              \
+      log_error("uc_write32(%s) failed, err: %d\n", #addr, _e);               \
+    }                                                                         \
+  } while (0)
   // shim 和 tramp 是对射关系,先假设它全部是这样然后后面再做修补修改
   // 假设它全部是函数指针实际上是有对象的后面会进行修补
   // 一个函数指针是四字节所以这里是加四字节
@@ -93,9 +112,9 @@ int zm_emu_build_vtables() {
      * 真实对象解引用（见 emu.h CBK_CTX_SIZE 说明）。 */
     if (addr >= CBK_CTX && addr < CBK_CTX + CBK_CTX_SIZE)
       continue;
-    err = uc_write32(g_uc, addr, TRAMP_BASE + i);
-    if (err != UC_ERR_OK) {
-      log_error("shim映射到tramp时出现了错误, err: %d\n", err);
+    W(addr, TRAMP_BASE + i);
+    if (werr != UC_ERR_OK) {
+      log_error("shim映射到tramp时出现了错误, err: %d\n", werr);
       return -1;
     }
   }
@@ -151,10 +170,10 @@ int zm_emu_build_vtables() {
   log_info("布局: SHIM_BASE=0x%X TRAMP_BASE=0x%X ROOT_TABLE_ADDR=0x%X G_SHELL_ADDR=0x%X",
            SHIM_BASE, TRAMP_BASE, ROOT_TABLE_ADDR, G_SHELL_ADDR);
   // root
-  err = uc_write32(g_uc, ROOT_TABLE_ADDR, TR_root_getShell);
+  W(ROOT_TABLE_ADDR, TR_root_getShell);
 
   // shell（root.getShell 返回；G_SHELL_ADDR 对象 → SHELL_VT_ADDR = g_aee_shell_vtbl）
-  err = uc_write32(g_uc, G_SHELL_ADDR, SHELL_VT_ADDR);
+  W(G_SHELL_ADDR, SHELL_VT_ADDR);
   /* ★ shell 对象 +4 = **内联的工作目录字符串**（参考 ZMAEE_IShell_New：
    *   RootDir = ZMAEE_GetRootDir(); zmaee_strcpy(shell+4, RootDir);
    *   ZMAEE_IShell_GetWorkDir(shell) 就是 `return shell + 4;`）。
@@ -171,32 +190,32 @@ int zm_emu_build_vtables() {
   }
 
   /* FileMgr_VT_ADDR[0x30]：enumFile — sub_82584 枚举 app_list 下文件 */
-  // err = uc_write32(g_uc, FileMgr_VT_ADDR + 0x30, TR_fileMgr_enum);
+  // W(FileMgr_VT_ADDR + 0x30, TR_fileMgr_enum);
 
   // fs
-  err = uc_write32(g_uc, G_FileMgr_ADDR, FileMgr_VT_ADDR);
-  err = uc_write32(g_uc, FILE1, FILE_VT_ADDR);
+  W(G_FileMgr_ADDR, FileMgr_VT_ADDR);
+  W(FILE1, FILE_VT_ADDR);
 
   // ISetting（0x100000B）/ IMedia 音频（0x100000C）
-  err = uc_write32(g_uc, SETTING, SETTING_VT_ADDR);
-  err = uc_write32(g_uc, G_MEDIA_ADDR, MEDIA_VT_ADDR);
+  W(SETTING, SETTING_VT_ADDR);
+  W(G_MEDIA_ADDR, MEDIA_VT_ADDR);
 
   /* ---- IShell.CreateInstance 返回的服务对象 ----
    * G_NETMGR_ADDR=0x1000004(INetMgr)、G_TAPI_ADDR=0x1000009(ITAPI)。
    * 注意：SVC09/G_TAPI_ADDR 此前漏写对象→虚表指针，applet 拿到后调方法会
    * 读到垃圾函数指针，现已补上。 */
-  err = uc_write32(g_uc, G_NETMGR_ADDR, NETMGR_VT_ADDR);
-  err = uc_write32(g_uc, G_TAPI_ADDR, TAPI_VT_ADDR);
+  W(G_NETMGR_ADDR, NETMGR_VT_ADDR);
+  W(G_TAPI_ADDR, TAPI_VT_ADDR);
 
   /* ZMAEE IZip（0x100000F）：返回模拟对象，+0 vtable 指向 ZIP_VT_ADDR，
    * 方法调用经 trap 派发到 zm_zip_stub 观测探针。 */
-  err = uc_write32(g_uc, ZIP_ADDR, ZIP_VT_ADDR);
+  W(ZIP_ADDR, ZIP_VT_ADDR);
 
   /* ---- CBK 回调对象（sub_84E04 返回，vt[+8] 会被 applet 覆写为 sub_82FF8）
    * ---- */
-  err = uc_write32(g_uc, CBK_OBJ, CBK_OBJ_VT_ADDR);
+  W(CBK_OBJ, CBK_OBJ_VT_ADDR);
   /* vt[+8] 预写默认实现：applet 随后会覆写；覆写前若被调则走 stub 不崩 */
-  err = uc_write32(g_uc, CBK_OBJ_VT_ADDR + 0x08, TR_cbk_default);
+  W(CBK_OBJ_VT_ADDR + 0x08, TR_cbk_default);
 
   /* ---- CBK_OBJ+4：applet 的“模块路径”内联 C 串 ----
    * 000004fe 的 fopen 封装 sub_12294 会 str_ctor(dst, create_cbk()+4)，
@@ -216,11 +235,11 @@ int zm_emu_build_vtables() {
   }
 
   /* ---- stub DLL 对象（loadDLL 返回） ---- */
-  err = uc_write32(g_uc, DLL_OBJ, DLL_OBJ_VT_ADDR);
+  W(DLL_OBJ, DLL_OBJ_VT_ADDR);
 
   /* ---- ZMAEE IDisplay / IBitmap 原生虚表（全局单例 + bitmap 模板）---- */
-  err = uc_write32(g_uc, DISPLAY, DISPLAY_VT_ADDR);
-  err = uc_write32(g_uc, BITMAP, BITMAP_VT_ADDR);
+  W(DISPLAY, DISPLAY_VT_ADDR);
+  W(BITMAP, BITMAP_VT_ADDR);
 
   /* IDisplay 对象清零：层项 +0x24 必须为 0，applet 的 CreateLayer 才会认为
    * "该层尚不存在"并建层（见 zm_layer.c）。 */
@@ -253,16 +272,16 @@ int zm_emu_build_vtables() {
     if (bm) {
       uint32_t one = 1, fmt = 1, neg = 0xFFFFFFFFu, zero = 0;
       uint32_t pix = PIX_POOL;
-      err = uc_write32(g_uc, BITMAP + 4, one);   /* 引用计数 */
-      err = uc_write32(g_uc, BITMAP + 8, 0);     /* 宽：0 → blit 不产生内容 */
-      err = uc_write32(g_uc, BITMAP + 12, 0);    /* 高 */
-      err = uc_write32(g_uc, BITMAP + 16, fmt);  /* 颜色格式 = RGB565 */
-      err = uc_write32(g_uc, BITMAP + 20, neg);  /* 透明色 = -1（_Create 初值） */
-      err = uc_write32(g_uc, BITMAP + 24, (bm >= 2) ? one : zero); /* 调色板标志 */
-      err = uc_write32(g_uc, BITMAP + 28, zero); /* 调色板指针 */
-      err = uc_write32(g_uc, BITMAP + 32, zero);
-      err = uc_write32(g_uc, BITMAP + 36, pix);  /* 像素指针 */
-      err = uc_write32(g_uc, BITMAP + 40, zero);
+      W(BITMAP + 4, one);   /* 引用计数 */
+      W(BITMAP + 8, 0);     /* 宽：0 → blit 不产生内容 */
+      W(BITMAP + 12, 0);    /* 高 */
+      W(BITMAP + 16, fmt);  /* 颜色格式 = RGB565 */
+      W(BITMAP + 20, neg);  /* 透明色 = -1（_Create 初值） */
+      W(BITMAP + 24, (bm >= 2) ? one : zero); /* 调色板标志 */
+      W(BITMAP + 28, zero); /* 调色板指针 */
+      W(BITMAP + 32, zero);
+      W(BITMAP + 36, pix);  /* 像素指针 */
+      W(BITMAP + 40, zero);
     }
     log_info("IBitmap 单例字段：ZM_BITMAP=%u（0=不初始化）", bm);
   }
@@ -289,7 +308,7 @@ int zm_emu_build_vtables() {
    * 这个差异不是首帧问题：applet 在启动阶段就调 SetTransColor / FillRect，
    * 它们都作用于**当时的活动层**，起点是 0 还是 1 决定了这些设置落到哪一层。
    * 现已改回真机值 0。 */
-  err = uc_write32(g_uc, DISPLAY + 8, 0);
+  W(DISPLAY + 8, 0);
 
   /* ---- 层 0（基础层）：按 RE 的 ZMAEE_IDisplay_New 语义建立 ----
    * 真机上它就是 New 内联构造的（`CreateLayer` 的 `(idx-1) > 0xE` 拒绝 idx=0，
@@ -313,11 +332,12 @@ int zm_emu_build_vtables() {
   /* INIT_CTX 显式零填充（Unicorn 默认零，此处双保险，确保 r3+0x100 可读） */
   {
     uint8_t zeros[256] = {0};
-    err = uc_mem_write(g_uc, INIT_CTX, zeros, sizeof(zeros));
+    uc_mem_write(g_uc, INIT_CTX, zeros, sizeof(zeros));
   }
 
-  if (err != UC_ERR_OK) {
-    log_error("uc_mem_write failed, err: %d\n", err);
+#undef W
+  if (werr != UC_ERR_OK) {
+    log_error("uc_write32/uc_mem_write 失败, err: %d\n", werr);
     return -1;
   }
   log_info("虚表构建完成");
