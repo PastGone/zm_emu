@@ -3,6 +3,13 @@ add_rules("mode.debug", "mode.release")
 add_requires("libsdl2", {system = false,configs = {static = true}})  -- 声明依赖 SDL2
 add_requires("libsdl2_ttf", {system = false,configs = {static = true}})  -- 声明依赖 SDL2_ttf（文本渲染）
 add_requires("libsdl2_mixer", {system = false,configs = {static = true,flac = false}})  -- 声明依赖 SDL2_mixer（音频播放/MP3 解码；禁用 FLAC 以规避系统 libflac cmake 配置问题，MP3 由内置 dr_mp3 解码）
+-- 图像解码/编码：统一走 SDL2_image，不再依赖系统 libpng/libjpeg。
+-- 原因：add_syslinks("png16","jpeg") 里那两个库名是 **Unix 专有**的
+-- （Debian/Arch 叫 png16/libjpeg，Windows 上既没有 "png16" 也没有 "jpeg"
+--  这个库名，MSVC 下直接找不到），且要求使用者先 apt 装 -dev 包。
+-- SDL2_image 自带 libpng/libjpeg/zlib（external/ 目录），由 xmake 统一
+-- 下载编译，各平台一致。
+add_requires("libsdl2_image", {system = false,configs = {static = true}})
 add_requires("unicorn", {system = false,configs = {static = true,archs = {"arm"}}})-- 声明依赖 unicorn 库
 add_requires("capstone", {system = false,configs = {static = true}}) -- 声明依赖 capstone 库
 
@@ -26,16 +33,28 @@ target("zm_emu")
     add_includedirs("src/ulibc/include", "src/ulibc")
 --    
     -- add_defines("LOG_USE_COLOR")  -- <--- 添加这一行来启用颜色输出 log/log.h
-    add_ldflags("-Wl,--allow-multiple-definition")
+    -- 重复符号容忍（宿主 libc 与 ulibc 有同名符号）。GNU ld / Apple ld64 /
+    -- MSVC 三个链接器的写法各不相同，按平台选，否则换平台直接链接失败。
+    if is_plat("macosx") then
+        add_ldflags("-Wl,-multiply_defined,suppress")
+    elseif is_plat("windows") then
+        add_ldflags("/FORCE:MULTIPLE", {force = true})
+    else
+        add_ldflags("-Wl,--allow-multiple-definition")
+    end
 
-    -- IImage 资源解码需要 PNG/JPEG（applet 的 res/*.png|*.jpg 由固件
-    -- 的 IImage 解码后交给 IDisplay 绘制；模拟器用系统 libpng/libjpeg 实现）
-    add_syslinks("png16", "jpeg", "z", "m")
+    -- PNG/JPEG 编解码已由 libsdl2_image 提供（自带 libpng/libjpeg/zlib），
+    -- 这里不再 add_syslinks("png16","jpeg","z")。
+    -- libm 只有类 Unix 需要单独链（MSVC/MINGW 的数学函数在 CRT 里）。
+    if is_plat("linux", "macosx", "bsd") then
+        add_syslinks("m")
+    end
 
 -- 
     add_packages("libsdl2") -- 链接 SDL2 库
     add_packages("libsdl2_ttf") -- 链接 SDL2_ttf 库
     add_packages("libsdl2_mixer") -- 链接 SDL2_mixer 库
+    add_packages("libsdl2_image") -- 链接 SDL2_image 库（PNG/JPEG 解码）
     add_packages("unicorn") -- 链接 unicorn 库
     add_packages("capstone") -- 链接 capstone 库
 

@@ -7,13 +7,11 @@
 #include "../fs/zm_file_mgr.h"
 #include "zm_display.h" /* 软件帧缓冲：贴 GDI_Surface 用 */
 
-#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include <jpeglib.h>
-#include <png.h>
+#include <SDL2/SDL_image.h> /* PNG/JPG 解码：IMG_Load_RW（自带 libpng/libjpeg） */
 
 /* =========================================================================
  * IImage / IBitmap 对象池
@@ -257,22 +255,98 @@ static void png_meta(const uint8_t *d, size_t len, int *fmt, uint32_t *tc) {
   }
 }
 
+/* ---- SDL_image 解码 ----------------------------------------------------
+ *
+ * 【2026-09 换库】原先直接链系统 libpng16 / libjpeg：
+ *   - 库名是 Unix 专有（Windows 上既没有 "png16" 也没有 "jpeg" 这个库名），
+ *     且要求使用者先装 libpng-dev / libjpeg-dev；
+ *   - libjpeg 还得自己写 setjmp 错误回调 + 手工翻 RGB→RGBA 行。
+ * 现在统一走 SDL2_image：它自带 libpng/libjpeg/zlib（external/ 目录），
+ * 由 xmake 统一拉取编译，各平台一致；解码也只管"拿一张 RGBA 出来"。
+ *
+ * 注意两处刻意保留的东西：
+ *   1) png_meta()：自己扫块读 IHDR 的 color type 与 tRNS 透明色。
+ *      SDL_image 只给表面（surface），不给"固件语义的 format/透明色"，
+ *      而这两个值要填进 IImage 对象（见 g_last_fmt/g_last_tc）。
+ *   2) 输出**字节序固定为 R,G,B,A**（原 png 用 PNG_FORMAT_RGBA、jpeg 手工展开
+ *      也是这个序），下游 fb_blit_rgba 等按这个序解释，不能换。
+ * --------------------------------------------------------------------- */
+
+/* SDL_image 惰性初始化（PNG + JPG 两个解码器都要就位） */
+static void zm_img_ready(void) {
+  static int inited = 0;
+  if (inited)
+    return;
+  inited = 1;
+  const int want = IMG_INIT_PNG | IMG_INIT_JPG;
+  int got = IMG_Init(want);
+  if ((got & want) != want)
+    log_warn("SDL_image 初始化不全（得到 0x%X / 需要 0x%X）: %s —— "
+             "PNG/JPG 解码可能失败", got, want, IMG_GetError());
+}
+
+/* 前 4 字节是否是 PNG 魔数（\x89PNG） */
+static int is_png_magic(const uint8_t *d, size_t len) {
+  return len >= 8 && d[0] == 0x89 && d[1] == 'P' && d[2] == 'N' && d[3] == 'G';
+}
+/* 是否是 JPEG 魔数（FF D8 FF） */
+static int is_jpg_magic(const uint8_t *d, size_t len) {
+  return len >= 3 && d[0] == 0xFF && d[1] == 0xD8 && d[2] == 0xFF;
+}
+
+/* 用 SDL_image 把内存里的图片解成 R,G,B,A（每像素 4 字节）。
+ * 成功 0 并填 *ow/*oh/*orgba（malloc 得到，调用方 free）；失败 -1。 */
+static int decode_via_sdl(const uint8_t *data, size_t len, int *ow, int *oh,
+                          uint8_t **orgba) {
+  zm_img_ready();
+  SDL_RWops *rw = SDL_RWFromConstMem(data, (int)len);
+  if (!rw) {
+    log_warn("SDL_RWFromConstMem 失败: %s", SDL_GetError());
+    return -1;
+  }
+  SDL_Surface *s = IMG_Load_RW(rw, 1); /* 1 = 顺手释放 rw */
+  if (!s) {
+    log_warn("SDL_image 解码失败: %s", IMG_GetError());
+    return -1;
+  }
+  /* 【踩过的坑】要的是**内存字节序 R,G,B,A**，所以必须用 SDL_PIXELFORMAT_RGBA32，
+   * 不能用 SDL_PIXELFORMAT_RGBA8888 —— SDL 的 *_8888 名字描述的是**32 位值的
+   * 位序（MSB→LSB）**，不是内存字节序：RGBA8888 在小端机上内存里是 A,B,G,R。
+   * 实测（00000506 的 index_bg.jpg，原图 (0,0)=(33,89,136)）：
+   *   用 RGBA8888 → 解出 4 字节 = 255,136,89,33（= A,B,G,R），整屏发出紫色调；
+   *   RGBA32（小端下 = ABGR8888）→ 33,89,136,255 ✓。
+   * RGBA32/ARGB32 这组宏由 SDL 按端序自动选，大端机上也对，别写死 8888。
+   * 完整的"哪条边界该用哪个格式"见 docs/图像与像素格式.md。 */
+  SDL_Surface *conv = SDL_ConvertSurfaceFormat(s, SDL_PIXELFORMAT_RGBA32, 0);
+  SDL_FreeSurface(s);
+  if (!conv) {
+    log_warn("SDL_ConvertSurfaceFormat(RGBA32) 失败: %s", SDL_GetError());
+    return -1;
+  }
+  int w = conv->w, h = conv->h;
+  uint8_t *rgba = malloc((size_t)w * (size_t)h * 4u);
+  if (!rgba) {
+    SDL_FreeSurface(conv);
+    return -1;
+  }
+  if (SDL_MUSTLOCK(conv))
+    SDL_LockSurface(conv);
+  for (int y = 0; y < h; y++)
+    memcpy(rgba + (size_t)y * (size_t)w * 4u,
+           (const uint8_t *)conv->pixels + (size_t)y * (size_t)conv->pitch,
+           (size_t)w * 4u);
+  if (SDL_MUSTLOCK(conv))
+    SDL_UnlockSurface(conv);
+  SDL_FreeSurface(conv);
+  *ow = w;
+  *oh = h;
+  *orgba = rgba;
+  return 0;
+}
+
 static int decode_png(const uint8_t *data, size_t len, int *ow, int *oh,
                       uint8_t **orgba) {
-  png_image img;
-  memset(&img, 0, sizeof(img));
-  img.version = PNG_IMAGE_VERSION;
-  if (!png_image_begin_read_from_memory(&img, data, len)) {
-    log_warn("PNG 解析失败: %s", img.message);
-    return -1;
-  }
-  img.format = PNG_FORMAT_RGBA;
-  size_t sz = PNG_IMAGE_SIZE(img);
-  uint8_t *buf = malloc(sz ? sz : 1);
-  if (!buf) {
-    png_image_free(&img);
-    return -1;
-  }
+  /* 先取固件语义的 format / 透明色（SDL_image 不提供） */
   {
     int mf = 2;
     uint32_t mtc = 0xFFFFFFFFu;
@@ -280,81 +354,25 @@ static int decode_png(const uint8_t *data, size_t len, int *ow, int *oh,
     g_last_fmt = mf;
     g_last_tc = mtc;
   }
-  if (!png_image_finish_read(&img, NULL, buf, 0, NULL)) {
-    log_warn("PNG 解码失败: %s", img.message);
-    free(buf);
-    png_image_free(&img);
+  /* decode_any 的兜底分支会拿"非 PNG 数据"来试这个函数，魔数不符直接拒掉，
+   * 否则 SDL_image 会按内容自动识别、把 JPEG 也当 PNG 解成功，
+   * decode_any 报出的 *type 就错了。 */
+  if (!is_png_magic(data, len)) {
+    log_warn("PNG 解析失败: 魔数不符");
     return -1;
   }
-  *ow = (int)img.width;
-  *oh = (int)img.height;
-  *orgba = buf;
-  png_image_free(&img);
-  return 0;
-}
-
-struct zm_jpg_err {
-  struct jpeg_error_mgr pub;
-  jmp_buf jump;
-};
-
-static void zm_jpg_error_exit(j_common_ptr cinfo) {
-  struct zm_jpg_err *e = (struct zm_jpg_err *)cinfo->err;
-  longjmp(e->jump, 1);
+  return decode_via_sdl(data, len, ow, oh, orgba);
 }
 
 static int decode_jpg(const uint8_t *data, size_t len, int *ow, int *oh,
                       uint8_t **orgba) {
-  struct jpeg_decompress_struct cinfo;
-  struct zm_jpg_err jerr;
-  memset(&cinfo, 0, sizeof(cinfo));
-  cinfo.err = jpeg_std_error(&jerr.pub);
-  jerr.pub.error_exit = zm_jpg_error_exit;
-  if (setjmp(jerr.jump)) {
-    jpeg_destroy_decompress(&cinfo);
-    log_warn("JPEG 解码失败");
-    return -1;
-  }
   g_last_fmt = 2;          /* RE：JPG 走 format 2 */
   g_last_tc = 0xFFFFFFFFu; /* 不透明 */
-  jpeg_create_decompress(&cinfo);
-  jpeg_mem_src(&cinfo, data, (unsigned long)len);
-  jpeg_read_header(&cinfo, TRUE);
-  cinfo.out_color_space = JCS_RGB;
-  jpeg_start_decompress(&cinfo);
-
-  int w = (int)cinfo.output_width;
-  int h = (int)cinfo.output_height;
-  uint8_t *rgba = malloc((size_t)w * h * 4u);
-  if (!rgba) {
-    jpeg_destroy_decompress(&cinfo);
+  if (!is_jpg_magic(data, len)) {
+    log_warn("JPEG 解析失败: 魔数不符");
     return -1;
   }
-  size_t row = (size_t)w * cinfo.output_components;
-  uint8_t *line = malloc(row);
-  if (!line) {
-    free(rgba);
-    jpeg_destroy_decompress(&cinfo);
-    return -1;
-  }
-  while (cinfo.output_scanline < cinfo.output_height) {
-    JSAMPROW rows[1] = {line};
-    jpeg_read_scanlines(&cinfo, rows, 1);
-    uint8_t *dst = rgba + (size_t)(cinfo.output_scanline - 1) * w * 4u;
-    for (int x = 0; x < w; x++) {
-      dst[x * 4 + 0] = line[x * 3 + 0];
-      dst[x * 4 + 1] = line[x * 3 + 1];
-      dst[x * 4 + 2] = line[x * 3 + 2];
-      dst[x * 4 + 3] = 0xFF;
-    }
-  }
-  free(line);
-  jpeg_finish_decompress(&cinfo);
-  jpeg_destroy_decompress(&cinfo);
-  *ow = w;
-  *oh = h;
-  *orgba = rgba;
-  return 0;
+  return decode_via_sdl(data, len, ow, oh, orgba);
 }
 
 /* 按内容魔数选择解码器（applet 传的文件名可能没有扩展名）。

@@ -16,7 +16,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
-#include <png.h> /* 调试截图（fb_save_png） */
+#include <SDL2/SDL_image.h> /* IMG_SavePNG：调试截图 / 层转储 */
 
 #include <stdlib.h>
 #include <string.h>
@@ -761,115 +761,81 @@ static void fb_self_blit(int sx, int sy, int w, int h, int dx, int dy) {
 /* 把软件帧缓冲上传并呈现 */
 /* 把当前帧缓冲存成 PNG（调试用）：ZM_SCREENSHOT=<路径前缀>
  * 会在前若干次 present 时写出 <prefix>N.png，便于核对渲染结果。 */
+/* ARGB8888 缓冲 → PNG（调试用）。
+ * 【2026-09 换库】原先直接链系统 libpng 写文件（库名 Unix 专有、还要装
+ * libpng-dev）。改成 SDL2_image 的 IMG_SavePNG，与解码侧同一套依赖。
+ *
+ * surf 用 SDL_CreateRGBSurfaceWithFormatFrom 包住调用方的缓冲：这种 surface
+ * 带 SDL_PREALLOC，SDL_FreeSurface **不会**释放 pixels，所以传 g_fb 进安全。 */
+static int save_argb_png(const char *path, const uint32_t *argb, int w, int h) {
+  if (!path || !argb || w <= 0 || h <= 0)
+    return -1;
+  /* 【格式选择】帧缓冲是 **uint32 数组**（每个元素 0xAARRGGBB），要的是
+   * "32 位值 = A,R,G,B（MSB→LSB）"，即 SDL_PIXELFORMAT_ARGB8888 —— 它描述的是
+   * **值的位序**，与端序无关，正好匹配 uint32 数组。
+   *
+   * 别换成 SDL_PIXELFORMAT_ARGB32：那组 *_32 别名是给"**字节数组**"用的
+   * （SDL 头文件原话 "Aliases for RGBA byte arrays"），小端下 ARGB32 = BGRA8888
+   * = 字节序 A,R,G,B。实测踩过：换成 ARGB32 后所有截图的 B 通道饱和到 255
+   * （浅灰 UI 变蓝紫），因为 A 被当成了 B。 */
+  SDL_Surface *surf = SDL_CreateRGBSurfaceWithFormatFrom(
+      (void *)argb, w, h, 32, w * 4, SDL_PIXELFORMAT_ARGB8888);
+  if (!surf) {
+    log_warn("截图失败：SDL_CreateRGBSurfaceWithFormatFrom: %s",
+             SDL_GetError());
+    return -1;
+  }
+  int rc = IMG_SavePNG(surf, path);
+  if (rc != 0)
+    log_warn("截图写入失败 %s: %s", path, IMG_GetError());
+  SDL_FreeSurface(surf);
+  return rc;
+}
+
 static void fb_save_png(const char *path) {
   if (!g_fb || g_fb_w <= 0 || g_fb_h <= 0)
     return;
-  FILE *fp = fopen(path, "wb");
-  if (!fp)
-    return;
-  png_structp png =
-      png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-  png_infop info = png ? png_create_info_struct(png) : NULL;
-  if (!png || !info) {
-    if (png)
-      png_destroy_write_struct(&png, NULL);
-    fclose(fp);
-    return;
-  }
-  if (setjmp(png_jmpbuf(png))) {
-    png_destroy_write_struct(&png, &info);
-    fclose(fp);
-    return;
-  }
-  png_init_io(png, fp);
-  png_set_IHDR(png, info, (png_uint_32)g_fb_w, (png_uint_32)g_fb_h, 8,
-               PNG_COLOR_TYPE_RGBA, PNG_INTERLACE_NONE,
-               PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
-  png_write_info(png, info);
-
-  /* 帧缓冲是 ARGB8888（小端内存序 B,G,R,A），PNG 要 R,G,B,A */
-  png_bytep row = malloc((size_t)g_fb_w * 4u);
-  if (!row) {
-    png_destroy_write_struct(&png, &info);
-    fclose(fp);
-    return;
-  }
-  for (int y = 0; y < g_fb_h; y++) {
-    const uint32_t *src = g_fb + (size_t)y * (size_t)g_fb_w;
-    for (int x = 0; x < g_fb_w; x++) {
-      uint32_t p = src[x];
-      row[x * 4 + 0] = (png_byte)((p >> 16) & 0xFF); /* R */
-      row[x * 4 + 1] = (png_byte)((p >> 8) & 0xFF);  /* G */
-      row[x * 4 + 2] = (png_byte)(p & 0xFF);         /* B */
-      row[x * 4 + 3] = 0xFF;
-    }
-    png_write_row(png, row);
-  }
-  free(row);
-  png_write_end(png, NULL);
-  png_destroy_write_struct(&png, &info);
-  fclose(fp);
-  log_info("已保存截图: %s", path);
+  /* 帧缓冲就是 0xAARRGGBB 的 uint32 数组，正好是 SDL_PIXELFORMAT_ARGB8888
+   * （"值 = A,R,G,B"），可直接包 surface；详见 docs/图像与像素格式.md。 */
+  if (save_argb_png(path, g_fb, g_fb_w, g_fb_h) == 0)
+    log_info("已保存截图: %s", path);
 }
 
 /* 把"层缓冲"（RGB565）原样存成 PNG，用来直接观察 applet 到底往层里画了什么。
  * 透明色（品红）会原样保留 —— 品红面积就是"层没有覆盖"的部分。
- * 仅调试用：ZM_DUMP_LAYER=<前缀>。 */
+ * 仅调试用：ZM_DUMP_LAYER=<前缀>。
+ * 实现：先把 guest 的 RGB565 逐行转成宿主 ARGB8888 临时缓冲，再交给
+ * save_argb_png（SDL2_image）。 */
 static void layer_dump_png(uc_engine *uc, const char *path,
                            const zm_layer_t *L) {
   if (!uc || !path || !L || !L->w || !L->h || !L->buf)
     return;
-  FILE *fp = fopen(path, "wb");
-  if (!fp)
+  uint32_t w = L->w, h = L->h;
+  if ((uint64_t)w * h > 8u * 1024u * 1024u) /* 防御：别为调试把内存吃光 */
     return;
-  png_structp png =
-      png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-  png_infop info = png ? png_create_info_struct(png) : NULL;
-  if (!png || !info) {
-    if (png)
-      png_destroy_write_struct(&png, NULL);
-    fclose(fp);
-    return;
-  }
-  if (setjmp(png_jmpbuf(png))) {
-    png_destroy_write_struct(&png, &info);
-    fclose(fp);
-    return;
-  }
-  png_init_io(png, fp);
-  png_set_IHDR(png, info, (png_uint_32)L->w, (png_uint_32)L->h, 8,
-               PNG_COLOR_TYPE_RGBA, PNG_INTERLACE_NONE,
-               PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
-  png_write_info(png, info);
-
-  uint16_t *srow = malloc((size_t)L->w * 2u);
-  png_bytep row = malloc((size_t)L->w * 4u);
-  if (!srow || !row) {
+  uint32_t *argb = malloc((size_t)w * (size_t)h * 4u);
+  uint16_t *srow = malloc((size_t)w * 2u);
+  if (!argb || !srow) {
+    free(argb);
     free(srow);
-    free(row);
-    png_destroy_write_struct(&png, &info);
-    fclose(fp);
     return;
   }
-  for (uint32_t y = 0; y < L->h; y++) {
-    if (uc_mem_read(uc, L->buf + y * L->w * 2u, srow, (size_t)L->w * 2u) !=
-        UC_ERR_OK)
+  for (uint32_t y = 0; y < h; y++) {
+    if (uc_mem_read(uc, L->buf + y * w * 2u, srow, (size_t)w * 2u) != UC_ERR_OK)
       break;
-    for (uint32_t x = 0; x < L->w; x++) {
+    uint32_t *dst = argb + (size_t)y * w;
+    for (uint32_t x = 0; x < w; x++) {
       uint16_t c = srow[x];
-      row[x * 4 + 0] = (png_byte)(((c >> 11) & 0x1F) * 255 / 31); /* R */
-      row[x * 4 + 1] = (png_byte)(((c >> 5) & 0x3F) * 255 / 63);  /* G */
-      row[x * 4 + 2] = (png_byte)((c & 0x1F) * 255 / 31);         /* B */
-      row[x * 4 + 3] = 0xFF;
+      unsigned r = ((c >> 11) & 0x1F) * 255 / 31;
+      unsigned g = ((c >> 5) & 0x3F) * 255 / 63;
+      unsigned b = (c & 0x1F) * 255 / 31;
+      dst[x] = 0xFF000000u | (r << 16) | (g << 8) | b;
     }
-    png_write_row(png, row);
   }
   free(srow);
-  free(row);
-  png_write_end(png, NULL);
-  png_destroy_write_struct(&png, &info);
-  fclose(fp);
-  log_info("已保存层缓冲图: %s", path);
+  if (save_argb_png(path, argb, (int)w, (int)h) == 0)
+    log_info("已保存层缓冲图: %s", path);
+  free(argb);
 }
 
 static int fb_merge_layer(void);
