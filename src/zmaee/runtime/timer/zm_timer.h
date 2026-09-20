@@ -50,4 +50,58 @@ uint32_t zm_timer_CancelOwnerTimer(uc_engine *uc, uint32_t owner);
  * SetTimer 重新 init、ID 归零）。 */
 bool zm_timer_poll(uint32_t now_ms);
 
+/* ---- ROOT+0x148 / +0x14C：固件的"applet 级**周期**定时器"（RE 全集） ----
+ *
+ * RE（libaee.so 符号表 + 反汇编）：
+ *   ZMAEE_Start_Timer(interval_ms, id, cb)   @0x2E4E0
+ *     → 内部第一件事就是 bl ZMAEE_Stop_Timer(id)（同 id 重注册 = 先停旧的）
+ *     → 再从 8 槽表里找空槽（全占用就直接返回）
+ *     → 然后 bl ZMAEE_IShell_SetTimer（0x34308 = 我们已实现的同一个函数）
+ *     → 把 (id, 返回值) 存进槽
+ *   ZMAEE_Stop_Timer(id)                     @0x2E498
+ *     → 在 8 槽里按 id 匹配（比较 [+0xC]/[+0x14]/[+0x1C]/[+0x24]）后清槽
+ *   nativeAEETimerCallback()                 @0x22E88
+ *     → 每次滴答遍历 8 槽，对已注册的槽**调用 cb(r0=槽序号, r1=槽内参数)**
+ *
+ * 与 IShell 那套的区别：IShell_SetTimer 是**单次**（到期先删再调、要周期得
+ * 自己在回调里重注册），这两个 API 是**周期**语义，所以单独一张表。
+ *
+ * 实测症状（00000442《驱蚊大师》）：
+ *   进游戏时 applet 调 Stop_Timer(0x13AC4) + Start_Timer(1000, 0x13AC4,
+ *   0xCC2C)，而 0xCC2C 就是"计时数字进位"的回调（个位 +1，超 '9' 归 '0'
+ *   进位，秒十位超 '5' 进位到分 —— 码表式累加）。两个槽原先都未接线 →
+ *   回调一次都不触发 → 画面上的
+ *     "执行时间：00:00:00 / 倒数计时：00:01:00"
+ *   永远不动（时钟文字是 DrawText 画的，所以字显示正常、只是数值不涨）。 */
+uint32_t zm_timer_StartTimer(uc_engine *uc, uint32_t interval_ms, uint32_t id,
+                             uint32_t cb);
+uint32_t zm_timer_StopTimer(uc_engine *uc, uint32_t id);
+
+/* ---- 指令级"异步中断"派发（hook_code 调用）------------------------------
+ *
+ * 为什么需要：真机这两类定时器由 **Java 层周期性回调**触发，与 applet 自己
+ * 的事件循环无关；而宿主只在 applet 主动回事件循环时才调 zm_timer_poll。
+ * 实测 00000442《驱蚊大师》：进游戏后 applet 是"自旋 + 绘制"的模态循环，
+ * 54 秒只回事件循环 3 次 → 1 秒定时器与 500ms 心跳双双被饿死（计时器停住、
+ * 游戏状态机不推进）。
+ *
+ * 所以补一条指令级路径：到期的回调直接**打断**当前执行 ——
+ *   保存 R0-R12/SP/LR/CPSR 与"恢复点 PC" →  LR = TR_timer_return（专用跳板）
+ *   →  PC = 回调；回调 `bx lr` 落回跳板后由 zm_timer_interrupt_return 恢复
+ *   现场，继续执行被打断的那条指令。
+ *
+ * 调用点：hook.c 的 hook_code 每 2^16 条指令问一次（开销可忽略）。
+ * 返回 true 表示已挂上跳板（PC 已改写），调用方应立即 return。
+ * 回调执行期间会置忙标志，避免回调自己再被嵌套中断。
+ * 环境变量 ZM_NO_ASYNC_TIMER=1 可关掉这条路径（A/B 对比用）。 */
+bool zm_timer_interrupt(uc_engine *uc, uint32_t resume_pc);
+void zm_timer_interrupt_return(uc_engine *uc);
+
+/* 由 zm_timer_poll 在**每次 applet yield（进事件循环）**时调用，记录时刻。
+ *
+ * 异步派发靠它做饥饿判断：applet 只要还在正常 yield，就绝不打断它
+ * （实测 00000506 被异步打断会崩、00000442 的模态循环则必须靠异步喂）。
+ * 细节见 zm_timer.c 的 s_last_yield_ms 注释。 */
+void zm_timer_note_yield(uint32_t now_ms);
+
 #endif /* ZM_TIMER_H */

@@ -36,6 +36,11 @@ enum ZM_ROOT_TABLE : uint32_t {
   ZM_AtOf = 0x70U, /* 字符串→double（CString::ToDouble / atof），计算器解析输入用 */
   ZM_StrToNum = 0x74U,
   ZM_StrAssign = 0x78U,
+  /* +0x80 = **zmaee_strcmp(a, b)**（RE 定案，见 zm_str.c 的长注释）
+   * 0 = 相等、非 0 = 不等。原先未接线 → 默认返回 0 → 所有字符串比较都被
+   * 判成"相等"：00000442 进游戏 1 秒后倒计时明明还剩 00:00:59，却因为
+   * "倒计时 == 00:00:00" 成立而立刻结束。152/176 个样本都导入此槽。 */
+  ZM_Strcmp = 0x80U,
   ZM_StrCtor = 0x88U,
   ZM_StrChr = 0x90U,
   ZM_SpecLookup = 0xa4U,
@@ -50,6 +55,23 @@ enum ZM_ROOT_TABLE : uint32_t {
   ZM_x12C = 0x12CU,
   ZM_x130 = 0x130U,
   ZM_x140 = 0x140U,
+  /* +0x148 / +0x14C = **ZMAEE_Start_Timer / ZMAEE_Stop_Timer**（RE 定案）
+   *
+   * 证据链（00000442《驱蚊大师》"计时器不走"）：
+   *   ① 未接线时的报错现场：`SHIM槽+0x148 r0=0x3E8 r1=0x13AC4 r2=0xCC2C`
+   *      —— r0=1000 毫秒、r1 是唯一标识、r2 是回调；紧邻的 +0x14C 只收 r0=标识。
+   *   ② 反汇编 applet 的导入跳板（0x13114/0x13124 → 0x17D34/0x17D48）确认就是
+   *      `ldr rX,[根表,#0x148]/#0x14c; bx rX`，且跳板先把调用方的 r1 挪到 r2
+   *      （所以固件收到的是 (interval, 描述符, 回调)）。
+   *   ③ 固件符号表有 ZMAEE_Start_Timer(a1,a2,a3)/ZMAEE_Stop_Timer/ZMAEE_GetTimerCount；
+   *      Start_Timer 反汇编进来第一件事就是 `bl Stop_Timer`，末尾 `bl 0x34308`
+   *      （= ZMAEE_IShell_SetTimer，我们已实现的同一函数）。
+   *   ④ applet 传的回调 0xCC2C 反汇编就是"计时数字进位"（个位 +1、超 '9'
+   *      归零进位、秒十位超 '5' 进位到分）——正是执行时间/倒计时的刷新。
+   * 语义是**周期**（同 id 反复），与 IShell 的单次语义分开实现，
+   * 见 zm_timer.c 的 zm_timer_StartTimer/StopTimer。 */
+  ZM_StartTimer = 0x148U,
+  ZM_StopTimer = 0x14CU,
   ZM_CreateCbk = 0x154U,
   ZM_x16C = 0x16CU,
   ZM_x68C = 0x68CU,
@@ -123,6 +145,9 @@ enum ZM_ROOT_TRAPS : uint32_t {
 
   TR_root_str_assign = TRAP(ROOT_TABLE_ADDR + ZM_StrAssign), /* str_assign(str_obj, cstr) */
 
+  /* +0x80 strcmp（见 ZM_Strcmp 的 RE 注释） */
+  TR_root_strcmp = TRAP(ROOT_TABLE_ADDR + ZM_Strcmp),
+
   /* ROOT_TABLE_ADDR[0xD8] = **zmaee_wcslen**（宽字符串长度，返回字符数）
    *
    * 【正名】此前记成 GetTickCount（返回 SDL_GetTicks），是猜测。实测 5 处调用点
@@ -151,6 +176,9 @@ enum ZM_ROOT_TRAPS : uint32_t {
   TR_root_x12C = TRAP(ROOT_TABLE_ADDR + ZM_x12C),
   TR_root_x130 = TRAP(ROOT_TABLE_ADDR + ZM_x130),
   TR_root_x140 = TRAP(ROOT_TABLE_ADDR + ZM_x140),
+  /* 周期定时器（见 ZM_StartTimer/ZM_StopTimer 的 RE 长注释） */
+  TR_root_start_timer = TRAP(ROOT_TABLE_ADDR + ZM_StartTimer),
+  TR_root_stop_timer = TRAP(ROOT_TABLE_ADDR + ZM_StopTimer),
   TR_root_create_cbk = TRAP(ROOT_TABLE_ADDR + ZM_CreateCbk),
   TR_root_x16C = TRAP(ROOT_TABLE_ADDR + ZM_x16C),
 
@@ -165,6 +193,17 @@ enum ZM_ROOT_TRAPS : uint32_t {
   TR_init_callback = TRAP(ROOT_TABLE_ADDR + ZM_InitCallback),
 
   /* 事件回调因为 apple 是没有主循环的所以要用外部来完成这个主循环 */
+  /* 定时器"异步中断"的**返回跳板**（配套 zm_timer_interrupt）。
+   *
+   * 用途：hook_code 里发现定时器到期时，直接把 PC 改到回调、LR 指到这里，
+   * 等于"打断"正在自旋的 applet（真机这两类定时器由 Java 层回调触发，本来
+   * 就与 applet 自己的事件循环无关）。回调执行完 `bx lr` 落回本槽，由 trap
+   * 恢复被打断的现场（R0-R12/SP/LR/CPSR + 原 PC）继续执行。
+   *
+   * 地址取 SHIM 里 VT 区尾部一个不会被任何 applet 导入的槽（已知根表槽最大
+   * 0x68C，VT 区 0x8000），避免与真实 API 冲突。 */
+  TR_timer_return = TRAP(SHIM_BASE + 0x7F0U),
+
   TR_enter_event_loop = TRAP(ROOT_TABLE_ADDR + ZM_EnterEventLoop),
 
   /* TR_init_callback 执行期间，applet 会调用 ROOT_TABLE_ADDR+0x1184

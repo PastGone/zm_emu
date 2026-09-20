@@ -1508,6 +1508,61 @@ bool zm_display_event_loop(void (*on_click)(uint32_t x, uint32_t y),
     }
   }
 
+  /* 诊断：ZM_CLICK_T="ms:x,y;ms:x,y;..." —— 按**时间**调度的自动点击。
+   *
+   * 与 ZM_CLICK 的区别：那个按"事件循环被调用的次数"节流（每 12 次一个），
+   * 而 applet 一旦在游戏/模态循环里自旋，事件循环几乎不被调用 → 点击被饿死
+   * （实测 00000506 只发得出 1~2 个，进不去游戏，无头复现不了"进游戏之后"的
+   * 问题）。这里改成看 SDL_GetTicks()：每次进事件循环把"已到点"的下一个点击
+   * 补发出去 —— 既不受调用频率影响，又仍然只在**yield 点**派发事件
+   * （不会像异步定时器那样打断 applet 的执行）。 */
+  {
+    static int t_inited = 0, t_n = 0, t_head = 0;
+    static struct {
+      Uint32 at;
+      uint16_t x, y;
+    } tq[64];
+    if (!t_inited) {
+      t_inited = 1;
+      const char *s = getenv("ZM_CLICK_T");
+      if (s && *s) {
+        const char *p = s;
+        while (t_n < 64 && *p) {
+          long ms = 0;
+          while (*p && (*p < '0' || *p > '9'))
+            p++;
+          if (!*p)
+            break;
+          while (*p >= '0' && *p <= '9')
+            ms = ms * 10 + (*p++ - '0');
+          int x = 0, y = 0;
+          while (*p && (*p < '0' || *p > '9'))
+            p++;
+          while (*p >= '0' && *p <= '9')
+            x = x * 10 + (*p++ - '0');
+          while (*p && (*p < '0' || *p > '9'))
+            p++;
+          while (*p >= '0' && *p <= '9')
+            y = y * 10 + (*p++ - '0');
+          tq[t_n].at = (Uint32)ms;
+          tq[t_n].x = (uint16_t)x;
+          tq[t_n].y = (uint16_t)y;
+          t_n++;
+        }
+        if (t_n > 0)
+          log_info("ZM_CLICK_T: 注入 %d 个定时点击", t_n);
+      }
+    }
+    if (t_head < t_n && SDL_GetTicks() >= tq[t_head].at) {
+      uint32_t cx = tq[t_head].x, cy = tq[t_head].y;
+      Uint32 at = tq[t_head].at;
+      t_head++;
+      log_info("ZM_CLICK_T: 到点 %ums → 点击 (%u,%u)", at, cx, cy);
+      on_touch_click(cx, cy);
+      return true;
+    }
+  }
+
   /* 先检查是否有待处理的触摸事件（case 10 penUp 跟在 case 9 之后） */
   if (zm_event_dispatch_pending())
     return true; /* 已设置寄存器 → 让模拟器执行 handler */

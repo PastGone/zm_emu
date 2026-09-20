@@ -329,8 +329,13 @@ AD_0(zm_shell_GetRootDir)
 AD_0(zm_shell_GetWorkDir)
 AD_R1(zm_shell_CloseApplet)
 AD_R1(zm_shell_GetApplet)
+AD_R01(zm_strcmp)
 AD_R1(zm_timer_CancelTimer)
 AD_R1(zm_timer_CancelOwnerTimer)
+/* ROOT+0x148/0x14C：applet 级周期定时器（ZMAEE_Start_Timer/Stop_Timer）
+ * 签名 RE：Start_Timer(r0=interval_ms, r1=id, r2=cb)；Stop_Timer(r0=id) */
+AD_R012(zm_timer_StartTimer)
+AD_R0(zm_timer_StopTimer)
 AD_0(zm_shell_GetTickCount)
 AD_R1(zm_shell_UnloadDLL)
 AD_R0123(zm_shell_LoadLibraryExt)
@@ -782,6 +787,15 @@ static uint32_t a_abort(trap_ctx *c) {
   c->handled = true;
   return 0;
 }
+/* 定时器异步中断的返回跳板：被打断的现场由 zm_timer.c 保存，
+ * 回调执行完 `bx lr` 落到这里 → 恢复现场并回到被打断的那条指令。
+ * 必须置 handled：PC 已由恢复逻辑写好，不能让分发器再写 R0/PC。 */
+static uint32_t a_timer_return(trap_ctx *c) {
+  zm_timer_interrupt_return(c->uc);
+  c->handled = true;
+  return 0;
+}
+
 static uint32_t a_enter_event_loop(trap_ctx *c) {
   static int stage = 0;
   static int resume_enabled = 1;
@@ -885,10 +899,13 @@ static uint32_t a_enter_event_loop(trap_ctx *c) {
  * ========================================================================= */
 static const struct { uint32_t lo, hi; trap_fn fn; } k_trap_table[] = {
   /* 控制流 / 特殊 */
+  { TR_timer_return, TR_timer_return, a_timer_return },
   { TR_init_callback, TR_init_callback, a_init_callback },
   { TR_register_event_loop, TR_register_event_loop, a_register_event_loop },
   { TR_abort, TR_abort, a_abort },
   { TR_enter_event_loop, TR_enter_event_loop, a_enter_event_loop },
+  { TR_root_start_timer, TR_root_start_timer, a_zm_timer_StartTimer },
+  { TR_root_stop_timer, TR_root_stop_timer, a_zm_timer_StopTimer },
   { TR_root_create_cbk, TR_root_create_cbk, a_root_create_cbk },
   { TR_shell_CreateInstance, TR_shell_CreateInstance, a_shell_CreateInstance },
   /* root */
@@ -905,6 +922,7 @@ static const struct { uint32_t lo, hi; trap_fn fn; } k_trap_table[] = {
   { TR_root_atof, TR_root_atof, a_root_atof },
   { TR_root_x12C, TR_root_x12C, a_root_f_op },
   { TR_root_str_ctor, TR_root_str_ctor, a_root_str_ctor },
+  { TR_root_strcmp, TR_root_strcmp, a_zm_strcmp },
   { TR_root_strchr, TR_root_strchr, a_zm_strlen },
   { TR_root_memcmp, TR_root_memcmp, a_u_memcmp },
   { TR_root_memcpy, TR_root_memcpy, a_u_memcpy },

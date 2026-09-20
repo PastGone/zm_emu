@@ -3,6 +3,7 @@
 #include "./tool/disasm_log.h"
 #include "./trap.h"
 #include "./zmaee/gfx/zm_display.h" /* zm_display_pump_events：周期性泵窗口事件 */
+#include "./zmaee/runtime/timer/zm_timer.h" /* zm_timer_interrupt：指令级定时器派发 */
 #include <inttypes.h>
 #include <stdio.h>
 
@@ -41,6 +42,22 @@ void hook_code(uc_engine *uc, uint64_t address, uint32_t size,
     static uint32_t s_pump_tick = 0;
     if (((++s_pump_tick) & 0x3FFFFu) == 0)
       zm_display_pump_events();
+  }
+
+  /* 指令级定时器派发：到期的定时器直接打断当前执行。
+   *
+   * 背景：宿主原本只在 applet 回事件循环时（zm_display_event_loop）才
+   * 检查定时器；applet 一旦在游戏/模态循环里自旋就再也不回事件循环，
+   * 定时器全被饿死（实测 00000442：54 秒只回 3 次，1 秒定时器和 500ms
+   * 心跳都不动 → 画面上"执行时间/倒数计时"永远不涨）。真机的这两类
+   * 定时器由 Java 层回调触发，与 applet 自己的循环无关，所以这里补齐。
+   * 每 2^16 条指令一次（比上面的 SDL 泵更密，保证 1 秒级定时器不漂移）。 */
+  {
+    static uint32_t s_timer_tick = 0;
+    if (((++s_timer_tick) & 0xFFFFu) == 0) {
+      if (zm_timer_interrupt(uc, (uint32_t)address))
+        return; /* 已改写 PC/LR → 让 Unicorn 直接去跑回调 */
+    }
   }
 
   if (g_pc_watch_on) {

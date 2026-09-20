@@ -358,6 +358,48 @@ static uint32_t resolve_str_ptr(uc_engine *uc, uint32_t p) {
 }
 
 /**
+ * @brief root[0x80] → zmaee_strcmp(a, b)：C 字符串比较（<0 / 0 / >0）
+ *
+ * 逆向依据（00000442《驱蚊大师》"进游戏 1 秒就弹驱蚊结束"）：
+ *   回调尾部（0xCE38 起）：
+ *     r0 = obj + 0x75        ; 倒计时 ASCII 串（形如 "00:01:00"）
+ *     r1 = pc+0x40 → "00:00:00"
+ *     bl 0x13B1C             ; → 0x177FC: ldr rX,[根表,#0x80]; bx rX
+ *     cmp r0, #0
+ *     bne 0xCE68             ; 非 0 = 不等 → Stop 后重新 Start_Timer(1000) 继续跑
+ *     == 0                   ; 相等 = 倒计时归零 → Stop_Timer + 弹"驱蚊结束"
+ *   即 0 = 相等、非 0 = 不等 —— 标准 strcmp 语义。
+ *
+ * 该槽原先未接线（落到 default 返回 0），于是**任何**比较结果都被当成"相等"：
+ * 进游戏 1 秒后显示 00:00:59，却立刻结束（用户观察到的"只有一秒就驱蚊结束"）。
+ *
+ * 覆盖面：176 个样本里 **152 个**导入该槽（它们的导入跳板是 0x40~0x118 连成
+ * 一片的固件 libc 块），属核心函数。
+ *
+ * 兼容两种入参形态（裸 C 串 / zmaee 字符串对象），见 resolve_str_ptr。
+ */
+uint32_t zm_strcmp(uc_engine *uc, uint32_t a, uint32_t b) {
+  uint32_t pa = resolve_str_ptr(uc, a);
+  uint32_t pb = resolve_str_ptr(uc, b);
+  if (pa == 0)
+    return pb ? (uint32_t)-1 : 0; /* 空指针当空串 */
+  if (pb == 0)
+    return 1;
+
+  for (uint32_t i = 0; i < 4096; ++i) { /* 上限防御：客户机串可能没有 NUL */
+    uint8_t ca = 0, cb = 0;
+    if (uc_mem_read(uc, pa + i, &ca, 1) != UC_ERR_OK ||
+        uc_mem_read(uc, pb + i, &cb, 1) != UC_ERR_OK)
+      break;
+    if (ca != cb)
+      return (uint32_t)(int)((int)ca - (int)cb);
+    if (ca == 0)
+      return 0;
+  }
+  return 0;
+}
+
+/**
  * @brief root[0xB0] → zmaee_strstr(haystack, needle)：子串查找
  *
  * 逆向依据（00000506 sub_8A20 资源加载分支）：

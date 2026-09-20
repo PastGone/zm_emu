@@ -24,6 +24,15 @@ uint32_t zm_spec_lookup(uc_engine *uc, uint32_t str_addr,
 uint32_t zm_strchr(uc_engine *uc, uint32_t str_obj_ptr, uint32_t ch);
 
 /**
+ * @brief root[0x80] = zmaee_strcmp(a, b)：C 字符串比较
+ *
+ * 0 = 相等、非 0 = 不等（标准 strcmp）。152/176 个样本 applet 都导入该槽，
+ * 属固件 libc 核心函数。原先未接线 → 默认返回 0 → 所有比较都被判成"相等"，
+ * 00000442 表现为"进游戏 1 秒就弹驱蚊结束"（详见 zm_str.c 的 RE 注释）。
+ */
+uint32_t zm_strcmp(uc_engine *uc, uint32_t a, uint32_t b);
+
+/**
  * @brief root[0xB0] = zmaee_strstr(haystack, needle)
  *
  * 在 haystack 中查找 needle 首次出现的位置。applet 用它判断资源文件名

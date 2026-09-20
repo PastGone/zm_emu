@@ -388,6 +388,22 @@ static int decode_any(const uint8_t *data, size_t len, int *w, int *h,
     *type = ZM_IMG_TYPE_JPG;
     return decode_jpg(data, len, w, h, rgba);
   }
+  /* GIF（含 GIF87a/GIF89a）与 BMP：直接交给 SDL2_image。
+   *
+   * RE：00000442《驱蚊大师》把**内嵌在自身 payload 里的 GIF**
+   * （文件偏移 102012 处即 "GIF89a"）直接塞进 IImage::SetData，
+   * 没有文件 I/O；固件的类型枚举只有 0=GIF/1=PNG/2=JPG，所以
+   * GIF 用 0（原样保真），BMP 也归到 0（非 PNG/JPG 位图）。
+   * 动图只解第一帧（GetFrameCount 返回 1），applet 未据帧号分支。 */
+  if (len >= 6 && data[0] == 'G' && data[1] == 'I' && data[2] == 'F' &&
+      data[3] == '8') {
+    *type = ZM_IMG_TYPE_GIF;
+    return decode_via_sdl(data, len, w, h, rgba);
+  }
+  if (len >= 2 && data[0] == 'B' && data[1] == 'M') {
+    *type = ZM_IMG_TYPE_GIF;
+    return decode_via_sdl(data, len, w, h, rgba);
+  }
   /* 兜底：先按 PNG，再按 JPEG 试一遍（某些文件头带偏移） */
   if (decode_png(data, len, w, h, rgba) == 0) {
     *type = ZM_IMG_TYPE_PNG;
@@ -419,6 +435,56 @@ static int rec_load_file(zm_img_rec *r, const char *name) {
   r->rgba = rgba;
   snprintf(r->name, sizeof(r->name), "%s", name);
   log_info("IImage: 载入 \"%s\" %dx%d type=%d(%s)", name, w, h, type,
+           type == ZM_IMG_TYPE_PNG ? "PNG"
+                                   : (type == ZM_IMG_TYPE_JPG ? "JPG" : "GIF"));
+  return 0;
+}
+
+/* 这段字节像不像"图像数据本身"（而不是文件名字符串）。
+ * 用于区分 SetData 的两种调用形态，见 zm_image_SetData 的长注释。 */
+static bool looks_like_image_magic(const uint8_t *m) {
+  if (m[0] == 0x89 && m[1] == 'P' && m[2] == 'N' && m[3] == 'G')
+    return true; /* PNG */
+  if (m[0] == 0xFF && m[1] == 0xD8 && m[2] == 0xFF)
+    return true; /* JPEG */
+  if (m[0] == 'G' && m[1] == 'I' && m[2] == 'F' && m[3] == '8')
+    return true; /* GIF87a / GIF89a */
+  if (m[0] == 'B' && m[1] == 'M')
+    return true;                     /* BMP */
+  if (m[0] == 'R' && m[1] == 'I' && m[2] == 'F' && m[3] == 'F')
+    return true; /* RIFF（WEBP） */
+  return false;
+}
+
+/* 从**客户机内存**里的图像数据解码，填入记录；成功返回 0。
+ * 对应 00000442 那种"数据在 payload 里、直接给指针"的形态。 */
+static int rec_load_mem(uc_engine *uc, zm_img_rec *r, uint32_t ptr,
+                        uint32_t len) {
+  if (!len || len > 64u * 1024u * 1024u) /* 防御：别被脏长度骗着读一大片 */
+    return -1;
+  uint8_t *raw = malloc(len);
+  if (!raw)
+    return -1;
+  if (uc_mem_read(uc, ptr, raw, len) != UC_ERR_OK) {
+    free(raw);
+    return -1;
+  }
+  int w = 0, h = 0, type = ZM_IMG_TYPE_GIF;
+  uint8_t *rgba = NULL;
+  int rc = decode_any(raw, len, &w, &h, &rgba, &type);
+  free(raw);
+  if (rc != 0) {
+    log_warn("IImage: 无法解码内存图像 0x%X（%u 字节）", ptr, len);
+    return -1;
+  }
+  rec_free_pixels(r);
+  r->w = w;
+  r->h = h;
+  r->type = type;
+  r->rgba = rgba;
+  snprintf(r->name, sizeof(r->name), "<mem 0x%X>", ptr);
+  log_info("IImage: 载入内存图像 0x%X %u 字节 -> %dx%d type=%d(%s)", ptr, len, w,
+           h, type,
            type == ZM_IMG_TYPE_PNG ? "PNG"
                                    : (type == ZM_IMG_TYPE_JPG ? "JPG" : "GIF"));
   return 0;
@@ -515,15 +581,27 @@ uint32_t zm_image_Release(uc_engine *uc, uint32_t r0) {
   return 0;
 }
 
-/* +0x08 SetData(this, mode, name_ptr, len)
- * applet 传的是**文件名**（sprintf 拼出的 "res\xxx.png"），len = strlen。
- * 返回 0 = 成功；非 0 = 失败（applet 会立刻 Release）。
+/* +0x08 SetData(this, mode, ptr, len)
  *
- * 真机在这里做的另一件事：把数据装进对象（+0xC=原始数据、+0x10=长度）并
- * **按魔数定下类型字段 +0x18** —— 这个字段就是 IImage::Decode 的分派键
- * （见 ZM_IMG_TYPE_* 注释）。我们的 Decode 是整槽 trap、不看这个键，但
- * GetType 会原样把它交给 applet，所以必须和真机一致地回填，
- * 否则 PNG 会被报成 GIF(0)。 */
+ * 真机的语义：把 (ptr, len) 存进对象（+0xC=原始数据指针、+0x10=长度）并按
+ * **魔数**定下类型字段 +0x18。也就是说这个 ptr **既可能是文件名、也可能
+ * 是图像数据本身**，取决于 applet 怎么用——真机的这种不确定性正好解释了
+ * 为什么它要"按魔数定类型"。
+ *
+ * 实测两种形态都存在：
+ *   (a) 文件名：`sprintf("res\\xxx.png")` 拼出的串，len = strlen
+ *       —— 计算器/捕鱼等多数 applet。此时魔数不是图像 → 按路径去读盘。
+ *   (b) 内存数据：00000442《驱蚊大师》把**内嵌在自身 payload 里的 GIF**
+ *       （文件偏移 102012 处是 "GIF89a"）直接塞进来，len = 数据字节数。
+ *       它一秒钟能重试 100 多次：日志里刷 "zm_fs_read_file: 找不到文件
+ *       "GIF89a"" 152 次、**一张图都没加载成功**，结果是游戏画面里
+ *       只剩文字（计时器数字都是 bitmap 挂不上），倒计时永远停在 00:01:00。
+ *
+ * 判据：ptr 的头几个字节是不是图像魔数（PNG/JPEG/GIF/BMP/RIFF）。
+ * 文件名的可打印 ASCII 前缀不可能撞上这些魔数（都含 >=0x80 的字节，
+ * 或 "GIF8"/"BM" 这种在路径里不可能出现的开头）。
+ *
+ * 返回 0 = 成功；非 0 = 失败（applet 会立刻 Release）。 */
 uint32_t zm_image_SetData(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
                           uint32_t r3) {
   (void)r1; /* mode/flag，实测恒为 0 */
@@ -531,6 +609,15 @@ uint32_t zm_image_SetData(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
   zm_img_rec *r = pixel_rec(r0);
   if (!r)
     return (uint32_t)-1;
+
+  uint8_t magic[6] = {0};
+  if (r2 && r3 && uc_mem_read(uc, r2, magic, sizeof(magic)) == UC_ERR_OK &&
+      looks_like_image_magic(magic)) {
+    if (rec_load_mem(uc, r, r2, r3) != 0)
+      return (uint32_t)-1;
+    uc_write32(uc, r0 + IMAGE_ENTRY_OFF_TYPE, (uint32_t)r->type);
+    return 0;
+  }
 
   char name[256];
   read_cstr(uc, r2, name, sizeof(name));
