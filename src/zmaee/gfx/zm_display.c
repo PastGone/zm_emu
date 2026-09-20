@@ -56,9 +56,22 @@
  * Android（JNI NewStringUTF + AndroidAEE_GetTextBitmap），字形由**系统字体**
  * 提供，天然含 CJK。宿主侧用 SDL_ttf 顶替，就得自己挑一个含汉字的字体：
  * 早期写死的 LiberationSans 只有拉丁字形，汉字全落 .notdef → 豆腐块。
- * 优先级：ZM_FONT 环境变量 > 常见 CJK 字体 > 拉丁兜底。 */
+ *
+ * 优先级：ZM_FONT 环境变量 > 随仓库自带字体 > 系统 CJK 字体 > 拉丁兜底。
+ *
+ * 【自带字体】src/zmaee/unifont_t-18.0.01.pcf（GNU Unifont）
+ *   - 位图字体，不是矢量：字形是 8x16 点阵，**天生就是像素风**，与这类
+ *     240x320 功能机 applet 的原生观感一致（矢量字体抗锯齿反而"不像"）；
+ *   - 覆盖面最广（Unifont 的卖点就是无豆腐块），汉字/生僻字都有；
+ *   - 路径相对于**项目根**（xmake run 与 test_all.sh 都在根目录启动）；
+ *     换了工作目录导致 fopen 失败时会自动回退到下面的系统字体。
+ *   - 位图字体只有固定的几个像素尺寸，字号要取到它的原生高度（16）才最清晰，
+ *     故默认字号同步改为 16（见 get_font 的 ZM_FONT_SIZE 兜底值）。 */
+#define ZM_FONT_BUNDLED "src/zmaee/unifont_t-18.0.01.pcf"
+#define ZM_FONT_DEFAULT_SIZE 16 /* 与上面位图字体的原生点阵高度对齐 */
 #define ZM_FONT_PATH "/usr/share/fonts/liberation/LiberationSans-Regular.ttf"
 static const char *g_font_cands[] = {
+    ZM_FONT_BUNDLED, /* 自带 GNU Unifont（点阵，优先） */
     "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
@@ -143,14 +156,16 @@ static TTF_Font *get_font(int font_size) {
   if (font_size <= 0) {
     /* 真机的字号来自字体上下文（dword_64BA8 +0x3C/0x40/0x44，按 SelectFont
      * 选中的字体类型取），模拟器没有那份上下文，给 240x320 上的合理默认值，
-     * 并允许 ZM_FONT_SIZE 覆盖。 */
+     * 并允许 ZM_FONT_SIZE 覆盖。
+     * 默认 16：与自带位图字体 unifont 的原生点阵高度对齐（见 ZM_FONT_BUNDLED），
+     * 位图字体取原生尺寸时最清晰，缩放会发虚。 */
     const char *fs = getenv("ZM_FONT_SIZE");
-    font_size = (fs && *fs) ? atoi(fs) : 14;
+    font_size = (fs && *fs) ? atoi(fs) : ZM_FONT_DEFAULT_SIZE;
   }
   /* 00000405.app 传入的 font_size 可能是 font_id(1,2)而非像素值；
    * 小于 8 时视为 font_id，映射到可读的像素大小。 */
   if (font_size < 8)
-    font_size = 14;
+    font_size = ZM_FONT_DEFAULT_SIZE;
   if (g_font && g_font_size == font_size)
     return g_font;
   if (g_font) {
@@ -2054,7 +2069,7 @@ uint32_t zm_display_MeasureString(uc_engine *uc, uint32_t disp,
     if (font)
       TTF_SizeUTF8(font, utf8, &w, &h);
     else
-      w = (int)ul * (g_font_size > 0 ? g_font_size : 16);
+      w = (int)ul * (g_font_size > 0 ? g_font_size : ZM_FONT_DEFAULT_SIZE);
   }
 
   if (width_out)
@@ -2066,7 +2081,8 @@ uint32_t zm_display_MeasureString(uc_engine *uc, uint32_t disp,
     if (metrics_out) {
       TTF_Font *font = get_font(g_font_size);
       int fh =
-          font ? TTF_FontHeight(font) : (g_font_size > 0 ? g_font_size : 16);
+          font ? TTF_FontHeight(font)
+               : (g_font_size > 0 ? g_font_size : ZM_FONT_DEFAULT_SIZE);
       uc_write32(uc, metrics_out, (uint32_t)fh);
     }
   }
@@ -2099,6 +2115,14 @@ uint32_t zm_display_DrawText(uc_engine *uc, uint32_t rect_ptr,
   zm_display_slot_tick(0x50U);
   if (!rect_ptr || !text_ptr || !text_len)
     return 0;
+  /* 【2026-09 修正】必须和其他绘制入口（DrawBitmap/DrawImage/BitBlt/
+   * SetActiveLayer）一样先刷新绘制目标：fb_px 会把像素**同时**写进
+   * g_draw_buf（活动层像素缓冲），而它由 fb_refresh_draw_target() 惰性更新。
+   * 本函数漏了这一步，于是 g_draw_buf 一直是 0 —— 文字只落到宿主 g_fb，
+   * 而 g_fb 每次 present 都被 fb_merge_layer 用客户机 FRAMEBUF 整块覆盖，
+   * 结果就是"DrawText 调了几千次、一个字也看不见"。
+   * 实测 00000462：对话框有框无字（rect={11,263,14,21} 参数全正常）。 */
+  fb_refresh_draw_target();
   char text[512];
   text_to_utf8(uc, text_ptr, text_len, text, sizeof(text));
   if (!text[0])
@@ -2106,9 +2130,21 @@ uint32_t zm_display_DrawText(uc_engine *uc, uint32_t rect_ptr,
   uint32_t color = uc_read32(uc, sp);
   uint32_t flags = uc_read32(uc, sp + 8);
   /* 字号来自字体上下文（SelectFont 选中的类型 → 大小），不是栈参数 */
-  if (getenv("ZM_SHOW_TRACE"))
-    log_info("[DrawText] rect=0x%X text=\"%s\" len=%u color=0x%X flags=0x%X",
-             rect_ptr, text, text_len, color, flags);
+  if (getenv("ZM_SHOW_TRACE")) {
+    /* 连 rect 的四个字段一起打：文本会被裁剪到 rect 内，rect 不合理（宽高 0 /
+     * 坐标跑出屏外）就等于"调了但看不见"，光看指针排查不出来。 */
+    int rx = (int)uc_read32(uc, rect_ptr);
+    int ry = (int)uc_read32(uc, rect_ptr + 4);
+    int rw = (int)uc_read32(uc, rect_ptr + 8);
+    int rh = (int)uc_read32(uc, rect_ptr + 12);
+    /* 连"写进哪块层缓冲"一起打：fb_px 会同步写 g_draw_buf（活动层）。
+     * 若这里的 buf 与 FillRect 详查里对话框所在层的 buf 不同，
+     * 就说明文字画到了别的层上（合成时被覆盖）。 */
+    log_info("[DrawText] rect={%d,%d,%d,%d} text=\"%s\" len=%u color=0x%X "
+             "flags=0x%X font=%dpx 目标层=%u buf=0x%X",
+             rx, ry, rw, rh, text, text_len, color, flags, g_font_size,
+             uc_read32(uc, DISPLAY + 8), g_draw_buf);
+  }
   fb_draw_text(uc, rect_ptr, text, color, g_font_size, flags);
   return 0;
 }
