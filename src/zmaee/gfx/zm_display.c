@@ -69,15 +69,32 @@
  *     故默认字号同步改为 16（见 get_font 的 ZM_FONT_SIZE 兜底值）。 */
 #define ZM_FONT_BUNDLED "src/zmaee/unifont_t-18.0.01.pcf"
 #define ZM_FONT_DEFAULT_SIZE 16 /* 与上面位图字体的原生点阵高度对齐 */
+/* 拉丁兜底字体：必须**按平台**选。原来写死 Linux 的 Liberation 路径，于是在
+ * Windows 上这个 fopen 必然失败 → 连兜底都没有，界面上的**文字整块不出现**
+ * （图片还在，所以看着像"画面不显示"）。见下面候选表里的 Windows 项。 */
+#if defined(_WIN32)
+#define ZM_FONT_PATH "C:/Windows/Fonts/arial.ttf"
+#else
 #define ZM_FONT_PATH "/usr/share/fonts/liberation/LiberationSans-Regular.ttf"
+#endif
 static const char *g_font_cands[] = {
-    ZM_FONT_BUNDLED, /* 自带 GNU Unifont（点阵，优先） */
+    ZM_FONT_BUNDLED, /* 自带 GNU Unifont（点阵，优先；相对项目根，见上） */
     "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
     "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
     "/usr/share/fonts/noto-cjk/NotoSansCJK-Light.ttc",
+    /* ---- Windows 系统自带 CJK 字体 ----
+     * 上面那批全是 Linux 路径，Windows 上一个都打不开；而**自带字体是相对项目根
+     * 的路径**，在 Windows 上从别处启动（双击 exe / 换工作目录）同样找不到。
+     * 结果是：图像正常、文字全无。这里补上 Windows 必装的几个：
+     *   msyh=微软雅黑（含简繁）、simhei=黑体、simsun=宋体、Deng=等线（Win10+）。 */
+    "C:/Windows/Fonts/msyh.ttc",
+    "C:/Windows/Fonts/msyh.ttf",
+    "C:/Windows/Fonts/simhei.ttf",
+    "C:/Windows/Fonts/simsun.ttc",
+    "C:/Windows/Fonts/Deng.ttf",
     ZM_FONT_PATH, /* 拉丁兜底：没有 CJK 字体时保持旧行为 */
 };
 static const char *pick_font_path(void) {
@@ -1345,6 +1362,20 @@ static void fb_commit(void) {
 
 /* ---------- 生命周期 ---------- */
 
+/* 是否是"刻意无头"模式：SDL_VIDEODRIVER=dummy/offscreen，或显式 ZM_HEADLESS=1。
+ * 调用方（main.c）用它决定 zm_display_init 失败时的处置：
+ *   无头   → 允许继续跑（只要日志/截图，批量回归就是这么跑的）；
+ *   非无头 → 直接退出。
+ * 为什么必须这样分：默认"失败也继续跑"会造出极难查的现象——日志一切正常、
+ * 程序也不退，但**永远不会有窗口**（Windows 上尤其容易被当成"程序不显示"）。 */
+bool zm_display_headless(void) {
+  const char *drv = getenv("SDL_VIDEODRIVER");
+  if (drv && (!strcmp(drv, "dummy") || !strcmp(drv, "offscreen")))
+    return true;
+  const char *h = getenv("ZM_HEADLESS");
+  return h && h[0] && h[0] != '0';
+}
+
 int zm_display_init(void) {
   if (g_win)
     return 0; /* 已初始化 */
@@ -1421,6 +1452,23 @@ int zm_display_init(void) {
 
   log_info("zm_display_init: 窗口 %dx%d 已创建（软件帧缓冲 %d KB）", g_w, g_h,
            g_fb_w * g_fb_h * 4 / 1024);
+
+  /* 排查"日志正常但窗口/画面不显示"的第一条线索：视频驱动 + 渲染器。
+   * 特别注意 dummy/offscreen —— 那是 SDL 的无头驱动，**根本不会有窗口**，
+   * 但其余一切（日志、模拟、截图）看起来完全正常，极容易被误判成"程序没显示"。 */
+  {
+    const char *drv = SDL_GetCurrentVideoDriver();
+    SDL_RendererInfo ri;
+    int have_ri = (SDL_GetRendererInfo(g_ren, &ri) == 0);
+    log_info("  视频驱动=%s 渲染器=%s（%s）", drv ? drv : "?",
+             have_ri ? ri.name : "?",
+             (have_ri && (ri.flags & SDL_RENDERER_ACCELERATED)) ? "硬件加速"
+                                                               : "软件");
+    if (drv && (!strcmp(drv, "dummy") || !strcmp(drv, "offscreen")))
+      log_warn("视频驱动是 \"%s\"（无头模式），不会出现窗口：请清掉 "
+               "SDL_VIDEODRIVER 环境变量后再跑。",
+               drv);
+  }
   return 0;
 }
 

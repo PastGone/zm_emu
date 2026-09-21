@@ -28,6 +28,11 @@
  * 成功返回 0，失败返回 -1。 */
 int zm_display_init(void);
 
+/* 是否是"刻意无头"模式：SDL_VIDEODRIVER=dummy/offscreen，或显式 ZM_HEADLESS=1。
+ * 供调用方决定 zm_display_init 失败时是直接退出还是继续跑（见 main.c）：
+ * 非无头场景下没有画面就没有意义，继续跑只会变成"日志正常但什么都不显示"。 */
+bool zm_display_headless(void);
+
 /* 取当前画布尺寸（供其它模块初始化客户机可见的上下文结构用）。
  * 未初始化时返回 0 并把 *w/*h 置 0。 */
 void zm_display_size(int *w, int *h);

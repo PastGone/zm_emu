@@ -92,17 +92,74 @@ void hook_code(uc_engine *uc, uint64_t address, uint32_t size,
   }
 }
 
+/* SHIM 区访问观察钩子（挂在 SHIM_BASE .. SHIM_BASE+SHIM_SIZE，注册见 emu.c）。
+ *
+ * 【为什么默认不再逐条打印】这片区域里放的是**全部 shim 对象的虚表与对象本体**，
+ * applet 每做一次虚调用都要读它。一个"忙等"（自旋轮询）的 applet 每秒能在这里
+ * 触发**两万多次**访问，而本函数原来对每次访问都打一行 log_debug —— 关键是不设
+ * ZM_LOG 时默认等级曾是 LOG_TRACE（全开），于是"什么都不设"地跑一个自旋 applet
+ * 就是刷屏：终端被几万行/秒的文本淹掉、模拟器被同步 I/O 拖住，**看上去整个卡死**
+ * （实测某次：1 毫秒十几行、连续不断，窗口和画面都像不动了，实际还在跑）。
+ *
+ * 现在的策略——默认安静，要看时开开关：
+ *   - 读：默认**完全不打印**；设 ZM_SHIM_TRACE=1 才打印，且默认最多 400 行
+ *     （ZM_SHIM_MAX 可改，0 = 不限）。查"某处读 shim 拿到 0"这类问题时用。
+ *   - 写：默认只打印前 64 次（ZM_SHIM_W_MAX 可改，0 = 不限）。写比读少几个数量级，
+ *     而且"applet 覆写 shim 虚表/对象字段"是有价值的 RE 事件（例：CBK 对象 vt+8
+ *     会被 applet 自己改写），所以保留但限流。
+ *   - 到上限后各打一行汇总，然后彻底安静。
+ * 环境变量只在首调用读一次，之后钩子内零 getenv 开销。 */
+static int s_shim_cfg = -1; /* -1=未初始化 */
+static int s_shim_r_trace = 0, s_shim_r_max = 400, s_shim_w_max = 64;
+static unsigned s_shim_r_n = 0, s_shim_w_n = 0;
+static int s_shim_r_done = 0, s_shim_w_done = 0;
+
+static void shim_trace_init(void) {
+  const char *t = getenv("ZM_SHIM_TRACE");
+  const char *rm = getenv("ZM_SHIM_MAX");
+  const char *wm = getenv("ZM_SHIM_W_MAX");
+  s_shim_r_trace = (t && t[0] && t[0] != '0');
+  s_shim_r_max = rm ? atoi(rm) : 400;
+  s_shim_w_max = wm ? atoi(wm) : 64;
+  s_shim_cfg = 1;
+  if (s_shim_r_trace)
+    log_info("[SHIM] SHIM 区读写观察已开：读上限 %d 行 / 写上限 %d 次（0=不限）",
+             s_shim_r_max, s_shim_w_max);
+}
+
 void hook_shim_mem(uc_engine *uc, uc_mem_type type, uint64_t address, int size,
                    int64_t value, void *user_data) {
-  if (type == UC_MEM_READ) {
-    log_debug("[HOOK] 从 0x%016lx 地址处读取大小为:%d的数据，值为:0x%016lx\n",
-              address, size, value);
+  (void)uc;
+  (void)user_data;
+  if (s_shim_cfg < 0)
+    shim_trace_init();
 
+  if (type == UC_MEM_READ) {
+    if (!s_shim_r_trace)
+      return;
+    if (s_shim_r_max && s_shim_r_n >= (unsigned)s_shim_r_max) {
+      if (!s_shim_r_done) {
+        s_shim_r_done = 1;
+        log_info("[SHIM] 读日志已达上限 %d 行，之后不再打印（调 ZM_SHIM_MAX，0=不限）",
+                 s_shim_r_max);
+      }
+      return;
+    }
+    s_shim_r_n++;
+    log_debug("[HOOK] 读 0x%X (%d 字节) = 0x%" PRIx64, (uint32_t)address, size,
+              (uint64_t)value);
   } else if (type == UC_MEM_WRITE) {
-    log_debug("[HOOK] 向 0x%016lx 地址处写入大小为:%d的数据，值为:0x%016lx\n",
-              address, size, value);
-  } else {
-    log_debug("[HOOK] 其他内存操作 (type=%d)\n", type);
+    if (s_shim_w_max && s_shim_w_n >= (unsigned)s_shim_w_max) {
+      if (!s_shim_w_done) {
+        s_shim_w_done = 1;
+        log_info("[SHIM] 写日志已达上限 %d 次，之后不再打印（调 ZM_SHIM_W_MAX，0=不限）",
+                 s_shim_w_max);
+      }
+      return;
+    }
+    s_shim_w_n++;
+    log_debug("[HOOK] 写 0x%X (%d 字节) = 0x%" PRIx64, (uint32_t)address, size,
+              (uint64_t)value);
   }
 }
 

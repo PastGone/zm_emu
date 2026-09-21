@@ -233,11 +233,16 @@ int main(int argc, char **argv) {
   /* ---------------- 日志开关 ----------------
    * ZM_LOG=off   关闭全部日志（屏幕 + log.txt）—— 肉眼验证画面时用这个
    * ZM_LOG=error 只看错误   ZM_LOG=warn / info / debug 依次放宽
-   * 不设该变量 = 全开（LOG_TRACE），与历史行为一致。
+   * 不设该变量 = **info**（默认）。
    *
-   * 全量日志会明显拖慢模拟（HOOK 单次运行就能刷出 7000+ 行），
-   * 而且每行都要同时格式化到屏幕和 log.txt 两次。 */
-  int log_level = LOG_TRACE;
+   * 【默认为什么不是全开】曾经默认是 LOG_TRACE（全开），后果是：debug 级日志里
+   * 有"每次 shim 内存访问一行""每次外部槽调用一行"这类**逐事件**打印，一个忙等
+   * 自旋的 applet 每秒能触发几万次 —— 终端被刷屏刷死、模拟器被同步 I/O 拖慢，
+   * 看起来像"卡住"（实测踩过：1 毫秒十几行、连续不断）。想要这些细节时显式设
+   * ZM_LOG=debug（或先看 ZM_SHIM_TRACE=1 只开 shim 区观察）。
+   *
+   * 注意：全量日志本身也很重——每行都要同时格式化到屏幕和 log.txt 两次。 */
+  int log_level = LOG_INFO;
   bool log_quiet = false;
   {
     const char *lv = getenv("ZM_LOG");
@@ -432,7 +437,25 @@ int main(int argc, char **argv) {
   // 初始化 SDL2 渲染与音频
 
   if (zm_display_init() != 0) {
-    log_warn("zm_display_init 失败，渲染将不可用（继续运行）");
+    /* 显示失败 = 没有画面。**非无头场景直接退出**，不再"打一条 warning 然后继续跑"：
+     * 老行为的后果是一个极难查的现象——日志一切正常、程序也不退，但永远没有窗口
+     * （Windows 上尤其容易被当成"程序不显示"，白查半天）。
+     * 无头模式（SDL_VIDEODRIVER=dummy/offscreen 或 ZM_HEADLESS=1）是**刻意不要
+     * 窗口**的，那种情况继续跑（日志/截图仍可用，批量回归就是靠它）。 */
+    if (!zm_display_headless()) {
+      log_error("zm_display_init 失败：直接退出（原因见上面那条 error）。"
+                "如确实要无头运行，请设 SDL_VIDEODRIVER=dummy 或 ZM_HEADLESS=1");
+      /* ZM_LOG=off 会把 error 也一并吞掉（run.sh play 用的就是 off），
+       * 所以这条致命信息必须再直接写一次 stderr，否则会"静默退出"。 */
+      fprintf(stderr,
+              "zm_emu: 显示初始化失败，直接退出（原因见上面的 error 日志；"
+              "无头运行请设 SDL_VIDEODRIVER=dummy 或 ZM_HEADLESS=1）\n");
+      zm_display_shutdown();
+      cs_close(&g_cs_handle);
+      fclose(fp);
+      return 1;
+    }
+    log_warn("无头模式：显示初始化失败但继续运行（不会有窗口，日志/截图可用）");
   }
   if (zm_audio_init() != 0) {
     log_warn("zm_audio_init 失败，音频将不可用（继续运行）");
