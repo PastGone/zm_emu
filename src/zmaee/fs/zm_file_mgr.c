@@ -5,7 +5,16 @@
 #include <string.h>
 #include <dirent.h> /* opendir/readdir：找 *.app 主文件名 */
 #include <unistd.h> /* access/F_OK（TestFile 存在性检查） */
-#include <iconv.h>  /* GBK→UTF-8（applet 文件名为固件 GBK 编码） */
+/* GBK→UTF-8 的编解码不属于标准 C：POSIX 侧用 libiconv，Windows 侧改用系统
+ * 自带的 CP936 编解码（见下面 gbk_to_utf8 的两套实现）。
+ * ★ MinGW **不自带 iconv.h**（要单独装 libiconv），所以这里必须分平台，
+ *   否则纯 MinGW 环境下第一行就编不过。 */
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN /* 只要基础 API；避开 winsock1 与其它头的冲突 */
+#include <windows.h>        /* MultiByteToWideChar / WideCharToMultiByte（CP936） */
+#else
+#include <iconv.h>   /* GBK→UTF-8（applet 文件名为固件 GBK 编码） */
+#endif
 #if defined(__unix__) || defined(__APPLE__)
 #include <sys/statvfs.h> /* statvfs：IFileMgr+0x34 查宿主可用空间 */
 #endif
@@ -99,7 +108,38 @@ static int find_file_rec(const char *dir, const char *tail, int depth, char *out
 }
 
 /* GBK→UTF-8（applet 的中文文件名为固件 GBK 编码，宿主文件系统是
- * UTF-8；找不到时做一次转换回退）。成功返转换后长度，失败返 -1。 */
+ * UTF-8；找不到时做一次转换回退）。成功返转换后长度（不含 NUL），失败返 -1。
+ *
+ * 两套实现，语义一致：
+ *   - POSIX：libiconv 的 iconv_open("UTF-8","GBK") + iconv；
+ *   - Windows：系统自带的代码页转换（CP936=GBK → CP_UTF8）。
+ * ★ 为什么必须分平台：iconv 不是标准 C，MinGW 不自带 <iconv.h>（要装
+ *   libiconv）、MSVC 更没有；而 Windows API 本身就带 CP936 编解码，
+ *   用 MultiByteToWideChar + WideCharToMultiByte 零外部依赖。 */
+#if defined(_WIN32)
+static int gbk_to_utf8(const char *in, char *out, size_t out_cap) {
+  if (!in || !out || out_cap < 2)
+    return -1;
+  const UINT cp_gbk = 936; /* CP936 = GBK */
+  int wlen = MultiByteToWideChar(cp_gbk, 0, in, -1, NULL, 0);
+  if (wlen <= 0)
+    return -1;
+  wchar_t *wb = (wchar_t *)malloc((size_t)wlen * sizeof(wchar_t));
+  if (!wb)
+    return -1;
+  if (MultiByteToWideChar(cp_gbk, 0, in, -1, wb, wlen) <= 0) {
+    free(wb);
+    return -1;
+  }
+  /* -1 表示连结尾 NUL 一起转 → 返回长度要减 1，与 iconv 版语义对齐 */
+  int ulen = WideCharToMultiByte(CP_UTF8, 0, wb, -1, out, (int)out_cap, NULL,
+                                 NULL);
+  free(wb);
+  if (ulen <= 0)
+    return -1;
+  return ulen - 1;
+}
+#else
 static int gbk_to_utf8(const char *in, char *out, size_t out_cap) {
   iconv_t cd = iconv_open("UTF-8", "GBK");
   if (cd == (iconv_t)-1)
@@ -113,6 +153,7 @@ static int gbk_to_utf8(const char *in, char *out, size_t out_cap) {
   *dst = '\0';
   return (int)(dst - out);
 }
+#endif
 
 /* 判断字符串是否含高位字节（可能是 GBK 中文） */
 static int has_high_byte(const char *s) {
