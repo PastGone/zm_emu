@@ -1376,6 +1376,24 @@ bool zm_display_headless(void) {
   return h && h[0] && h[0] != '0';
 }
 
+/* SDL **实际选中**的视频驱动是不是"无头"（没有真窗口）：dummy / offscreen / null。
+ *
+ * 为什么必须单独判一次：**SDL 在没有显示时会自己回退到 offscreen/dummy**，
+ * 此时 SDL_Init 成功、SDL_CreateWindow 也成功（返回非 NULL），但屏幕上什么都不会
+ * 出现 —— 也就是"有没有窗口"**不能**用"初始化是否失败"来判断。
+ * 实测（DISPLAY 指向不存在的 X server、且未设任何无头变量）：
+ *     视频驱动=offscreen 渲染器=opengl        ← init 返回 0
+ *     → 程序照常跑满整场（退出码 124），窗口一个都没有
+ * 这正是"日志一切正常但什么都不显示"的**第二种**成因（第一种是 init 直接失败）。
+ * 所以 main.c 把它和"init 失败"同等处理：没要求无头却拿到无头驱动 → 直接退出。 */
+bool zm_display_driver_is_headless(void) {
+  const char *drv = SDL_GetCurrentVideoDriver();
+  if (!drv)
+    return false; /* 尚未初始化：无从判断，按"有窗口"处理 */
+  return !strcmp(drv, "dummy") || !strcmp(drv, "offscreen") ||
+         !strcmp(drv, "null");
+}
+
 int zm_display_init(void) {
   if (g_win)
     return 0; /* 已初始化 */

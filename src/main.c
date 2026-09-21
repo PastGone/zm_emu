@@ -436,26 +436,43 @@ int main(int argc, char **argv) {
 
   // 初始化 SDL2 渲染与音频
 
-  if (zm_display_init() != 0) {
-    /* 显示失败 = 没有画面。**非无头场景直接退出**，不再"打一条 warning 然后继续跑"：
-     * 老行为的后果是一个极难查的现象——日志一切正常、程序也不退，但永远没有窗口
-     * （Windows 上尤其容易被当成"程序不显示"，白查半天）。
-     * 无头模式（SDL_VIDEODRIVER=dummy/offscreen 或 ZM_HEADLESS=1）是**刻意不要
-     * 窗口**的，那种情况继续跑（日志/截图仍可用，批量回归就是靠它）。 */
-    if (!zm_display_headless()) {
-      log_error("zm_display_init 失败：直接退出（原因见上面那条 error）。"
-                "如确实要无头运行，请设 SDL_VIDEODRIVER=dummy 或 ZM_HEADLESS=1");
+  /* ---- 显示初始化：没有窗口就没有意义，直接退出（除非是**主动要**的无头）----
+   *
+   * 老行为是"打一条 warning 然后继续跑"，后果是极难查的现象：日志一切正常、
+   * 程序也不退，但永远没有窗口（Windows 上尤其容易被当成"程序不显示"）。
+   *
+   * 判据有**两条**，缺一不可：
+   *   ① zm_display_init() 失败（SDL_Init / TTF_Init / 建窗口 / 建渲染器 / 建纹理）；
+   *   ② init 成功但 SDL **实际选中**的驱动是 dummy/offscreen —— SDL 在没有显示时
+   *      会自己回退到这些无头驱动，此时"窗口"建得出来却根本不在屏幕上。
+   *      实测：DISPLAY 指向不存在的 X 且未设任何无头变量 → 视频驱动=offscreen、
+   *      init 返回 0，程序照常跑满整场而屏幕上什么都没有。
+   *
+   * 无头模式（SDL_VIDEODRIVER=dummy/offscreen 或 ZM_HEADLESS=1）是**刻意不要
+   * 窗口**的，那种情况继续跑（日志/截图仍可用，批量回归就是靠它）。 */
+  {
+    int disp_rc = zm_display_init();
+    bool want_window = !zm_display_headless();
+    bool no_window = (disp_rc != 0) || (want_window && zm_display_driver_is_headless());
+    if (no_window && want_window) {
+      if (disp_rc != 0)
+        log_error("zm_display_init 失败：直接退出（原因见上面那条 error）");
+      else
+        log_error("SDL 实际用的是无头视频驱动（见上面\"视频驱动=…\"那行）："
+                  "屏幕上不会有窗口，直接退出");
       /* ZM_LOG=off 会把 error 也一并吞掉（run.sh play 用的就是 off），
        * 所以这条致命信息必须再直接写一次 stderr，否则会"静默退出"。 */
       fprintf(stderr,
-              "zm_emu: 显示初始化失败，直接退出（原因见上面的 error 日志；"
-              "无头运行请设 SDL_VIDEODRIVER=dummy 或 ZM_HEADLESS=1）\n");
+              "zm_emu: 拿不到窗口（显示初始化失败或驱动降级为无头），直接退出。"
+              "如确实要无头运行，请设 SDL_VIDEODRIVER=dummy 或 ZM_HEADLESS=1\n");
       zm_display_shutdown();
       cs_close(&g_cs_handle);
       fclose(fp);
       return 1;
     }
-    log_warn("无头模式：显示初始化失败但继续运行（不会有窗口，日志/截图可用）");
+    if (no_window)
+      log_warn("无头模式：%s，继续运行（不会有窗口，日志/截图可用）",
+               disp_rc != 0 ? "显示初始化失败" : "视频驱动是 dummy/offscreen");
   }
   if (zm_audio_init() != 0) {
     log_warn("zm_audio_init 失败，音频将不可用（继续运行）");

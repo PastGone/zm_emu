@@ -33,6 +33,12 @@ int zm_display_init(void);
  * 非无头场景下没有画面就没有意义，继续跑只会变成"日志正常但什么都不显示"。 */
 bool zm_display_headless(void);
 
+/* 初始化**之后**调用：SDL 实际选中的驱动是不是无头（dummy/offscreen/null）。
+ * 关键区别：SDL 在没有显示时会自己回退到 offscreen，此时 init **成功**，
+ * 但屏幕上不会有任何窗口 —— 所以"有没有窗口"不能只看 init 的返回值。
+ * main.c 用它做第二次判据：没要求无头却拿到无头驱动 → 同样直接退出。 */
+bool zm_display_driver_is_headless(void);
+
 /* 取当前画布尺寸（供其它模块初始化客户机可见的上下文结构用）。
  * 未初始化时返回 0 并把 *w/*h 置 0。 */
 void zm_display_size(int *w, int *h);
