@@ -31,6 +31,21 @@
 /* 文件查找根目录 */
 static char s_data_dir[1024] = {0};
 
+/* ---- 全路径拼接缓冲的容量（一个常量管到底，别再各写各的）----
+ *
+ * 拼接式样与最大长度：
+ *   "%s%s"            → s_data_dir(≤1023) + rel(≤511) + NUL = 1535
+ *   "%s/app_list%s"   → 1023 + 9("/app_list") + 511 + NUL  = 1544
+ *   "%s/%s%s"         → 1023 + 1 + stem(≤63) + name + NUL  ≈ 1600
+ * 以前这里写 1280（也有人写 1536）—— **小于最大可能长度**，于是 GCC 在
+ * -Wformat-truncation 下直接告警；Windows 工具链（MinGW/MSVC 的等价检查）
+ * 会把它升级成 error，编译直接失败：
+ *   warning: '%s' directive output may be truncated writing up to 511 bytes
+ *            into a region of size between 257 and 1280 [-Wformat-truncation=]
+ * 取 2048：覆盖上面全部式样并留足余量。改这里一处即可，下面所有
+ * full / full_path / alt / found 都用它。 */
+#define ZM_FULL_PATH_MAX 2048
+
 /* ========== 内部工具 ========== */
 static void read_filename(uc_engine *uc, uint32_t ptr, char *buf, size_t cap) {
   zm_read_str_obj(uc, ptr, buf, cap);
@@ -256,7 +271,7 @@ uint32_t zm_fileMgr_TestFile(uc_engine *uc, uint32_t r0, uint32_t name_ptr) {
     return (uint32_t)-1;
   }
   int ok = 0;
-  char full[1280];
+  char full[ZM_FULL_PATH_MAX];
   if (s_data_dir[0]) {
     snprintf(full, sizeof(full), "%s%s", s_data_dir, rel);
     if (access(full, F_OK) == 0)
@@ -461,7 +476,7 @@ uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr) {
     return 0;
   }
 
-  char full_path[1280];
+  char full_path[ZM_FULL_PATH_MAX];
   snprintf(full_path, sizeof(full_path), "%s%s", s_data_dir, rel);
   /* ★ 退化名回退：当 applet 请求的文件名只剩后缀（如 ".dat"，主文件名为空）时，
    * 回退到**该 applet 目录下 *.app 的主文件名 + 该后缀**（00000502/ →
@@ -501,7 +516,7 @@ uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr) {
   /* 回退：00000405 的 \config.b 实际在 app_list/ 子目录下
    * （applet 运行工作目录是 app_list）。 */
   if (!fp) {
-    char alt[1536];
+    char alt[ZM_FULL_PATH_MAX];
     snprintf(alt, sizeof(alt), "%s/app_list%s", s_data_dir, rel);
     fp = fopen(alt, "rb");
     if (fp)
@@ -523,7 +538,7 @@ uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr) {
       tail = name + n;
     }
     if (tail != name && *tail) {
-      char found[1280];
+      char found[ZM_FULL_PATH_MAX];
       if (find_file_rec(s_data_dir, tail, 3, found, sizeof(found))) {
         snprintf(full_path, sizeof(full_path), "%s", found);
         fp = fopen(full_path, "rb");
@@ -606,7 +621,7 @@ int zm_fs_read_file(const char *name, uint8_t **out_buf, size_t *out_len) {
     return -1;
 
   FILE *fp = NULL;
-  char full[1280];
+  char full[ZM_FULL_PATH_MAX];
   if (s_data_dir[0]) {
     snprintf(full, sizeof(full), "%s%s", s_data_dir, rel);
     fp = fopen(full, "rb");
