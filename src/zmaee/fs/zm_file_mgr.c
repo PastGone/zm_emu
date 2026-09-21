@@ -6,6 +6,9 @@
 #include <dirent.h> /* opendir/readdir：找 *.app 主文件名 */
 #include <unistd.h> /* access/F_OK（TestFile 存在性检查） */
 #include <iconv.h>  /* GBK→UTF-8（applet 文件名为固件 GBK 编码） */
+#if defined(__unix__) || defined(__APPLE__)
+#include <sys/statvfs.h> /* statvfs：IFileMgr+0x34 查宿主可用空间 */
+#endif
 
 #include "../../emu.h"
 #include "../../log/log.h"
@@ -346,6 +349,56 @@ uint32_t zm_fileMgr_StorageSupport(uc_engine *uc, uint32_t r0, uint32_t type) {
   if (type == 1)
     return 69; /* 'E' */
   return 84;   /* 'T' SD 卡（恒挂载） */
+}
+
+/* +0x34 = IFileMgr::GetFreeSize（RE sub_29E08，libaee.so.c.txt:46929）：
+ *   uint32_t GetFreeSize(this, char drive_letter) → **剩余空间字节数**
+ *
+ * 固件原文：
+ *     if (盘符 != 'E' && 盘符 != 'C' && 盘符 != 'c' && 盘符 != 'e') {
+ *       kb = ZMAEE_Android_GetSDCardFreeSize(...);      // SD 卡
+ *       ZMAEE_DebugPrint("GetSDCardFreeSize=%dKB\n", kb);
+ *       return kb << 10;                                // ← KB → 字节
+ *     }
+ *     return ZMAEE_Android_GetSystemMemSize(...) << 10; // 内置盘
+ *
+ * 为什么必须实现：00000442《驱蚊大师》**启动时查一次**（实测该槽命中 1 次，
+ * 紧跟在 4 次 +0x30 StorageSupport 之后），拿返回值与 100K 比较，不足就弹
+ *   "磁盘空间检查 / 你的磁盘空间不足 100K，请整理后再启动此应用程序。"
+ * 我们以前是空桩（a_off_fm_34 恒返 0）→ 每次都被判成空间不足 → 必然弹框，
+ * 得等它自己超时消失才能进菜单。
+ *
+ * 宿主替身策略（与 +0x30 StorageSupport 同一个决策）：报宿主**真实可用空间**
+ * —— applet 的"卡"就是宿主数据目录，用 statvfs 查该分区。
+ * 取不到时退回 128MB，保证任何 applet 的空间门槛都能过。
+ *
+ * 单位提醒：返回值就是字节数（固件那边的 `<<10` 是它自己 KB→字节的换算，
+ * 我们直接给最终值；applet 只拿去比较，不会再移位）。 */
+uint32_t zm_fileMgr_GetFreeSize(uc_engine *uc, uint32_t r0, uint32_t drive) {
+  (void)uc;
+  if (r0 == 0)
+    return 0;
+
+  uint32_t freeb = 0;
+#if defined(__unix__) || defined(__APPLE__)
+  {
+    struct statvfs vfs;
+    const char *dir = s_data_dir[0] ? s_data_dir : ".";
+    if (statvfs(dir, &vfs) == 0 && vfs.f_frsize) {
+      uint64_t b = (uint64_t)vfs.f_bavail * (uint64_t)vfs.f_frsize;
+      if (b > 0x7FFFFFF0ull)
+        b = 0x7FFFFFF0ull; /* 夹到 2GB 内：调用方按 int 解读时不会变负数 */
+      freeb = (uint32_t)b;
+    }
+  }
+#endif
+  if (freeb == 0)
+    freeb = 128u * 1024u * 1024u; /* 兜底：128MB */
+
+  log_info("fileMgr.GetFreeSize(盘符 '%c'=0x%X) -> %u 字节（%.1f MB）",
+           (drive >= 0x20 && drive < 0x7F) ? (char)drive : '?', drive, freeb,
+           (double)freeb / 1048576.0);
+  return freeb;
 }
 
 uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr) {

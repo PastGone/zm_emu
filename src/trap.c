@@ -340,6 +340,7 @@ AD_0(zm_shell_GetTickCount)
 AD_R1(zm_shell_UnloadDLL)
 AD_R0123(zm_shell_LoadLibraryExt)
 AD_R0(zm_file_close)
+AD_R01(zm_fileMgr_GetFreeSize)
 AD_R012(zm_file_read)
 AD_R012(zm_file_write)
 AD_R012(zm_file_seek)
@@ -988,7 +989,9 @@ static const struct { uint32_t lo, hi; trap_fn fn; } k_trap_table[] = {
   { TR_fileMgr_x28, TR_fileMgr_x28, a_off_fm_28 },
   { TR_fileMgr_x2C, TR_fileMgr_x2C, a_off_fm_2C },
   { TR_fileMgr_x30, TR_fileMgr_x30, a_zm_fileMgr_StorageSupport },
-  { TR_fileMgr_x34, TR_fileMgr_x34, a_off_fm_34 },
+  /* +0x34 GetFreeSize（RE sub_29E08）：00000442 启动时靠它判断"空间够不够"；
+   * 之前是空桩恒返 0 → 永远判成"磁盘空间不足" */
+  { TR_fileMgr_x34, TR_fileMgr_x34, a_zm_fileMgr_GetFreeSize },
   { TR_fileMgr_x38, TR_fileMgr_x38, a_fileMgr_x3C },
   { TR_file_close, TR_file_close, a_zm_file_close },
   { TR_file_read, TR_file_read, a_zm_file_read },

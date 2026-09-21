@@ -34,6 +34,19 @@ uint32_t zm_fileMgr_GetInfo(uc_engine *uc, uint32_t r0, uint32_t name_ptr,
  * a2>=2 → SD 卡挂载则 84('T') 否则 0（模拟器恒视为已挂载）。 */
 uint32_t zm_fileMgr_StorageSupport(uc_engine *uc, uint32_t r0, uint32_t type);
 
+/**
+ * @brief IFileMgr+0x34 = GetFreeSize(this, drive_letter) → 剩余空间**字节数**
+ *        （RE sub_29E08，libaee.so.c.txt:46929）
+ *
+ * 固件：非内置盘走 GetSDCardFreeSize、内置盘走 GetSystemMemSize，都是
+ * "查到的 KB << 10" 再返回。宿主替身：statvfs 查数据目录所在分区真实可用量
+ * （取不到退 128MB）。
+ *
+ * 00000442《驱蚊大师》启动时靠它判断"空间是否够 100K"，以前空桩返 0
+ * → 必然弹"你的磁盘空间不足 100K"告警框。详见 zm_file_mgr.c 的注释。
+ */
+uint32_t zm_fileMgr_GetFreeSize(uc_engine *uc, uint32_t r0, uint32_t drive);
+
 /* 释放 FS 资源（空实现，保留接口兼容） */
 uint32_t zm_fs_release(uc_engine *uc);
 
