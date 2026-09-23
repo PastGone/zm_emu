@@ -332,7 +332,11 @@ int main(int argc, char **argv) {
     static char applet_path[4096];
     const char *sel = getenv("ZM_APPLET");
     if (sel && *sel) {
-      if (strchr(sel, '/'))
+      /* 含路径分隔符就当完整路径。Windows 上必须**同时认 '\' 和 '/'**：
+       * 只判 '/' 的话，E:\...\00000102.app 这类反斜杠绝对路径会被误当成短名，
+       * 拼出 "applet/E:\...\00000102.app/E:\...\00000102.app.app"，
+       * fopen 必然失败（批量测试脚本传的就是全路径）。 */
+      if (strchr(sel, '/') || strchr(sel, '\\'))
         snprintf(applet_path, sizeof(applet_path), "%s", sel);
       else
         snprintf(applet_path, sizeof(applet_path),
