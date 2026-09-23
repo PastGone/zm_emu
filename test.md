@@ -23,6 +23,16 @@ go run . /home/apollo/文档/古时游戏/zm_emu/applet -o ../../applet_headers.
 
 
 ```pwsh
+
+.\pack_win.ps1                      # 构建 + 打包
+.\pack_win.ps1 -NoBuild             # 跳过构建，复用已有 exe
+.\pack_win.ps1 -NoZip               # 只生成目录，不压缩（自己先试跑）
+.\pack_win.ps1 -Name my_pack -OutDir out   # 自定义包名/输出目录
+
+
+
+
+
 # 测试单个关键实现
 $env:ZM_TEST_DISPLAY=1; $env:ZM_TEST_SEC=0; .\test_all.ps1 00000102
 $env:ZM_TEST_DISPLAY=1; $env:ZM_TEST_SEC=0; .\test_all.ps1 00000506

@@ -8,3 +8,5 @@ build/
 compile_commands.json
 batch_reports/*
 log.txt
+dist/
+.ziptest/
