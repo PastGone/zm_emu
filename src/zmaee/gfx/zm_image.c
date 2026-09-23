@@ -58,7 +58,7 @@ static zm_img_rec *rec_of(uint32_t obj) {
   if (obj >= BITMAP_POOL &&
       obj < BITMAP_POOL + BITMAP_SLOT_COUNT * BITMAP_SLOT_SIZE)
     return &g_bmp[(obj - BITMAP_POOL) / BITMAP_SLOT_SIZE];
-  if (obj == BITMAP)
+  if (obj == G_BITMAP_ADDR)
     return &g_bmp_single;
   return NULL;
 }

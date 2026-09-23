@@ -2636,7 +2636,7 @@ static int bitmap_obj_to_rgba(uc_engine *uc, uint32_t obj, int *w, int *h,
    * 实测 00000506 因此有 13k+ 像素被涂成纯黑（A/B 逐像素对比得出）。 */
   if (!((obj >= BITMAP_POOL &&
          obj < BITMAP_POOL + BITMAP_SLOT_COUNT * BITMAP_SLOT_SIZE) ||
-        obj == BITMAP))
+        obj == G_BITMAP_ADDR))
     return 0;
   return bitmap_info_to_rgba(uc, obj + 8, 0, 0, 0, 0, 1, w, h, out);
 }

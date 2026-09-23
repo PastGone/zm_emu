@@ -178,7 +178,11 @@ enum obj_bitmap_inner_off : uint32_t {
   OBJ_BITMAP_OFF_FIELD_28 = 0x28,  // +0x28
   OBJ_BITMAP_HEADER_SIZE = 0x2C    // 固定头部 44 字节
 };
-static constexpr uint32_t BITMAP = SHIM_OBJ_BASE + 0x1100U;
+/* 原名 BITMAP，与 Windows <wingdi.h> 的 `typedef struct tagBITMAP BITMAP;`
+ * 撞名（SDL 会间接包含 windows.h），MSVC/clang-cl 下直接报
+ * "redefinition of 'BITMAP' as different kind of symbol"。按本文件
+ * G_SHELL_ADDR / G_FileMgr_ADDR 的惯例改名为 G_BITMAP_ADDR。 */
+static constexpr uint32_t G_BITMAP_ADDR = SHIM_OBJ_BASE + 0x1100U;
 
 /* ISetting / IMedia 服务对象 */
 typedef struct obj_setting_st {

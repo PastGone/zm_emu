@@ -3,8 +3,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <dirent.h> /* opendir/readdir：找 *.app 主文件名 */
+/* opendir/readdir：找 *.app 主文件名。
+ * Windows/MSVC 没有内建 dirent.h，由 xmake 的 `dirent` 包（tronkko/dirent，
+ * 纯头文件）提供；类 Unix 用系统自带。两个平台都是同一个 <dirent.h>。 */
+#include <dirent.h>
+#if defined(_WIN32)
+#include <io.h> /* _access：Windows 没有 unistd.h */
+#ifndef F_OK
+#define F_OK 0
+#endif
+#define access(p, m) _access((p), (m)) /* access/F_OK（TestFile 存在性检查） */
+#else
 #include <unistd.h> /* access/F_OK（TestFile 存在性检查） */
+#endif
 /* GBK→UTF-8 的编解码不属于标准 C：POSIX 侧用 libiconv，Windows 侧改用系统
  * 自带的 CP936 编解码（见下面 gbk_to_utf8 的两套实现）。
  * ★ MinGW **不自带 iconv.h**（要单独装 libiconv），所以这里必须分平台，

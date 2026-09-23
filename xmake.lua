@@ -12,10 +12,34 @@ add_requires("libsdl2_mixer", {system = false,configs = {static = true,flac = fa
 add_requires("libsdl2_image", {system = false,configs = {static = true}})
 add_requires("unicorn", {system = false,configs = {static = true,archs = {"arm"}}})-- 声明依赖 unicorn 库
 add_requires("capstone", {system = false,configs = {static = true}}) -- 声明依赖 capstone 库
+-- Windows/MSVC 没有 <dirent.h>（opendir/readdir），用 xmake 仓库里的
+-- tronkko/dirent 纯头文件包补上。该包只声明 windows/mingw/msys/cygwin，
+-- 所以在类 Unix 上不能声明，否则 xmake 会报 "unsupported platform"。
+if is_plat("windows", "mingw", "msys", "cygwin") then
+    add_requires("dirent", {system = false})
+end
 
-
+set_languages("c23") -- 指定使用 C23 标准
+-- ============================================================
+-- 工具链选择（仅影响 zm_emu 这个 target，不影响依赖包）
+--
+-- 本项目源码用了 C23 特性：constexpr 对象、带底层类型的 enum
+-- (enum X : uint32_t)。MSVC 的 cl.exe 最高只支持到 C17，编译必然报
+-- "error C2054: 在 constexpr 之后应输入 ("。
+--
+-- 这里只在 Windows 上把 **target** 切到 clang-cl：
+--   * clang-cl 目标三元组是 x86_64-pc-windows-msvc，ABI/CRT 与 MSVC
+--     完全一致，可以直接链接 MSVC 编出来的 SDL2 / unicorn / capstone
+--     静态库；
+--   * 依赖包仍然用 MSVC(cl.exe) 编译。不能整体切 clang-cl，否则
+--     xmake 会用 clang-cl 重编 SDL2(SDL_endian.h 的 _m_prefetch 与
+--     clang 内建函数冲突)、glib、unicorn，全部失败。
+-- ============================================================
 target("zm_emu")
     set_kind("binary")
+    if is_plat("windows") then
+        set_toolchains("clang-cl")
+    end
 --    
     -- xmake run 默认在二进制所在目录启动，而 applet 资源相对项目根存放；
     -- 这里把运行目录设回项目根，使相对路径 applet/... 始终可解析。
@@ -24,7 +48,7 @@ target("zm_emu")
     add_files("src/*.c")        
     add_files("src/**/*.c")
     -- 
-    set_languages("c23") -- 指定使用 C23 标准
+    
 
 
 --    
@@ -43,6 +67,17 @@ target("zm_emu")
         add_ldflags("-Wl,--allow-multiple-definition")
     end
 
+    -- MSVC / clang-cl 专用选项（/utf-8 是 MSVC 系编译器独有，
+    -- 不能无条件加到 gcc/clang 上）
+    if is_plat("windows") then
+        -- 关掉 MSVC CRT 的 "getenv/strerror 不安全" 告警潮
+        add_defines("_CRT_SECURE_NO_WARNINGS", "_CRT_NONSTDC_NO_DEPRECATE")
+        add_cxflags("/utf-8", {force = true})
+        -- clang-cl 忽略 /std:c23（会报 "argument unused"），
+        -- 用 /std:clatest 才能真正打开 C23（constexpr / typed enum）。
+        add_cxflags("/std:clatest", {force = true})
+    end
+
     -- PNG/JPEG 编解码已由 libsdl2_image 提供（自带 libpng/libjpeg/zlib），
     -- 这里不再 add_syslinks("png16","jpeg","z")。
     -- libm 只有类 Unix 需要单独链（MSVC/MINGW 的数学函数在 CRT 里）。
@@ -57,6 +92,9 @@ target("zm_emu")
     add_packages("libsdl2_image") -- 链接 SDL2_image 库（PNG/JPEG 解码）
     add_packages("unicorn") -- 链接 unicorn 库
     add_packages("capstone") -- 链接 capstone 库
+    if is_plat("windows", "mingw", "msys", "cygwin") then
+        add_packages("dirent") -- Windows 下补 <dirent.h>
+    end
 
     -- ============================================================
     -- 4. 编译优化选项

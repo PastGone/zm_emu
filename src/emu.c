@@ -239,7 +239,7 @@ int zm_emu_build_vtables() {
 
   /* ---- ZMAEE IDisplay / IBitmap 原生虚表（全局单例 + bitmap 模板）---- */
   W(DISPLAY, DISPLAY_VT_ADDR);
-  W(BITMAP, BITMAP_VT_ADDR);
+  W(G_BITMAP_ADDR, BITMAP_VT_ADDR);
 
   /* IDisplay 对象清零：层项 +0x24 必须为 0，applet 的 CreateLayer 才会认为
    * "该层尚不存在"并建层（见 zm_layer.c）。 */
@@ -272,16 +272,16 @@ int zm_emu_build_vtables() {
     if (bm) {
       uint32_t one = 1, fmt = 1, neg = 0xFFFFFFFFu, zero = 0;
       uint32_t pix = PIX_POOL;
-      W(BITMAP + 4, one);   /* 引用计数 */
-      W(BITMAP + 8, 0);     /* 宽：0 → blit 不产生内容 */
-      W(BITMAP + 12, 0);    /* 高 */
-      W(BITMAP + 16, fmt);  /* 颜色格式 = RGB565 */
-      W(BITMAP + 20, neg);  /* 透明色 = -1（_Create 初值） */
-      W(BITMAP + 24, (bm >= 2) ? one : zero); /* 调色板标志 */
-      W(BITMAP + 28, zero); /* 调色板指针 */
-      W(BITMAP + 32, zero);
-      W(BITMAP + 36, pix);  /* 像素指针 */
-      W(BITMAP + 40, zero);
+      W(G_BITMAP_ADDR + 4, one);   /* 引用计数 */
+      W(G_BITMAP_ADDR + 8, 0);     /* 宽：0 → blit 不产生内容 */
+      W(G_BITMAP_ADDR + 12, 0);    /* 高 */
+      W(G_BITMAP_ADDR + 16, fmt);  /* 颜色格式 = RGB565 */
+      W(G_BITMAP_ADDR + 20, neg);  /* 透明色 = -1（_Create 初值） */
+      W(G_BITMAP_ADDR + 24, (bm >= 2) ? one : zero); /* 调色板标志 */
+      W(G_BITMAP_ADDR + 28, zero); /* 调色板指针 */
+      W(G_BITMAP_ADDR + 32, zero);
+      W(G_BITMAP_ADDR + 36, pix);  /* 像素指针 */
+      W(G_BITMAP_ADDR + 40, zero);
     }
     log_info("IBitmap 单例字段：ZM_BITMAP=%u（0=不初始化）", bm);
   }

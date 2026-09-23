@@ -18,11 +18,19 @@
 #include "./zmaee/fs/zm_file.h"
 #include "./zmaee/gfx/zm_display.h"
 //
+/* Windows 上 SDL_main.h 会把 main 宏替换成 SDL_main，要求额外链 SDL2main.lib
+ * 提供真实入口（main/WinMain/wmain 三个都定义，入口歧义会导致 link.exe 报
+ * LNK1561 "必须定义入口点"）。本项目是普通控制台程序，直接用自己的 main，
+ * 用 SDL_MAIN_HANDLED 关掉 SDL 的接管。必须在 include SDL.h 之前定义。 */
+#define SDL_MAIN_HANDLED
 #include <SDL2/SDL.h>
 #include <capstone/capstone.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unicorn/unicorn.h>
+#if defined(_WIN32)
+#include <windows.h> /* SetConsoleOutputCP：控制台代码页切 UTF-8，避免中文日志乱码 */
+#endif
 
 /* 当前 applet 短名称，供 trap.c 写入 instance+4 */
 char g_app_pathname[4096] = {0};
@@ -225,6 +233,14 @@ static void zm_parse_args(int argc, char **argv) {
 }
 
 int main(int argc, char **argv) {
+#if defined(_WIN32)
+  /* 日志内容全部是 UTF-8，而 Windows 控制台默认代码页是 GBK(936)，
+   * 直接写会把中文显示成乱码（"加载"→"杞藉叆"）。这里把控制台输入/输出
+   * 代码页切到 UTF-8(65001)，配合 conhost / Windows Terminal 正常显示中文。 */
+  SetConsoleOutputCP(CP_UTF8);
+  SetConsoleCP(CP_UTF8);
+#endif
+
   /* 先解析命令行：--help / --list-screens 在这里就退出了；其余选项 setenv 成
    * ZM_* 变量，下面的代码照旧用 getenv 读 —— 于是 "命令行 > 环境变量 > 默认"
    * 自然成立（--log 也能被紧接着的日志开关读到）。 */
