@@ -16,15 +16,30 @@
  */
 
 /**
- * @brief ROOT[0x78] str_assign(str_obj, cstr_ptr)
+ * @brief ROOT[0x78] = zmaee_strcat(dst, src) —— 字符串**追加**
  *
- * 把 C 字符串赋值给 zmaee 字符串对象：
- *   +0  : 数据指针（指向 +12 内联缓冲）
- *   +4  : 长度
- *   +8  : 容量
- *   +12 : 内联字符串数据（含 '\0'）
- * sub_841D4 中：ADR R1,"app_list"; BL sub_84868。
+ * 【语义定案：是 strcat，不是 strcpy/assign】以前按函数名猜成"赋值"，
+ * 用安卓版对照后纠正：
+ *   安卓 res/安卓落井下石/0000dc5e.aso.c：
+ *     int __fastcall zmold_strcat(int a1, int a2) { return zmaee_strcat(a1, a2); }
+ *     zm_qblox_game_data_get()：
+ *       memset(buf, 0, 32);
+ *       zmold_strcat((int)buf, (int)"e:\\zmol\\zmdata\\qblox.dat");   ← 追加进缓冲
+ *       buf[0] = drive;                                              ← 再把首字节换成盘符
+ *   手机版 applet 完全同款（就是本槽）：
+ *       0x926C  strcat(buf, "e:\\zmol\\zmdata\\qblox.dat")
+ *       0x112B0 strcat(out, "zmaee\\data\\")     ← 路径拼装函数里连续追加
+ *   两处都要求"追加"，否则路径拼接会互相覆盖。
+ *
+ * 目标有**两种形态**（实测都有）：
+ *   (a) zmaee 字符串对象：+0=data_ptr、+4=len、+8=cap、+12 起内联数据；
+ *   (b) **裸 C 串缓冲**：applet 先 memset(buf,0,0x20) 再当 strcat 用（0000042f 的路径缓冲）。
+ * 判据：缓冲里已有"像 data_ptr/len 的对象头"才走 (a)。
+ *
+ * 【为什么必须封顶】目标缓冲大小我们无从得知（裸缓冲是 applet 的栈变量）。
+ * 追加超过 250 字节就截断并告警 —— 宁可少拼几个字符，也不能把 applet 的栈写坏。
  */
+#define ZM_STRCAT_MAX 250
 uint32_t zm_root_str_assign(uc_engine *uc, uint32_t str_obj,
                             uint32_t cstr_ptr) {
   if (str_obj == 0)
@@ -59,19 +74,71 @@ uint32_t zm_root_str_assign(uc_engine *uc, uint32_t str_obj,
       if (w0 == inline_buf) {
         as_obj = true;
       } else if (w0 != 0 && w1 < 4096) {
-        uint8_t probe = 0;
-        if (uc_mem_read(uc, w0, &probe, 1) == UC_ERR_OK)
+        /* ★ 必须**严格**验证"这确实是个字符串对象"。
+         *
+         * 只判"w0 可读"是不够的：裸缓冲的首字经常**恰好像个合法地址**
+         * （payload/堆都在映射区内，低地址尤其容易撞），于是误走对象分支，
+         * 把内容写到 w0+len 这个**任意地址**去。
+         *
+         * 实测代价（0000042f）：路径缓冲首字撞成 0x3A40（payload 里的代码地址），
+         * 我们于是把 "zmaee\data\zmdata…" 写进了 applet 的**代码区** 0x3A48，
+         * 之后执行到那儿就是"非法指令"（崩溃转储实测：
+         *   PC=0x3A48 处字节=[61 65 65 5C 64 61 74 61 …] = "aee\data\zmdata"）。
+         * 而且是**间歇性**的 —— 要看首字撞不撞得上，所以格外难查。
+         *
+         * 现在的判据：data_ptr 可读 + w1<=4096 + (data_ptr+w1) 处是 '\0'
+         * + 前 min(w1,32) 字节全是普通可见字符。四者同时成立才当对象。 */
+        uint8_t tail = 0xFF;
+        if (uc_mem_read(uc, w0 + w1, &tail, 1) == UC_ERR_OK && tail == 0) {
+          uint32_t n = w1 > 32 ? 32 : w1;
+          char probe[33];
           as_obj = true;
+          if (n && uc_mem_read(uc, w0, probe, n) == UC_ERR_OK) {
+            for (uint32_t k = 0; k < n; k++) {
+              unsigned char ch = (unsigned char)probe[k];
+              if (ch < 0x20 || ch >= 0x80) {
+                as_obj = false;
+                break;
+              }
+            }
+          }
+        }
       }
     }
     if (!as_obj) {
-      /* 裸 C 串缓冲：直接写串（含收尾 '\0'），不做任何对象字段包装 */
-      if (uc_mem_write(uc, str_obj, cstr, clen + 1) != UC_ERR_OK)
-        log_warn("str_assign: 裸串写入 0x%X 失败（%u 字节）", str_obj, clen + 1);
+      /* 裸 C 串缓冲：**追加**到现有内容之后（= strcat） */
+      char cur[ZM_STRCAT_MAX + 1];
+      cur[0] = '\0';
+      read_cstr(uc, str_obj, cur, sizeof(cur));
+      uint32_t cur_len = (uint32_t)strlen(cur);
+      if (cur_len + clen > ZM_STRCAT_MAX) {
+        log_warn("strcat: 0x%X 追加后超 %d 字节，截断（现有 %u + 追加 %u）", str_obj,
+                 ZM_STRCAT_MAX, cur_len, clen);
+        clen = (cur_len < ZM_STRCAT_MAX) ? (ZM_STRCAT_MAX - cur_len) : 0;
+      }
+      if (clen && uc_mem_write(uc, str_obj + cur_len, cstr, clen) != UC_ERR_OK)
+        log_warn("strcat: 裸串追加写 0x%X 失败（%u 字节）", str_obj + cur_len, clen);
+      uint8_t zero = 0;
+      uc_mem_write(uc, str_obj + cur_len + clen, &zero, 1);
+      return str_obj;
+    }
+
+    /* 对象形态：也按追加处理（更新 +4/+8 的长度与容量），同样封顶 */
+    {
+      uint32_t old_len = (w1 <= ZM_STRCAT_MAX) ? w1 : 0;
+      if (old_len + clen > ZM_STRCAT_MAX)
+        clen = (old_len < ZM_STRCAT_MAX) ? (ZM_STRCAT_MAX - old_len) : 0;
+      if (clen)
+        uc_mem_write(uc, w0 + old_len, cstr, clen);
+      uint8_t zero = 0;
+      uc_mem_write(uc, w0 + old_len + clen, &zero, 1);
+      uc_write32(uc, str_obj + 4, old_len + clen); /* 长度 */
+      uc_write32(uc, str_obj + 8, old_len + clen); /* 容量 */
       return str_obj;
     }
   }
 
+  /* 兜底（理论上到不了）：按对象布局整体赋值 */
   uc_write32(uc, str_obj, inline_buf); /* 数据指针 */
   uc_write32(uc, str_obj + 4, clen);   /* 长度 */
   uc_write32(uc, str_obj + 8, clen);   /* 容量 */

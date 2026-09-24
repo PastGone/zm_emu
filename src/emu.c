@@ -562,6 +562,34 @@ int zm_emu_start_applet() {
     }
     log_error("unicorn engine 异常停止：err=%d (%s)", e, uc_strerror(e));
     log_error("寄存器：%s", buf);
+    /* 解释模式（ARM/Thumb）必须打出来：err=10"非法指令"经常是**模式错位**
+     * （同一串字节在另一种模式下解码是合法的）。实测 0000042f 崩在 PC=0x3A48，
+     * 那里 ARM 解码是合法的 `str fp,[sp]`。 */
+    {
+      uint32_t cpsr = 0;
+      if (uc_reg_read(g_uc, UC_ARM_REG_CPSR, &cpsr) == UC_ERR_OK)
+        log_error("CPSR=0x%X（解释模式：%s）", cpsr,
+                  (cpsr & 0x20) ? "Thumb" : "ARM");
+    }
+    /* PC 处的**实际字节**：err=10 时用来区分三种情况 ——
+     *   ① 跳进了数据区（字节与 .app 文件不一致）；
+     *   ② 代码被 self-modify / 被别的写入改坏了（同上）；
+     *   ③ 字节正常却仍报非法 → 那是状态（CPSR/端序）问题。
+     * 对照 .app 文件的原始字节即可判定。 */
+    {
+      uint32_t pc = 0;
+      uint8_t ib[16] = {0};
+      uc_reg_read(g_uc, UC_ARM_REG_PC, &pc);
+      if (uc_mem_read(g_uc, pc, ib, sizeof(ib)) == UC_ERR_OK) {
+        char hex[3 * 16 + 1];
+        int q = 0;
+        for (unsigned i = 0; i < sizeof(ib) && q + 4 < (int)sizeof(hex); i++)
+          q += snprintf(hex + q, sizeof(hex) - (size_t)q, "%02X ", ib[i]);
+        log_error("PC=0x%X 处字节=[%s]", pc, hex);
+      } else {
+        log_error("PC=0x%X 处内存读不出来（未映射？）", pc);
+      }
+    }
 
     uint32_t sp = 0;
     uc_reg_read(g_uc, UC_ARM_REG_SP, &sp);

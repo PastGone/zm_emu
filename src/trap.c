@@ -378,6 +378,7 @@ AD_0(zm_svc_release)
 AD_R012(zm_fileMgr_GetInfo)
 AD_R01(zm_fileMgr_TestFile)
 AD_R01(zm_fileMgr_StorageSupport)
+AD_R1(zm_fileMgr_make_dir) /* +0x14 mkdir（安卓 sub_19720 / 手机版 0x111AC 双向确认）*/
 AD_R0123(zm_root_x68C)
 AD_R0123(zm_ucs2_to_utf8)
 AD_R0123(zm_utf8_to_ucs2)
@@ -981,7 +982,10 @@ static const struct { uint32_t lo, hi; trap_fn fn; } k_trap_table[] = {
   { TR_fileMgr_open_file, TR_fileMgr_open_file, a_fileMgr_open_file },
   { TR_fileMgr_x0C, TR_fileMgr_x0C, a_zm_fileMgr_GetInfo },
   { TR_fileMgr_x10, TR_fileMgr_x10, a_off_fm_10 },
-  { TR_fileMgr_x14, TR_fileMgr_x14, a_off_fm_14 },
+  /* +0x14 = mkdir（原为空桩）。applet 读写数据文件前会逐级建目录
+   * （安卓 sub_19720 / 手机版 0x111AC 双向确认），配合 OpenFile 的"新建空文件"
+   * 才能让 0000042f 的存档（OpenFile→Write(8B)→Close）真正落盘。 */
+  { TR_fileMgr_x14, TR_fileMgr_x14, a_zm_fileMgr_make_dir },
   { TR_fileMgr_x18, TR_fileMgr_x18, a_off_fm_18 },
   { TR_fileMgr_x1C, TR_fileMgr_x1C, a_off_fm_1C },
   { TR_fileMgr_x20, TR_fileMgr_x20, a_zm_fileMgr_TestFile },

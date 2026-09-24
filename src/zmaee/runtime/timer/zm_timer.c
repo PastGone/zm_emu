@@ -293,8 +293,22 @@ bool zm_timer_interrupt(uc_engine *uc, uint32_t resume_pc) {
   uc_reg_write(uc, UC_ARM_REG_R1, &arg1);
   uc_reg_write(uc, UC_ARM_REG_PC, &cb);
   s_int_active = true;
-  log_info("%s 异步派发 -> cb=0x%08X(arg0=0x%X)（打断 PC=0x%X）", what, cb, arg0,
-           resume_pc);
+  /* 前几次把被打断时的**模式**也打出来：回调是 ARM 代码（地址偶数），
+   * 若被打断的 applet 当时在 Thumb，回调就会用错模式执行 → 非法指令。
+   * 排查 0000042f 在"返回主菜单"时崩（PC=0x3A48 实测是合法 ARM `str fp,[sp]`）时加的。 */
+  {
+    static uint32_t n = 0;
+    if (n < 3) {
+      n++;
+      log_info("%s 异步派发 -> cb=0x%08X(arg0=0x%X)（打断 PC=0x%X，LR=0x%X，"
+               "CPSR=0x%X %s）",
+               what, cb, arg0, resume_pc, s_int_lr, s_int_cpsr,
+               (s_int_cpsr & 0x20) ? "Thumb" : "ARM");
+    } else {
+      log_info("%s 异步派发 -> cb=0x%08X(arg0=0x%X)（打断 PC=0x%X）", what, cb,
+               arg0, resume_pc);
+    }
+  }
   return true;
 }
 
@@ -309,7 +323,19 @@ void zm_timer_interrupt_return(uc_engine *uc) {
   uc_reg_write(uc, UC_ARM_REG_CPSR, &s_int_cpsr);
   /* 最后写 PC：回到被打断的那条指令 */
   uc_reg_write(uc, UC_ARM_REG_PC, &s_int_pc);
-  log_debug("定时器回调返回：现场已恢复，继续执行 PC=0x%X", s_int_pc);
+  {
+    static uint32_t n = 0;
+    if (n < 3) {
+      n++;
+      uint32_t cpsr_now = 0;
+      uc_reg_read(uc, UC_ARM_REG_CPSR, &cpsr_now);
+      log_info("定时器回调返回：恢复 PC=0x%X（回调态 CPSR=0x%X %s；保存的 CPSR=0x%X）",
+               s_int_pc, cpsr_now, (cpsr_now & 0x20) ? "Thumb" : "ARM",
+               s_int_cpsr);
+    } else {
+      log_debug("定时器回调返回：现场已恢复，继续执行 PC=0x%X", s_int_pc);
+    }
+  }
 }
 
 /* 到期检查（RE：sub_34394 同款）。

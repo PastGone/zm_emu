@@ -23,8 +23,12 @@
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN /* 只要基础 API；避开 winsock1 与其它头的冲突 */
 #include <windows.h>        /* MultiByteToWideChar / WideCharToMultiByte（CP936） */
+#include <direct.h>         /* _mkdir：IFileMgr+0x14 建目录 */
+#define mkdir(p, m) _mkdir(p)
 #else
-#include <iconv.h>   /* GBK→UTF-8（applet 文件名为固件 GBK 编码） */
+#include <iconv.h>    /* GBK→UTF-8（applet 文件名为固件 GBK 编码） */
+#include <sys/stat.h> /* mkdir：IFileMgr+0x14 建目录 */
+#include <sys/types.h>
 #endif
 #if defined(__unix__) || defined(__APPLE__)
 #include <sys/statvfs.h> /* statvfs：IFileMgr+0x34 查宿主可用空间 */
@@ -560,6 +564,84 @@ uint32_t zm_fileMgr_GetFreeSize(uc_engine *uc, uint32_t r0, uint32_t drive) {
   return freeb;
 }
 
+/* ==========================================================================
+ * 目录创建（IFileMgr +0x14）与"新建文件"判定
+ *
+ * 【RE 定案】+0x14 = mkdir（确保目录存在）。两份反编译对照：
+ *   安卓 res/安卓落井下石/0000dc5e.aso.c  sub_19720(...)：
+ *     zmaee_strlen/strcpy → 逐级把路径里的 '/'、'\\' 换成 0 →
+ *     (*(vt + 20))(fm, 部分路径) → 还原分隔符
+ *     —— 就是"逐级建目录"；读/存档前都会先调它（见 zmold_fopen 的 'w' / '+' 分支）
+ *   手机版 applet/0000042f 0x111AC 同款：
+ *     0x11210  ldr r0,[r5]          ; r0 = FileMgr
+ *     0x11218  ldr r2,[r0,#0x14]    ; ★ vt[0x14]
+ *     0x11220  blx r2
+ *
+ * 【为什么要记一笔】真机上 mkdir 之后 OpenFile 会**新建**文件（存档 8 字节就是
+ * 这么落下去的）。宿主文件得由我们自己创建，于是：
+ *   - 本槽在宿主上真的把目录建出来（mkdir -p），并把宿主全路径记进 s_made_dirs；
+ *   - OpenFile 找不到文件、但它的**父目录刚被 applet 建过** → 按"新建空文件"处理，
+ *     给 0 字节缓冲 + 记住宿主路径，随后 Write 扩容、Close 写回（自动存档闭环）。
+ * ========================================================================== */
+#define ZM_MADE_DIR_MAX 16
+static char s_made_dirs[ZM_MADE_DIR_MAX][ZM_FULL_PATH_MAX];
+static int s_made_dir_n = 0;
+
+static int dir_was_made(const char *host_dir) {
+  for (int i = 0; i < s_made_dir_n; i++)
+    if (!strcmp(s_made_dirs[i], host_dir))
+      return 1;
+  return 0;
+}
+
+static void remember_made_dir(const char *host_dir) {
+  for (int i = 0; i < s_made_dir_n; i++)
+    if (!strcmp(s_made_dirs[i], host_dir))
+      return; /* 已记过 */
+  if (s_made_dir_n < ZM_MADE_DIR_MAX)
+    snprintf(s_made_dirs[s_made_dir_n++], ZM_FULL_PATH_MAX, "%s", host_dir);
+}
+
+/* mkdir -p 的等价物（宿主目录） */
+static void mkdir_p(const char *path) {
+  char tmp[ZM_FULL_PATH_MAX];
+  snprintf(tmp, sizeof(tmp), "%s", path);
+  for (char *p = tmp + 1; *p; p++) {
+    if (*p == '/') {
+      *p = '\0';
+      mkdir(tmp, 0755);
+      *p = '/';
+    }
+  }
+  mkdir(tmp, 0755);
+}
+
+/* IFileMgr +0x14：建目录。参数同 OpenFile：r0 = FileMgr 对象、r1 = guest 路径
+ * （applet 传的是**逐级拆分后的部分路径**，如 "E:"、"E:\zmol"、"E:\zmol\zmdata"）。 */
+uint32_t zm_fileMgr_make_dir(uc_engine *uc, uint32_t path_ptr) {
+  if (!path_ptr || !s_data_dir[0])
+    return 0;
+  char name[512];
+  name[0] = '\0';
+  read_filename(uc, path_ptr, name, sizeof(name));
+  if (!name[0])
+    return 0;
+  if (has_high_byte(name)) { /* 与 open 同款：GBK → UTF-8 */
+    char utf[512];
+    if (gbk_to_utf8(name, utf, sizeof(utf)) > 0)
+      snprintf(name, sizeof(name), "%s", utf);
+  }
+  char rel[512];
+  if (convert_file_name(name, rel, sizeof(rel)) < 0)
+    return 0; /* 例如纯盘符 "E:"：没有目录段，无事可做 */
+  char full[ZM_FULL_PATH_MAX];
+  snprintf(full, sizeof(full), "%s%s", s_data_dir, rel);
+  mkdir_p(full);
+  remember_made_dir(full);
+  log_info("[MKDIR] \"%s\" → %s", name, full);
+  return 0;
+}
+
 uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr) {
   if (getenv("ZM_LOG_OPEN")) {
     uint8_t raw[48] = {0};
@@ -700,6 +782,28 @@ uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr) {
     if (fp) {
       snprintf(full_path, sizeof(full_path), "%s", ci);
       log_info("[CI] 大小写回退命中: \"%s\" → %s", name, full_path);
+    }
+  }
+  /* 新建文件：applet 的存档流程是 mkdir(逐级目录) → OpenFile → Write → Close
+   * （安卓 zmold_fopen 的 'w' 分支会先调 sub_19720 建目录，手机版 0000042f 同款）。
+   * 宿主上没有这个文件、但它的**父目录刚被 applet 建过** → 按"新建空文件"处理：
+   * 给一个 0 字节缓冲并记住宿主路径，随后的 Write 会扩容、Close 会写回。 */
+  if (!fp) {
+    char parent[ZM_FULL_PATH_MAX];
+    snprintf(parent, sizeof(parent), "%s", full_path);
+    char *slash = strrchr(parent, '/');
+    if (slash) {
+      *slash = '\0';
+      if (dir_was_made(parent)) {
+        g_file_data = (uint8_t *)calloc(1, 1); /* 空文件，Write 时扩容 */
+        g_file_size = 0;
+        g_file_pos = 0;
+        g_file_dirty = 0;
+        snprintf(g_file_path, sizeof(g_file_path), "%s", full_path);
+        log_info("fs.open(\"%s\") -> FILE1（新建空文件：目录 %s 刚由 applet 建过）",
+                 name, parent);
+        return FILE1;
+      }
     }
   }
   if (!fp) {

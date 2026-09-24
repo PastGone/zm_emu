@@ -17,6 +17,10 @@ void zm_fs_set_data_dir(const char *dir);
  * 若已有文件打开，会自动先关闭前一个。 */
 uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr);
 
+/* IFileMgr +0x14 = mkdir：确保目录存在（applet 在读写数据文件前会逐级调用）。
+ * 参数同 OpenFile（r1 = guest 路径）。RE 依据见 zm_file_mgr.c 顶部注释。 */
+uint32_t zm_fileMgr_make_dir(uc_engine *uc, uint32_t path_ptr);
+
 /* IFileMgr 通用 stub（g_filemgr_vtbl 未实现槽）：记录 offset 与参数，返回 0 */
 uint32_t zm_fileMgr_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
                          uint32_t r2, uint32_t r3);
