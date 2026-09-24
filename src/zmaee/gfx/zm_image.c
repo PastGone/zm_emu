@@ -41,6 +41,10 @@ typedef struct {
 } zm_img_rec;
 
 static zm_img_rec g_img[IMAGE_SLOT_COUNT];   /* 对应 IMAGE_POOL  */
+/* Release 累计调用数：仅用于"池满"诊断（判断 applet 到底有没有释放）。
+ * 实测 0000042f 会反复 CreateImage 却把池子填满 → 靠它一眼区分
+ * "只建不释放" 和 "释放了但引用计数没归零"。 */
+static uint32_t g_image_release_n = 0;
 static zm_img_rec g_bmp[BITMAP_SLOT_COUNT];  /* 对应 BITMAP_POOL */
 static zm_img_rec g_bmp_single;              /* 旧 BITMAP 单例 */
 
@@ -521,7 +525,24 @@ uint32_t zm_image_CreateImage(uc_engine *uc, uint32_t r0, uint32_t r1,
     }
   }
   if (idx < 0) {
-    log_error("IDisplay::CreateImage 失败：图像对象池已满");
+    /* 池满诊断：区分"applet 只建不释放"与"释放了但引用计数没归零"。
+     * 释放计数 g_image_release_n 为 0 → applet 压根没调 Release。 */
+    int n_idle = 0, n_r1 = 0, n_rn = 0;
+    for (int i = 0; i < IMAGE_SLOT_COUNT; i++) {
+      if (!g_img[i].used || g_img[i].refcnt <= 0)
+        n_idle++;
+      else if (g_img[i].refcnt == 1)
+        n_r1++;
+      else
+        n_rn++;
+    }
+    static int reported = 0;
+    if (reported < 3) {
+      reported++;
+      log_error("图像对象池已满：可用 %d / refcnt=1 的 %d / refcnt>1 的 %d（总 %d）；"
+                "Release 累计调用 %u 次",
+                n_idle, n_r1, n_rn, IMAGE_SLOT_COUNT, g_image_release_n);
+    }
     if (out_ptr)
       uc_write32(uc, out_ptr, 0);
     return (uint32_t)-1;
@@ -573,10 +594,29 @@ uint32_t zm_image_Release(uc_engine *uc, uint32_t r0) {
   zm_img_rec *r = rec_of(r0);
   if (!r)
     return 0;
+  g_image_release_n++;
   r->refcnt--;
   if (r->refcnt <= 0) {
     rec_free_pixels(r);
     r->used = 0;
+    /* ★ entry 与它的 surface 是**成对**分配的（CreateImage 取 idx / idx+1）。
+     * applet 只拿得到 entry 的指针，Release 也只针对 entry —— 以前只清 entry，
+     * 与之配对的 surface 就永远停在 used=1、refcnt=1，整个槽位对再也不能复用。
+     *
+     * 实测（0000042f《落井下石》）：它每帧建一张图、用完 Release 一次，256 次后
+     * 池子就满了，此后所有 CreateImage 都失败、画面彻底不再更新。当时的池满诊断：
+     *   "可用 256 / refcnt=1 的 256 / refcnt>1 的 0（总 512）；Release 累计调用 256 次"
+     * —— 恰好是一半槽位（全是 surface）被永久占住。
+     * 这里连带释放成对的 surface（按索引奇偶判定，不依赖 applet 是否改过 entry+8）。 */
+    if (r->kind == REC_ENTRY) {
+      long idx = (long)(r - g_img);
+      if ((idx % 2) == 0 && idx + 1 < IMAGE_SLOT_COUNT) {
+        zm_img_rec *s = &g_img[idx + 1];
+        rec_free_pixels(s);
+        s->used = 0;
+        s->refcnt = 0;
+      }
+    }
   }
   return 0;
 }

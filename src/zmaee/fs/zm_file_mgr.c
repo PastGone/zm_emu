@@ -67,8 +67,46 @@ static char s_data_dir[1024] = {0};
 #define ZM_FULL_PATH_MAX 2048
 
 /* ========== 内部工具 ========== */
+static void read_filename_obj(uc_engine *uc, uint32_t ptr, char *buf,
+                             size_t cap); /* 定义在下面（TestFile 用的那个） */
+
+/* "这看起来像个文件名吗"：非空 + 每个字节都是可打印 ASCII。
+ *
+ * 为什么要这个判据：applet 传进来的名字既可能是裸 C 串、也可能是 zmaee 字符串
+ * 对象（+0=data_ptr、+4=len），两种形态靠启发式区分（见 zm_read_str_obj）。
+ * 一旦判定退化，就会**把对象的指针字段字节当成文件名**读出来 —— 指针字节里
+ * 必然出现 0x00（提前截断）或 >=0x80 的字节，所以这个判据能稳定识别"读到的是
+ * 指针而不是文本"。
+ *
+ * 实测（0000042f《落井下石》）：传的是字符串对象 {data_ptr=0x17FB45,…}，启发式
+ * 没认出 → 裸读对象首字节 → 名字成了 "E\xFB\x17"（正是 0x17FB45 的小端字节），
+ * 于是路径拼错、后续 applet 把字符串当对象用而崩在 0x66E8。 */
+static int name_plausible(const char *s) {
+  if (!s || !s[0])
+    return 0;
+  for (const unsigned char *p = (const unsigned char *)s; *p; p++)
+    if (*p < 0x20 || *p >= 0x80)
+      return 0;
+  return 1;
+}
+
+/* 读文件名：**多策略 + 挑第一个"像文件名"的结果**。
+ *   ① 原有启发式（对象/裸串二选一，见 zm_read_str_obj）
+ *   ② 对象形态：解引用 +0 的 data_ptr（read_filename_obj，TestFile 也用它）
+ * ①的结果不可信时才用②，行为对既有 applet 完全不变。 */
 static void read_filename(uc_engine *uc, uint32_t ptr, char *buf, size_t cap) {
+  buf[0] = '\0';
   zm_read_str_obj(uc, ptr, buf, cap);
+  if (name_plausible(buf))
+    return;
+  char alt[512];
+  alt[0] = '\0';
+  read_filename_obj(uc, ptr, alt, sizeof(alt));
+  if (name_plausible(alt)) {
+    snprintf(buf, cap, "%s", alt);
+    log_info("fs.open 名字回退：启发式读到非文本字节 → 按字符串对象解引用得 \"%s\"",
+             buf);
+  }
 }
 
 /* 在目录树里递归找一个**文件名完全匹配 tail** 的文件（深度受限）。
@@ -116,6 +154,60 @@ static int find_file_rec(const char *dir, const char *tail, int depth, char *out
   }
   closedir(d);
   return ok;
+}
+
+/* ASCII 大小写不敏感比较（自己实现，避免 strcasecmp / _stricmp 的平台差异）。 */
+static int name_ieq(const char *a, const char *b) {
+  for (; *a && *b; a++, b++) {
+    unsigned char ca = (unsigned char)*a, cb = (unsigned char)*b;
+    if (ca >= 'A' && ca <= 'Z')
+      ca = (unsigned char)(ca + 32);
+    if (cb >= 'A' && cb <= 'Z')
+      cb = (unsigned char)(cb + 32);
+    if (ca != cb)
+      return 0;
+  }
+  return *a == '\0' && *b == '\0';
+}
+
+/* 大小写不敏感回退：在**同一个目录**里找只差大小写的同名文件。
+ *
+ * 为什么需要：applet 的资源包是从 Windows 世界来的（Windows 文件系统不区分
+ * 大小写），而仓库里的文件名沿用了原始大小写 → 在 Linux/macOS 这类**区分大小写**
+ * 的系统上，applet 报的 "c:\\0000042f.zmr" 与磁盘上的 "0000042F.zmr" 对不上，
+ * 直接"找不到文件"。实测（0000042f《落井下石》）：资源包打不开 → 只跑了 60 次槽
+ * 调用就崩在自己的错误表里；把文件按小写补一份后立刻变成 **998 次调用、资源全部
+ * 加载成功**（然后又暴露了下一个问题）。
+ *
+ * 只在同一目录内按名字扫描（不递归），命中后把真实路径写回 out（写文件时要用
+ * 它，否则自动存档会写到一个新的大写/小写文件上）。 */
+static FILE *fopen_ci(const char *path, char *out, size_t out_cap) {
+  const char *slash = strrchr(path, '/');
+  const char *base = slash ? slash + 1 : path;
+  char dir[ZM_FULL_PATH_MAX];
+  if (slash) {
+    size_t n = (size_t)(slash - path);
+    if (n >= sizeof(dir))
+      return NULL;
+    memcpy(dir, path, n);
+    dir[n] = '\0';
+  } else {
+    snprintf(dir, sizeof(dir), ".");
+  }
+  DIR *d = opendir(dir);
+  if (!d)
+    return NULL;
+  struct dirent *e;
+  FILE *fp = NULL;
+  while ((e = readdir(d))) {
+    if (!name_ieq(e->d_name, base))
+      continue;
+    snprintf(out, out_cap, "%s/%s", dir, e->d_name);
+    fp = fopen(out, "rb");
+    break;
+  }
+  closedir(d);
+  return fp;
 }
 
 /* GBK→UTF-8（applet 的中文文件名为固件 GBK 编码，宿主文件系统是
@@ -599,8 +691,34 @@ uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr) {
       }
     }
   }
+  /* 大小写回退：applet 报的名字与磁盘上只差大小写（Windows 资产在 Linux 上必踩，
+   * 实测 0000042f 的 "0000042f.zmr" vs 磁盘 "0000042F.zmr"）。命中后 full_path
+   * 换成真实路径，后续自动存档才会写回同一个文件。 */
   if (!fp) {
-    log_warn("zm_fs_open: 找不到文件 \"%s\" (全路径: %s)", name, full_path);
+    char ci[ZM_FULL_PATH_MAX];
+    fp = fopen_ci(full_path, ci, sizeof(ci));
+    if (fp) {
+      snprintf(full_path, sizeof(full_path), "%s", ci);
+      log_info("[CI] 大小写回退命中: \"%s\" → %s", name, full_path);
+    }
+  }
+  if (!fp) {
+    /* 名字脏/短是这类 applet 的常见病（路径前缀本该由引擎提供，我们这边可能是空
+     * 的或脏的）。这里额外打印**原始字节**和**调用者 LR**：一眼区分"GBK/UTF-16
+     * 残留""名字根本没写""被写短了"，LR 还能直接对上反汇编里的调用点。 */
+    char hex[3 * 25];
+    int hp = 0;
+    hex[0] = '\0';
+    for (int i = 0; i < 24 && name[i] && hp + 4 < (int)sizeof(hex); i++)
+      hp += snprintf(hex + hp, sizeof(hex) - (size_t)hp, "%02X ",
+                     (unsigned char)name[i]);
+    if (hp > 0)
+      hex[hp - 1] = '\0';
+    uint32_t lr = 0;
+    if (g_uc)
+      uc_reg_read(g_uc, UC_ARM_REG_LR, &lr);
+    log_warn("zm_fs_open: 找不到文件 \"%s\" (全路径: %s) 原始字节=[%s] 调用者LR=0x%X",
+             name, full_path, hex, lr);
     /* 实验开关：文件不存在时也返回一个"空文件句柄"，用来判定上游那条链
      * （00000502：FileMgr[8] 的返回值 → 对象 +0x10 → 类表条目就绪标志）
      * 是不是只差"非 0 返回值"。默认关闭。 */

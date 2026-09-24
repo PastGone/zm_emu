@@ -3163,7 +3163,44 @@ uint32_t zm_display_Refresh(uc_engine *uc) {
 }
 uint32_t zm_display_DrawImageExt(uc_engine *uc, uint32_t off, uint32_t r0,
                                  uint32_t r1, uint32_t r2, uint32_t r3) {
-  return zm_display_stub(uc, off, r0, r1, r2, r3);
+  zm_display_slot_tick(off);
+  /* +0xCC ZMAEE_IDisplay_DrawImageExt
+   *
+   * 签名（RE 自 0000042f 调用点 0x11AE0~0x11B04，这是这个 applet **唯一**的
+   * 绘制调用）：
+   *   r1 = x   r2 = y   r3 = w          ← 目标矩形（来自结构体里的有符号半字
+   *                                        [r5]、[r5+2]、[r5+4]）
+   *   栈: [+0] = h   [+4] = IImage 对象   [+8] = flags(实测 0)
+   * 紧接着的指令就调 `image->Release`（0x11B0C-0x11B14）——**绘制必须当场完成**：
+   * 等上屏时再去取像素，对象已经被释放了。
+   *
+   * 以前这里是空桩（只记日志、返回 0）：0000042f 每帧 3 次 DrawImageExt 全部落空，
+   * 屏幕上只剩启动时画过的一次背景渐变 —— 表现就是"槽位统计里画了 584 次，
+   * 画面却一动不动"。实现走与 StretchBlt 同一条缩放 blit 通路（含 alpha 混合、
+   * 洋红跳过、按当前层裁剪）。 */
+  fb_refresh_draw_target();
+  int dx = (int)r1, dy = (int)r2, dw = (int)r3;
+  int dh = (int)getArg(uc, 4);      /* 栈参 1：h */
+  uint32_t img = getArg(uc, 5);     /* 栈参 2：IImage（CreateImage 的产物） */
+  int flags = (int)getArg(uc, 6);   /* 栈参 3：实测恒 0 */
+  if (dw <= 0 || dh <= 0 || !img)
+    return 0;
+  int sw = 0, sh = 0;
+  const uint8_t *rgba = NULL;
+  if (!zm_image_get_pixels(img, &sw, &sh, &rgba)) {
+    log_debug("DrawImageExt: 0x%X 没有解码后的像素，跳过", img);
+    return 0;
+  }
+  uint32_t P = r0 + 52u * (uint32_t)uc_read32(uc, r0 + 8) + 36u;
+  int cx = (int)uc_read32(uc, P + 0x14), cy = (int)uc_read32(uc, P + 0x18);
+  int cw = (int)uc_read32(uc, P + 0x1C), ch = (int)uc_read32(uc, P + 0x20);
+  fb_blit_rgba_scaled_mode(dx, dy, dw, dh, rgba, sw, sh, flags & 7, cx, cy, cw,
+                           ch);
+  static uint32_t n = 0;
+  if (++n <= 6)
+    log_info("DrawImageExt #%u: 图像%dx%d → (%d,%d) %dx%d flags=%d", n, sw, sh, dx,
+             dy, dw, dh, flags);
+  return 0;
 }
 uint32_t zm_display_DrawSysWallPaper(uc_engine *uc, uint32_t off, uint32_t r0,
                                      uint32_t r1, uint32_t r2, uint32_t r3) {

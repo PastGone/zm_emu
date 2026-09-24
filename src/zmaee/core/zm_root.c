@@ -35,6 +35,43 @@ uint32_t zm_root_str_assign(uc_engine *uc, uint32_t str_obj,
   if (clen > 255)
     clen = 255;
   uint32_t inline_buf = str_obj + 12;
+
+  /* 【两种目标形态，实测都存在】上面那套"对象布局"只是其中一种：
+   *   (a) zmaee 字符串对象：+0=data_ptr、+4=len、+8=cap、+12=内联数据；
+   *   (b) **裸 C 串缓冲**：applet 先 `memset(buf, 0, 0x20)` 再调本函数当 strcpy 用。
+   *
+   * 判据：缓冲里已经有"像 data_ptr/len 的对象头"才走 (a)，否则按裸串写。
+   *   - data_ptr == str_obj + 12 （内联布局，我们上次写的就是这个）→ 对象；
+   *   - data_ptr 可读且 len < 4096 → 对象（堆/栈上的对象）；
+   *   - 其余（首字为 0、或是一串文本、或是野值）→ 裸串。
+   *
+   * 为什么必须判（0000042f《落井下石》实测 崩溃根因）：它把模板串
+   * "e:\zmol\zmdata\qblox.dat" 拼进栈上 32 字节缓冲（先 memset、再 strb 盘符、
+   * 再调本函数）后交给 FileMgr::Open。以前无条件按 (a) 写 → 缓冲首字被写成
+   * **指针**，文件名于是变成指针的字节（"E\xFB\x17" = 0x17FB45 的小端），
+   * 路径全错；紧接着 applet 把这段字符串当对象用，崩在 0x66E8
+   * （`ldrne r1,[r0,#0x10]`，r0=0x7461642E=".dat"）。 */
+  {
+    uint32_t w0 = 0, w1 = 0;
+    bool as_obj = false;
+    if (uc_mem_read(uc, str_obj, &w0, 4) == UC_ERR_OK &&
+        uc_mem_read(uc, str_obj + 4, &w1, 4) == UC_ERR_OK) {
+      if (w0 == inline_buf) {
+        as_obj = true;
+      } else if (w0 != 0 && w1 < 4096) {
+        uint8_t probe = 0;
+        if (uc_mem_read(uc, w0, &probe, 1) == UC_ERR_OK)
+          as_obj = true;
+      }
+    }
+    if (!as_obj) {
+      /* 裸 C 串缓冲：直接写串（含收尾 '\0'），不做任何对象字段包装 */
+      if (uc_mem_write(uc, str_obj, cstr, clen + 1) != UC_ERR_OK)
+        log_warn("str_assign: 裸串写入 0x%X 失败（%u 字节）", str_obj, clen + 1);
+      return str_obj;
+    }
+  }
+
   uc_write32(uc, str_obj, inline_buf); /* 数据指针 */
   uc_write32(uc, str_obj + 4, clen);   /* 长度 */
   uc_write32(uc, str_obj + 8, clen);   /* 容量 */
