@@ -10,3 +10,5 @@ batch_reports/*
 log.txt
 dist/
 .ziptest/
+applet/data/zmdata/
+res/解压/

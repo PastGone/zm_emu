@@ -344,6 +344,35 @@ static void read_filename_obj(uc_engine *uc, uint32_t ptr, char *buf,
   buf[0] = '\0';
   if (ptr == 0)
     return;
+
+  /* ★ 先试**内联短串**形态：整串就存在对象头里（短串优化）。
+   *
+   * 实测 00000462《三国情仇》：TestFile 传进来的名字对象 = 
+   *     [0..5] = "c:\00000462.zmr"   ← **整串直接躺在 +0** ✗
+   * 旧代码先把它当"数据指针"解释 → 读飞 → 退到 +12 只拿到 "zmr" ✗ ⇒
+   * applet 认为主数据文件不存在 ⇒ 跳过资源/字体初始化 ⇒ 点"开始游戏"后
+   * 画字时把没初始化的字段当字体指针 → 野读崩溃 ✗。
+   *
+   * 判据：可打印 ASCII + 至少 4 字符 + 含 '.'/'\\'/'/'/':' 之一（文件名特征）。
+   * 用指针当字符串看时几乎必然出现 0x00/>=0x80 字节，所以不会误判既有 applet。 */
+  if (!getenv("ZM_NO_INLINE_NAME")) {
+    uint8_t raw[64];
+    if (uc_mem_read(uc, ptr, raw, sizeof(raw)) == UC_ERR_OK) {
+      char tmp[sizeof(raw) + 1];
+      memcpy(tmp, raw, sizeof(raw));
+      tmp[sizeof(raw)] = '\0';
+      size_t n = 0;
+      while (n < sizeof(raw) && tmp[n])
+        n++;
+      if (n >= 4 && n < sizeof(raw) && name_plausible(tmp) &&
+          (strchr(tmp, '.') || strchr(tmp, '\\') || strchr(tmp, '/') ||
+           strchr(tmp, ':'))) {
+        snprintf(buf, cap, "%s", tmp);
+        return;
+      }
+    }
+  }
+
   uint32_t dp = 0;
   if (uc_mem_read(uc, ptr, &dp, 4) == UC_ERR_OK && dp != 0) {
     read_cstr(uc, dp, buf, (int)cap);
@@ -402,6 +431,27 @@ uint32_t zm_fileMgr_TestFile(uc_engine *uc, uint32_t r0, uint32_t name_ptr) {
     return (uint32_t)-4;
   char name[256];
   read_filename_obj(uc, name_ptr, name, sizeof(name));
+  /* 诊断：把"名字对象的真实字节"打出来。起因：00000462《三国情仇》点"开始游戏"
+   * 之后崩在字体查表，而上游是 TestFile 读到的名字**只剩后缀**（"zmdata\kingdom.dat"
+   * → "om.dat"、"c:\00000462.zmr" → "zmr" ✗）⇒ applet 认为主数据文件不存在 ⇒ 跳过
+   * 资源/字体初始化 ⇒ 后面拿没初始化的字段当字体指针 ⇒ 野读崩溃。
+   * 这里把对象的 6 个字 + 两层解引用都打出来，用来确定它的真实布局（是
+   * {ptr,len} 还是 {len,inline} 还是带游标/偏移的形态）。ZM_NO_TF_DBG=1 可关。 */
+  if (!getenv("ZM_NO_TF_DBG")) {
+    static int tf_n = 0;
+    if (tf_n++ < 12) {
+      uint32_t w[6] = {0};
+      uc_mem_read(uc, name_ptr, w, sizeof(w));
+      uint32_t lr = 0;
+      uc_reg_read(uc, UC_ARM_REG_LR, &lr);
+      char at0[64] = {0};
+      if (w[0])
+        read_cstr(uc, w[0], at0, sizeof(at0));
+      log_info("TestFile 名字对象 @0x%X: [0..5]=%X %X %X %X %X %X lr=0x%X "
+               "读到=\"%s\"  [0]处=\"%s\"",
+               name_ptr, w[0], w[1], w[2], w[3], w[4], w[5], lr, name, at0);
+    }
+  }
   /* GBK 中文文件名 → UTF-8 回退（固件 GBK / 宿主 UTF-8） */
   char utf[256];
   if (has_high_byte(name) && gbk_to_utf8(name, utf, sizeof(utf)) > 0)
@@ -543,20 +593,23 @@ uint32_t zm_fileMgr_GetFreeSize(uc_engine *uc, uint32_t r0, uint32_t drive) {
     return 0;
 
   uint32_t freeb = 0;
-#if defined(__unix__) || defined(__APPLE__)
+  /* ★ 不要再拿**宿主磁盘**的可用空间 ✗✗
+   *
+   * 以前是 statvfs(数据目录)，本机剩几百 GB → 夹到 2GB 交给 applet。后果实测
+   * （0000050b《新还猪格格》，同一族都中招）：
+   *   applet 按这个"剩余空间"估算缓冲 → `u_heap: 内存不足，malloc(16581376) 失败`
+   *   （15.8MB ✗，就来自那个 2GB ✗）→ 拿到 NULL 之后它把**尺寸值**当指针用
+   *   → 后面所有写地址都带着 0xFD1000 的影子（0xFD1000 / 0x1011000 / 0x1FD1000）
+   *   → err=7 写到映射外 ✓✓。
+   *
+   * 真机上这是**闪存卡容量**（掌盟年代几十 MB～GB 级），是个"像设备"的数，
+   * 不是宿主的磁盘。默认给 64MB（可用 ZM_FREE_MB 调）；这样 applet 的按比例估算
+   * 会落在我们 6MB 的 u_heap 之内，分配成功、不会退化成"拿尺寸当指针"。 */
   {
-    struct statvfs vfs;
-    const char *dir = s_data_dir[0] ? s_data_dir : ".";
-    if (statvfs(dir, &vfs) == 0 && vfs.f_frsize) {
-      uint64_t b = (uint64_t)vfs.f_bavail * (uint64_t)vfs.f_frsize;
-      if (b > 0x7FFFFFF0ull)
-        b = 0x7FFFFFF0ull; /* 夹到 2GB 内：调用方按 int 解读时不会变负数 */
-      freeb = (uint32_t)b;
-    }
+    const char *e = getenv("ZM_FREE_MB");
+    uint32_t mb = (e && atoi(e) > 0) ? (uint32_t)atoi(e) : 64u;
+    freeb = mb * 1024u * 1024u;
   }
-#endif
-  if (freeb == 0)
-    freeb = 128u * 1024u * 1024u; /* 兜底：128MB */
 
   log_info("fileMgr.GetFreeSize(盘符 '%c'=0x%X) -> %u 字节（%.1f MB）",
            (drive >= 0x20 && drive < 0x7F) ? (char)drive : '?', drive, freeb,
@@ -738,13 +791,26 @@ uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr) {
     return 0;
   }
 
-  /* 先关闭之前打开的文件 */
-  if (g_file_data) {
+  /* A/B 开关：排查"某个改动让 applet 从能跑变不能跑"时用。
+   * 置 1 → 回到**旧行为**：在尝试打开之前就 free 掉上一个文件（失败时 applet
+   * 之后读到的就是 0，而不是"上一个文件的内容"）。 */
+  if (getenv("ZM_OPEN_EAGER_CLOSE") && g_file_data) {
     free(g_file_data);
     g_file_data = NULL;
     g_file_size = 0;
     g_file_pos = 0;
   }
+
+  /* 【不要在"尝试打开"之前就关掉旧文件】——这里原来是：
+   *     if (g_file_data) { free(g_file_data); ... = NULL; }
+   * 于是**打开失败也会把上一个文件弄没** ✗。而 applet 的常规流程里到处是
+   * "先试开一个可有可无的存档，失败就继续用手里那个资源包"：
+   *   实测 000004dc《仙剑》：fs.open(".dat")(773KB，ZIP 资源包) → 读目录/解资源
+   *   （500+ 次 Read 全成功）→ fs.open("\info.dat") 首次运行不存在 ✗ →
+   *   旧代码在这里把 .dat 释放了 → 之后所有 Read/Seek/Tell 全返回 0 ✗ →
+   *   它构造出来的"流对象"绑不上数据源（内层接口字段为 0）→ 解引用野指针崩溃 ✗。
+   * 真机上 OpenFile 失败**不会**影响别的文件对象，所以这里改成"加载成功才替换"
+   * （见下面 install 处）。 */
 
   if (s_data_dir[0] == '\0') {
     log_error("zm_fs_open: 未设置数据目录，无法打开 \"%s\"", name);
@@ -851,6 +917,7 @@ uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr) {
     if (slash) {
       *slash = '\0';
       if (dir_was_made(parent)) {
+        free(g_file_data); /* 旧文件在这里才被替换（见上面的说明） */
         g_file_data = (uint8_t *)calloc(1, 1); /* 空文件，Write 时扩容 */
         g_file_size = 0;
         g_file_pos = 0;
@@ -884,6 +951,7 @@ uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr) {
      * 是不是只差"非 0 返回值"。默认关闭。 */
     if (getenv("ZM_OPEN_DUMMY")) {
       uint8_t *z = (uint8_t *)calloc(1, 1);
+      free(g_file_data); /* 替换时才释放旧的 */
       g_file_data = z;
       g_file_size = 0;
       g_file_pos = 0;
@@ -891,6 +959,22 @@ uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr) {
       g_file_path[0] = '\0';
       log_info("fs.open(\"%s\") -> FILE1 (ZM_OPEN_DUMMY 空句柄)", name);
       return FILE1;
+    }
+    /* A/B 开关：失败时的返回值可配（ZM_OPEN_FAIL_RET=0xffffffff 等）。
+     *
+     * 为什么要能配：applet 对"文件不存在"的判据可能是 `if (h)`（0 表示失败），
+     * 也可能是 `if (h < 0)`（负数表示失败）。我们一向返回 0 —— 对后者来说
+     * **0 会被当成"打开成功"** ✗，于是它拿 0 当句柄/对象继续用。
+     * 实测 00000462《三国情仇》：它会去开 `zmdata\kingdom.dat`（疑似存档/资源），
+     * 拿到的就是 0，之后在游戏初始化里用了一堆没被初始化的对象 → 崩。
+     * 默认仍返回 0（不改既有行为），排查时逐个取值试。 */
+    {
+      const char *fr = getenv("ZM_OPEN_FAIL_RET");
+      if (fr && fr[0]) {
+        uint32_t v = (uint32_t)strtoul(fr, NULL, 0);
+        log_info("fs.open(\"%s\") -> 0x%X（ZM_OPEN_FAIL_RET）", name, v);
+        return v;
+      }
     }
     return 0;
   }
@@ -915,6 +999,10 @@ uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr) {
   }
   fclose(fp);
 
+  /* 到这里才真正替换上一个文件（加载成功）——见函数上方"不要在尝试打开之前就
+   * 关掉旧文件"的长注释：失败时保持原文件可用，否则 applet 手里的资源包会凭空
+   * 消失，后续读全 0，最后走到野指针崩溃。 */
+  free(g_file_data);
   g_file_data = buf;
   g_file_size = (size_t)sz;
   g_file_pos = 0;
@@ -1020,6 +1108,65 @@ int zm_fs_write_back(const char *full_path, const uint8_t *data, size_t len) {
   }
   fclose(fp);
   return 0;
+}
+
+/* ---------- 写回宿主机文件（**按 applet 给的名字**，找不到就创建）----------
+ *
+ * 用途：CBK 文件对象（zm_cbk_file.c）关闭时要落盘 —— 那一族的"存档/设置"
+ * 就是"打开（或新建）一个文件 → 写 → 关闭"，而它的名字是**固件风格**的
+ * （`\save\info.dat` 这种 ✗），需要走和 zm_fs_read_file 同一套归一化。
+ *
+ * 关键点：**文件不存在也要能写**（新建存档正是这种情况 ✗），所以这里不要求
+ * 目标已存在：目录不存在就逐级建（applet 一般会先调 IFileMgr::Mkdir ✓）。
+ */
+int zm_fs_write_back_name(const char *name, const uint8_t *data, size_t len) {
+  if (!name || !name[0])
+    return -1;
+
+  char utf[256];
+  if (has_high_byte(name) && gbk_to_utf8(name, utf, sizeof(utf)) > 0)
+    name = utf;
+
+  char rel[512];
+  if (convert_file_name(name, rel, sizeof(rel)) < 0)
+    return -1;
+
+  char full[ZM_FULL_PATH_MAX];
+  full[0] = '\0';
+  if (s_data_dir[0]) {
+    snprintf(full, sizeof(full), "%s%s", s_data_dir, rel);
+    FILE *t = fopen(full, "rb");
+    if (!t) {
+      /* 已存在的话优先跟随 app_list 里的同名文件（和读路径保持一致） */
+      char alt[ZM_FULL_PATH_MAX];
+      snprintf(alt, sizeof(alt), "%s/app_list%s", s_data_dir, rel);
+      t = fopen(alt, "rb");
+      if (t) {
+        fclose(t);
+        snprintf(full, sizeof(full), "%s", alt);
+      } else {
+        /* 新建：把父目录建出来（层层建，忽略已存在） */
+        char dir[ZM_FULL_PATH_MAX];
+        snprintf(dir, sizeof(dir), "%s%s", s_data_dir, rel);
+        for (char *p = dir + strlen(s_data_dir) + 1; *p; p++) {
+          if (*p == '/') {
+            *p = '\0';
+            mkdir(dir, 0755);
+            *p = '/';
+          }
+        }
+      }
+    } else {
+      fclose(t);
+    }
+  } else {
+    snprintf(full, sizeof(full), "%s", rel + 1);
+  }
+
+  int r = zm_fs_write_back(full, data, len);
+  log_info("fs 写回(按名): \"%s\" → %s（%zu 字节）%s", name, full, len,
+           r == 0 ? "" : " ✗失败");
+  return r;
 }
 
 /* ---------- 清理 ---------- */

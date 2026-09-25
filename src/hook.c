@@ -7,6 +7,7 @@
 #include "./zmaee/runtime/timer/zm_timer.h" /* zm_timer_interrupt / zm_timer_async_call */
 #include <inttypes.h>
 #include <stdio.h>
+#include <stdlib.h> /* getenv：PC 环开关 */
 
 /* PC 观察点（ZM_PC / ZM_PC2，各一个区间，默认关闭）。只观察、不改变行为。 */
 #define PC_WATCH_MAX 2
@@ -25,6 +26,52 @@ void hook_set_pc_watch_idx(int idx, uint32_t lo, uint32_t hi) {
            hi);
 }
 
+/* 最近执行过的指令地址（环形，见 hook_code 里的说明） */
+#define PC_RING 24
+static uint32_t s_pc_ring[PC_RING];
+static uint8_t s_pc_mode[PC_RING]; /* 1 = Thumb */
+static int s_pc_i = 0, s_pc_n = 0;
+static uc_engine *s_pc_uc = NULL; /* 只为崩溃时回读字节用 */
+
+void hook_dump_pc_ring(void) {
+  if (s_pc_n <= 0)
+    return;
+  log_error("最近执行过的 %d 条指令（从旧到新；`T` = Thumb，无标记 = ARM；"
+            "payload 文件偏移 ≈ 地址 + 0x18C）：",
+            s_pc_n);
+  int start = (s_pc_i - s_pc_n + PC_RING) % PC_RING;
+  char line[256];
+  int off = 0;
+  for (int k = 0; k < s_pc_n; k++) {
+    int i = (start + k) % PC_RING;
+    off += snprintf(line + off, sizeof(line) - (size_t)off, " %05X%s",
+                    s_pc_ring[i], s_pc_mode[i] ? "T" : "");
+    if ((k + 1) % 8 == 0 || k + 1 == s_pc_n) {
+      log_error("  %s", line);
+      off = 0;
+      line[0] = '\0';
+    }
+  }
+
+  /* 再补最后 4 条的**真实字节**：反汇编要看客户机内存里到底是什么，而不是我们
+   * 以为的文件偏移 —— 实测 000004dc 就是靠这一步才发现"我以为的指令"和实际执行的
+   * 对不上（偏了一次，于是把 pop 看成了别的）✗。 */
+  int shown = s_pc_n < 4 ? s_pc_n : 4;
+  for (int k = 0; k < shown; k++) {
+    int i = (start + s_pc_n - shown + k) % PC_RING;
+    uint8_t b[8] = {0};
+    char hex[3 * 8 + 1];
+    int q = 0;
+    if (s_pc_uc &&
+        uc_mem_read(s_pc_uc, s_pc_ring[i], b, sizeof(b)) == UC_ERR_OK)
+      for (unsigned j = 0; j < sizeof(b); j++)
+        q += snprintf(hex + q, sizeof(hex) - (size_t)q, "%02X ", b[j]);
+    else
+      snprintf(hex, sizeof(hex), "<读不出>");
+    log_error("  0x%05X%s 字节: %s", s_pc_ring[i], s_pc_mode[i] ? "T" : "", hex);
+  }
+}
+
 void hook_set_pc_watch(uint32_t lo, uint32_t hi) {
   hook_set_pc_watch_idx(0, lo, hi);
 }
@@ -32,6 +79,35 @@ void hook_set_pc_watch(uint32_t lo, uint32_t hi) {
 void hook_code(uc_engine *uc, uint64_t address, uint32_t size,
                void *user_data) {
   // 这个地方好像不对,因为啥来ARM32的规定，pc=address+8
+
+  /* ---- "最近执行过的地址"环形记录（崩溃诊断）----
+   * 目的：崩在**非陷阱**的野地址（取指失败 / 野跳）时，日志最后一条往往是"某次
+   * 陷阱调用"，看不到真正喂坏值的那条指令。这里每条指令前记一笔 PC（一次写内存，
+   * 开销可忽略），崩溃时由 hook_dump_pc_ring() 打出 —— 通常一眼就能看出是
+   * `blx r2`、`pop {…,pc}` 还是 `ldr pc,[rX]` 把 PC 带走的 ✓。
+   * 实测 000004dc：崩在 0x128334DC（取指），靠它才定位到"从栈里弹回来的"那条路。
+   * ZM_NO_PC_RING=1 可关。 */
+  {
+    static int on = -1;
+    if (on < 0) {
+      const char *e = getenv("ZM_NO_PC_RING");
+      on = (e && e[0] == '1') ? 0 : 1;
+    }
+    if (on) {
+      uint32_t cpsr = 0;
+      s_pc_uc = uc;
+      /* 顺带记 CPSR 的 T 位：崩在"野跳"时，先要能判断最后这几条是 ARM 还是
+       * Thumb —— 同一串字节两种模式解出来完全不同，选错了就会看错指令 ✗
+       *（实测 000004dc：ARM 看是 `pop {…,pc}`，其实那条路是 Thumb ✓）。 */
+      if (uc_reg_read(uc, UC_ARM_REG_CPSR, &cpsr) != UC_ERR_OK)
+        cpsr = 0;
+      s_pc_ring[s_pc_i] = (uint32_t)address;
+      s_pc_mode[s_pc_i] = (cpsr & 0x20) ? 1 : 0; /* 1 = Thumb */
+      s_pc_i = (s_pc_i + 1) % PC_RING;
+      if (s_pc_n < PC_RING)
+        s_pc_n++;
+    }
+  }
 
   /* 周期性泵一次 SDL 窗口事件。
    * 背景：emu.c 用 uc_emu_start(..., 0, 0)（无限指令）驱动 guest，宿主只在
@@ -54,28 +130,61 @@ void hook_code(uc_engine *uc, uint64_t address, uint32_t size,
    * 定时器由 Java 层回调触发，与 applet 自己的循环无关，所以这里补齐。
    * 每 2^16 条指令一次（比上面的 SDL 泵更密，保证 1 秒级定时器不漂移）。 */
   {
-    static uint32_t s_timer_tick = 0;
-    if (((++s_timer_tick) & 0xFFFFu) == 0) {
-      if (zm_timer_interrupt(uc, (uint32_t)address))
-        return; /* 已改写 PC/LR → 让 Unicorn 直接去跑回调 */
+    static uint32_t s_tick = 0, s_lo = 0xFFFFFFFFu, s_hi = 0;
+    uint32_t pc = (uint32_t)address;
+    if (pc < s_lo)
+      s_lo = pc;
+    if (pc > s_hi)
+      s_hi = pc;
+    if (((++s_tick) & 0xFFFFu) == 0) {
+      /* ★ 只在该窗口内 **PC 跨度很小（真在自旋）** 时才打断。
+       *
+       * 为什么加这道闸：打断发生在**任意一条指令**处，而真机的定时器只在
+       * 事件循环 / API 边界派发。实测 00000462《三国情仇》：点"开始游戏"后要跑
+       * 几百毫秒的长初始化（PC 一路往前走），被我们插进去跑回调 → 状态被打断 →
+       * 之后把没初始化的字段当指针用 → 崩在字体查表 / 精灵 blit（崩点每次不同 ✗）。
+       * 而**真正需要**异步派发的自旋型 applet（0000048a：0ms 定时器驱动的主循环）
+       * 是**在一个小圈里反复跳**，窗口内 PC 跨度极小 ✓ —— 用这个差别区分两类。
+       * 阈值：ZM_ASYNC_SPREAD_KB（默认 8KB；0 = 关掉这道闸，退回旧行为）。 */
+      /* ★ 区分"**瞬时长更新**"与"**真自旋**"：要求**连续多拍都处于饥饿**才打断。
+       *
+       * 为什么不能用"PC 跨度小"当判据（试过 ✗，方向正好相反）：
+       *   0000048a（真自旋，需要派发）的窗口跨度**更大** ✗；而 00000462 出事的那段
+       *   反而在**小圈**里（像是"等某个状态位"的紧循环）—— 被插进回调就会踩坏它。
+       * 改用时间维度：00000462 的长更新只有约 300~400ms（一拍的量级）✗ ⇒ 不连饿；
+       * 0000048a 是 32 秒不回事件循环 ✓ ⇒ 必然连饿 ⇒ 照常服务。
+       * 需要连饿几拍：ZM_ASYNC_STARVE_TICKS（默认 2；1 = 退回旧行为）。 */
+      static int need = -1;
+      static uint32_t starved_run = 0;
+      if (need < 0) {
+        /* 默认 10：实测 00000462 连续饿到第 10 拍才说明它是"真自旋"（它的长更新
+         * 会连饿 5 拍左右 ✗，被打破就崩）；而 0000048a 这种 32 秒不回事件循环的
+         * 自旋型照样被服务（实测派发 123 次 ✓）。调小会误伤，调大则自旋型响应变慢。 */
+        const char *e = getenv("ZM_ASYNC_STARVE_TICKS");
+        need = (e && atoi(e) >= 1) ? atoi(e) : 10;
+        log_info("异步派发：需连续 %d 拍处于饥饿（瞬时长更新不打断）", need);
+      }
+      s_lo = 0xFFFFFFFFu;
+      s_hi = 0;
+      if (zm_timer_is_starved(uc)) {
+        if (starved_run < 0xFFFFu)
+          starved_run++;
+      } else {
+        starved_run = 0;
+      }
+      if (starved_run >= (uint32_t)need) {
+        if (zm_timer_interrupt(uc, pc))
+          return; /* 已改写 PC/LR → 让 Unicorn 直接去跑回调 */
+        if (zm_event_async_poll(uc, pc, true))
+          return; /* 触摸：同样经跳板送进去 */
+      }
     }
   }
 
-  /* 触摸事件的异步派发（与定时器共用同一条指令级跳板）。
-   *
-   * 背景：有些 applet 的主循环是"0ms 定时器驱动 + 自旋"，它**再也不回事件循环**
-   * （实测 0000048a《象棋新说》：点进难度列表后 32 秒只回 0 次），而我们的触摸
-   * 原本只在事件循环那条路上派发 → 用户点击被无限期饿死，表现就是"点按钮没反应"。
-   * 这里在 zm_timer_is_starved()（同样 300ms 门限，ZM_ASYNC_IDLE_MS 可调）成立时，
-   * 把 zm_display_pump_events 收进队列的点击用跳板送进 handler（evt=9，下一拍补 10）。
-   * 正常 yield 的 applet 永远走事件循环那条路，不受影响；ZM_NO_ASYNC_TOUCH=1 可关。 */
-  {
-    static uint32_t s_evt_tick = 0;
-    if (((++s_evt_tick) & 0xFFFFu) == 0) {
-      if (zm_event_async_poll(uc, (uint32_t)address, zm_timer_is_starved(uc)))
-        return; /* 已改写 PC/LR → 让 Unicorn 直接去跑 handler */
-    }
-  }
+  /* 触摸事件的异步派发已并入上面那个块（与定时器共用同一道"PC 跨度"闸）：
+   * 背景是有些 applet 的主循环是"0ms 定时器驱动 + 自旋"，**再也不回事件循环**
+   * （实测 0000048a：32 秒回 0 次），点击会被无限期饿死；现在只在"真自旋"的窗口里
+   * 才用跳板送 evt=9/10 进去。ZM_NO_ASYNC_TOUCH=1 仍可单独关掉触摸这条。 */
 
   if (g_pc_watch_on) {
     for (int i = 0; i < PC_WATCH_MAX; i++) {
@@ -104,7 +213,12 @@ void hook_code(uc_engine *uc, uint64_t address, uint32_t size,
     disassemble_and_log(uc, address, size);
   }
 
-  if (address >= TRAMP_BASE && address < TRAMP_BASE + TRAMP_SIZE) {
+  /* 陷阱两个区间：① 常规 TRAMP 区；② CBK 跳板页里的"文件对象"窗口
+   * （CBK_TRAP_BASE，见 emu_mem_regions.h —— 这一族 applet 把
+   * [CBK_OBJ+0x4C]→[+0] 的 +8 当"打开资源文件"的工厂用，那里必须是**我们能
+   * 接手处理的入口**，而不是一段只会返回假对象的桩 ✗）。 */
+  if ((address >= TRAMP_BASE && address < TRAMP_BASE + TRAMP_SIZE) ||
+      (address >= CBK_TRAP_BASE && address < CBK_TRAP_BASE + CBK_TRAP_SIZE)) {
     handle_trap(uc, address);
   }
 }

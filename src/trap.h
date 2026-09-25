@@ -25,4 +25,12 @@ void handle_trap(uc_engine *uc, uint32_t trap_address);
  */
 uint32_t getArg(uc_engine *uc, uint32_t n);
 
+/**
+ * @brief 打印"最近 32 次 applet→外部（槽）调用"（崩溃时调，见 emu.c）
+ *
+ * 目的：回答"崩之前它刚调了哪些槽、入参是什么" —— 排查"某槽返回值被当指针/
+ * 尺寸用"引起的野跳、野读。ZM_NO_TRAP_RING=1 可关掉记录。
+ */
+void trap_dump_recent(void);
+
 #endif

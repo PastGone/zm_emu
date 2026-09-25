@@ -23,6 +23,15 @@ void hook_set_pc_watch(uint32_t lo, uint32_t hi);
 /* 同上，第二个/第 N 个观察点（ZM_PC 用 idx=0，ZM_PC2 用 idx=1）。 */
 void hook_set_pc_watch_idx(int idx, uint32_t lo, uint32_t hi);
 
+/**
+ * @brief 打印"最近执行过的 24 条指令地址"（崩溃时调，见 emu.c）
+ *
+ * 用途：崩在**非陷阱**的野地址（取指失败、野跳）时看清"是谁把 PC 带走的" ——
+ * `blx r2` / `pop {…,pc}` / `ldr pc,[rX]` 在地址序列上很好认。
+ * 记录开销 = 每条指令一次写内存，ZM_NO_PC_RING=1 可关。
+ */
+void hook_dump_pc_ring(void);
+
 /* 内存写监视（纯调试）。env: ZM_MW=<起址>,<止址>（十六进制）
  * 命中区间被写入时打印 PC/LR/地址/值，用来查"某个字段到底有没有人写、
  * 是谁写的"。不设置时完全不生效，不改变任何模拟行为。 */

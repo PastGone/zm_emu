@@ -147,6 +147,15 @@ uint32_t zm_file_seek(uc_engine *uc, uint32_t file_id, uint32_t whence,
   if (pos > (int64_t)g_file_size)
     pos = (int64_t)g_file_size;
   g_file_pos = (uint32_t)pos;
+  if (getenv("ZM_FILE_DBG")) {
+    uint32_t lr = 0;
+    if (uc)
+      uc_reg_read(uc, UC_ARM_REG_LR, &lr);
+    log_info("file.seek(id=0x%X whence=%u off=%d data=%p size=%zu) -> pos=%u "
+             "lr=0x%X",
+             file_id, whence, off, (void *)g_file_data, g_file_size, g_file_pos,
+             lr);
+  }
   return 0;
 }
 
@@ -156,7 +165,16 @@ uint32_t zm_file_tell(uc_engine *uc, uint32_t file_id) {
    * IFile vtable +0x24 是 ZMAEE_IFile_Tell（逆向实测），返回**当前读写位置**。
    * applet 取文件大小的惯用法是 Seek(f,1,0) 跳到文件尾后再 Tell()。
    */
-  if (file_id == FILE1 && g_file_data)
-    return g_file_pos;
-  return 0;
+  uint32_t r = (file_id == FILE1 && g_file_data) ? g_file_pos : 0;
+  /* 诊断：返回 0 有两种完全不同的原因（id 不对 / 没文件 / 位置真是 0），
+   * 排查"applet 拿到 0 之后跑飞"时一眼分清（ZM_FILE_DBG=1 才打）。 */
+  if (getenv("ZM_FILE_DBG")) {
+    uint32_t lr = 0;
+    if (uc)
+      uc_reg_read(uc, UC_ARM_REG_LR, &lr);
+    log_info("file.tell(id=0x%X file=%d data=%p size=%zu pos=%u) -> %u  lr=0x%X",
+             file_id, file_id == FILE1, (void *)g_file_data, g_file_size,
+             g_file_pos, r, lr);
+  }
+  return r;
 }

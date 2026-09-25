@@ -16,6 +16,7 @@
 #include "./zmaee/audio/zm_audio.h"
 #include "./zmaee/fs/zm_file_mgr.h"
 #include "./zmaee/fs/zm_file.h"
+#include "./zmaee/fs/zm_cbk_file.h" /* zm_cbk_file_flush_all：退出前把存档补写回 */
 #include "./zmaee/gfx/zm_display.h"
 //
 /* Windows 上 SDL_main.h 会把 main 宏替换成 SDL_main，要求额外链 SDL2main.lib
@@ -563,6 +564,9 @@ int main(int argc, char **argv) {
   // 释放资源
   zm_audio_shutdown();
   zm_display_shutdown();
+  /* ★ 先刷盘再关文件系统：CBK "文件对象"那族 applet 存档后常常**不显式关闭**
+   * （写、切场景、直接退 ⇒ 改动只在内存里 ✗）。见 zm_cbk_file.c 的说明。 */
+  zm_cbk_file_flush_all();
   zm_fs_shutdown();
   cs_close(&g_cs_handle);
   uc_close(g_uc);

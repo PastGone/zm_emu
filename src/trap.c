@@ -20,6 +20,7 @@
 #include "./zmaee/core/zm_str.h"
 #include "./zmaee/fs/zm_file_mgr.h"
 #include "./zmaee/fs/zm_file.h"
+#include "./zmaee/fs/zm_cbk_file.h" /* CBK 文件对象（跳板页陷阱窗口） */
 #include "./zmaee/gfx/zm_display.h" /* ZMAEE IDisplay / IBitmap + SDL 渲染后端 */
 #include "./zmaee/gfx/zm_image.h"   /* ZMAEE IImage（资源加载链） */
 #include "emu_bitmap_traps.h" /* ZMAEE IBitmap 原生虚表槽位（BITMAP_VT_ADDR） */
@@ -84,36 +85,54 @@ static void cbk_heap_init_once(uc_engine *uc) {
   /* 0x15DDC 每次“补桶”会向管理器要 0x8000(32KB)（RE：0x15E1C `mov r1,#128,#28`
    * = 0x8000），128KB 几个桶就见底 → 分配返回 0 → applet 拿到 NULL 后又去
    * Release(0) → 崩（实测 pc=0x173D4 / 0x52069AD8）。给足 1MB。 */
-  /* 堆大小可用 ZM_HEAP_KB 调（排查用；默认 0x1F000，给管理器/分配器留头部） */
-  const char *ekb = getenv("ZM_HEAP_KB");
-  uint32_t HEAP_BYTES =
-      (ekb && atoi(ekb) > 0) ? (uint32_t)atoi(ekb) * 1024u : 0x1F000u;
-  /* 布局：专用区开头放管理器(0x10) + 分配器(0x40)，其余留给堆区。
+  /* 堆大小 = 整个 CBKHEAP 区（除开头的分配器头 0x50）——
+   * 上限由 `[管理器+8]` 决定，而那个值现在必须正好是**跳板页首**
+   * （见 emu_mem_regions.h 的 CBK_STUB_BASE 说明：它要同时当"分配上限"和
+   * "可调用地址"）。所以这里不再提供变小堆的开关：堆变小 → 上限低于页首
+   * → applet 那个 `[[CBK+0x4C]] → [+8] → blx` 就跳不到桩上了。
+   * 1MB 对自管堆足够（原来给 0x1F000 也够用，只是那会儿管理器还在区尾）。 */
+  uint32_t HEAP_BYTES = CBKHEAP_SIZE - 0x50u;
+  /* 布局：专用区开头放分配器(0x40)；管理器放**区外**的跳板页（见下）。
    * ★ 既不能向 applet 自己的堆要内存（`applet_malloc`/u_malloc：会把 applet
    * 堆起点整体后移，00000001 立刻崩），也不能放在 blob 里（会与 applet 的
    * 静态数据/我们自己造的堆对象撞车）。用独立的 CBKHEAP 映射区（见
    * emu_mem_regions.h）。 */
-  /* 管理器放到**专用区尾部**的保留块里（0x100 字节）：
-   * 有些 applet（00000710 实测）会做 `[[CBK_OBJ+0x4C]] → [...+0x30] → blx`，
-   * 即把 [CBK+0x4C] 当"带虚表的对象"用；而 00000502 那条路又把 [CBK+0x4C]
-   * 的 [+0] 当**堆管理器**读（0x15DDC: `ldr r0,[r0]`）。
-   * 两者要同时满足 ⇒ 让 [+0] 仍指管理器，但把管理器搬到一个**独立保留块**，
-   * 这样它的 +0x30 就不与分配器的桶字段重叠，可以安全地填一个跳板。 */
-  uint32_t mgr = CBKHEAP_BASE + CBKHEAP_SIZE - 0x100u;  /* 保留块（尾部 0x100） */
+  /* 管理器放到**区外**的跳板页里（页首 8 字节是桩代码，管理器在 CBK_MGR_OFF）：
+   *   00000710 家族：`[[CBK_OBJ+0x4C]] → [+0x30] → blx`
+   *   0000050b 家族：`[[CBK+0x4C]] → [+8] → blx`（本次新增支持）
+   * 即它们把 [CBK+0x4C] 当"带虚表的对象"用；而 00000502 那条路（0x15DDC/0x175B8）
+   * 又把 [CBK+0x4C] 的 [+0] 当**堆管理器**读，管理器 = { +4 首块, +8 区末 }。
+   * ⇒ [+0] 仍指管理器，但管理器搬到区外，于是：
+   *     · +0x30 填中性桩（00000710 家族要的）
+   *     · +8   = "区末" = **跳板页首** CBK_STUB_BASE —— 页首恰好也是一段
+   *       "返回 0"的桩，**数值上界**与**可调用地址**两个要求同时满足 ✓
+   *       （旧实验把 +8 填 TRAMP_BASE+0x3C：低于区起点 → 上限 < 起点 → 分配全废 ✗）*/
+  uint32_t mgr = CBK_STUB_BASE + CBK_MGR_OFF;
   uint32_t al = CBKHEAP_BASE + 0x10u;                   /* 分配器 0x40 字节 */
   uint32_t region = CBKHEAP_BASE + 0x50u;               /* 堆区起点 */
-  if (HEAP_BYTES > CBKHEAP_SIZE - 0x150u)               /* 给开头 0x50 + 尾部 0x100 */
-    HEAP_BYTES = CBKHEAP_SIZE - 0x150u;
   if (HEAP_BYTES < 0x8000u) {
     log_warn("cbk 堆初始化失败：区太小(%u)", HEAP_BYTES);
     return;
   }
-  /* 管理器的 +0x30 填一个**有效跳板**：00000710 这类 applet 会
-   * `r0=[ctx+0x4C]; r1=1; r2=[[r0]+0x30]; blx r2`（结果按字节当 bool 用）。
-   * 先填"返回 0"的中性桩（见 emu_root_traps.h 的 ZM_x3C），保证不再跳飞。 */
+  /* 管理器的"方法槽"**全部**填成有效跳板。
+   *
+   * 这一族 applet 把 [CBK+0x4C]（分配器）当"带虚表的对象"用，并且**调用的槽偏移
+   * 各不相同**（实测一路踩过来）：
+   *   00000710 家族：`r2 = [[CBK+0x4C]+0x30]; blx r2`（结果按字节当 bool）
+   *   0000050b 家族：`r3 = [[CBK+0x4C]+0x8];  blx r3`（我们已把它做成跳板页首 ✓）
+   *                   之后又 `r2 = [管理器+0x20]; blx r2`   ← 本次补上
+   * 只填某一个槽就只能过一层，下一层又跳飞 ✗。所以这里把**除 +4/+8 之外**的
+   * 每个字都填成跳板页首（CBK_STUB_BASE，那上面有"返回中性假对象"的桩 ✓）：
+   *   +4 = 首块、+8 = 区末 —— 分配器（0x15DDC/0x175B8）要的真值，**不能动** ✗
+   *   其余（+0xC..+0x3C 等）都是 applet 会当方法调的槽 → 填桩 ✓
+   * 注意 +0 一直是 0（分配器自己写）；这里从 +0xC 开始填到 +0x40。 */
   {
-    uint32_t stub = TR_root_x3C;
-    uc_mem_write(uc, mgr + 0x30, &stub, 4);
+    uint32_t stub = CBK_STUB_BASE;
+    for (uint32_t o = 0xCu; o < 0x40u; o += 4) {
+      if (o == 4 || o == 8)
+        continue; /* 首块 / 区末：真值，跳过 */
+      uc_mem_write(uc, mgr + o, &stub, 4);
+    }
   }
 
   /* 分配器与管理器清零（桶的 [0]=块链、[+4]=空闲头 全 0 = 空） */
@@ -162,30 +181,27 @@ static void cbk_heap_init_once(uc_engine *uc) {
     uc_mem_write(uc, region, hdr, sizeof(hdr));
   }
 
-  /* 管理器 { +4 首块, +8 区末 }；分配器 [0] = 管理器 */
+  /* 管理器 { +4 首块, +8 区末 }；分配器 [0] = 管理器。
+   * 区末**固定**填跳板页首（不是 region+HEAP_BYTES 的旧算法）：两者在默认配置下
+   * 数值相同（HEAP_BYTES 已取满），但显式填死的意义是——万一有人改 HEAP_BYTES，
+   * 那个"可调用地址"也不会被破坏 ✓。 */
   {
     uint32_t first = region;
-    /* 【已试并撤回】曾把"区末"取成跳板地址（TRAMP_BASE+0x3C），想让它同时满足
-     * "分配上限"与"对象槽 [8] 可调用"两件事 —— 实测 20 个 applet 全部变成
-     * 0~1 秒 `exit=1`（不崩但直接走错误分支），属**回退** ✗。保持真值。 */
-    uint32_t end = region + HEAP_BYTES;
+    /* 区末 = **CBK 陷阱窗口**（在跳板页里、堆区之上 ⇒ 两个身份仍然同时成立 ✓）：
+     *   · 对分配器：它是"分配上限"，数值合法 ✓
+     *   · 对这一族 applet：它是"打开资源文件的工厂"入口 —— 一个**我们能接手处理的
+     *     陷阱**（见 zm_cbk_file.h），而不是以前那段"只会返回假对象"的桩 ✗
+     *     （那正是 malloc(16MB) → NULL → 画到映射外的根因）。 */
+    uint32_t end = CBK_TRAP_BASE;
     uc_mem_write(uc, mgr + 4, &first, 4);
     uc_mem_write(uc, mgr + 8, &end, 4);
     uc_mem_write(uc, al, &mgr, 4);
-    /* 【已试并撤回】把 +8 也换成跳板（想让它兼作"对象槽 [8]"）：实测分配器
-     * 立刻坏 —— 00000502 退到 0x7B080C、000007xx 全家退回 0x18/0x78 ✗。
-     * 说明 +8 必须是真"区末"，与 00000710 想要的"可调用槽 [8]"**硬冲突** ✗。
-     * 保留真值；想复现那次实验可设 ZM_STUB8=1。 */
-    if (getenv("ZM_STUB8")) {
-      uint32_t stub = TR_root_x3C;
-      uc_mem_write(uc, mgr + 8, &stub, 4);
-    }
   }
-  
-    if (!getenv("ZM_NO_CBKPTR"))
+  if (!getenv("ZM_NO_CBKPTR"))
     uc_mem_write(uc, CBK_OBJ + 0x4C, &al, 4);
-  log_info("create_cbk 自管堆已建：分配器=0x%X 管理器=0x%X 区=0x%X..0x%X", al, mgr,
-           region, region + HEAP_BYTES);
+  log_info("create_cbk 自管堆已建：分配器=0x%X 管理器=0x%X 区=0x%X..0x%X"
+           "（区末=跳板页 0x%X，管理器 +8 可调用 ✓）",
+           al, mgr, region, region + HEAP_BYTES, CBK_STUB_BASE);
 }
 
 /** applet 的 calloc：分配并清零（清零在客户机侧完成，不开宿主临时缓冲） */
@@ -512,6 +528,31 @@ static uint32_t a_fileMgr_x3C(trap_ctx *c) {
             c->r2, c->r3, c->lr);
   return zm_fileMgr_stub(c->uc, 0x3C, c->r0, c->r1, c->r2, c->r3);
 }
+/* ---- CBK 文件对象陷阱（跳板页窗口，见 emu_mem_regions.h 与 zm_cbk_file.h）----
+ *
+ * 这一族 applet 把 [CBK_OBJ+0x4C]→[+0] 的 +8 当"打开资源文件"的工厂用
+ * （实测参数：r1 = "<目录>\res\gameN.ypak" 的字符串，r2 = 1）。以前那里是
+ * "只会返回假对象"的桩 ✗ → 它把假对象地址当"文件大小"去 malloc(16MB) → 失败
+ * → NULL → 后面把尺寸当指针 → 画到映射外崩。现在按真文件办事 ✓。 */
+static uint32_t a_cbk_open_file(trap_ctx *c) {
+  return zm_cbk_file_open(c->uc, c->r1, c->r2);
+}
+static uint32_t a_cbk_file_release(trap_ctx *c) {
+  return zm_cbk_file_release(c->uc, c->r0);
+}
+static uint32_t a_cbk_file_read(trap_ctx *c) {
+  return zm_cbk_file_read(c->uc, c->r0, c->r1, c->r2);
+}
+static uint32_t a_cbk_file_write(trap_ctx *c) {
+  return zm_cbk_file_write(c->uc, c->r0, c->r1, c->r2);
+}
+static uint32_t a_cbk_file_seek(trap_ctx *c) {
+  return zm_cbk_file_seek(c->uc, c->r0, c->r1, c->r2);
+}
+static uint32_t a_cbk_file_size(trap_ctx *c) {
+  return zm_cbk_file_size(c->uc, c->r0);
+}
+
 static uint32_t a_display_Update(trap_ctx *c) {
   return zm_display_Update(c->uc, c->r0, c->r1, c->r2, c->r3, getArg(c->uc, 4));
 }
@@ -909,6 +950,14 @@ static const struct { uint32_t lo, hi; trap_fn fn; } k_trap_table[] = {
   { TR_root_start_timer, TR_root_start_timer, a_zm_timer_StartTimer },
   { TR_root_stop_timer, TR_root_stop_timer, a_zm_timer_StopTimer },
   { TR_root_create_cbk, TR_root_create_cbk, a_root_create_cbk },
+  /* CBK 文件对象陷阱（在 CBK 跳板页的窗口里，不是 TRAMP 区）：
+   * 这一族把 [CBK+0x4C]→[+0] 的 +8 当"打开资源文件"用，见 zm_cbk_file.h。 */
+  { CBK_TRAP_BASE + 0x00, CBK_TRAP_BASE + 0x00, a_cbk_open_file },
+  { CBK_TRAP_BASE + 0x04, CBK_TRAP_BASE + 0x04, a_cbk_file_release },
+  { CBK_TRAP_BASE + 0x08, CBK_TRAP_BASE + 0x08, a_cbk_file_read },
+  { CBK_TRAP_BASE + 0x0C, CBK_TRAP_BASE + 0x0C, a_cbk_file_write },
+  { CBK_TRAP_BASE + 0x10, CBK_TRAP_BASE + 0x10, a_cbk_file_seek },
+  { CBK_TRAP_BASE + 0x14, CBK_TRAP_BASE + 0x14, a_cbk_file_size },
   { TR_shell_CreateInstance, TR_shell_CreateInstance, a_shell_CreateInstance },
   /* root */
   { TR_root_getShell, TR_root_getShell, a_root_getShell },
@@ -1172,6 +1221,14 @@ static uint32_t trap_default(trap_ctx *c) {
     }
     return 0; /* AddRef / Release / 其余未知槽：真机亦返回 0 */
   }
+  /* CBK 陷阱窗口里**没登记**的地址（applet 按"相对表"算出的偏移落在窗口中间）：
+   * 安静返回 0 即可 —— 这里不是"非法调用"，而是这一族的探路 ✓（见 emu.c 里
+   * "陷阱窗口同时当相对偏移表"的说明）。 */
+  if (trap_address >= CBK_TRAP_BASE && trap_address < CBK_TRAP_BASE + CBK_TRAP_SIZE) {
+    log_debug("CBK 陷阱窗口未登记槽 +0x%X → 返回 0 (r0=0x%X r1=0x%X lr=0x%X)",
+              trap_address - CBK_TRAP_BASE, c->r0, c->r1, c->lr);
+    return 0;
+  }
   if (trap_address >= TRAMP_BASE && trap_address < TRAMP_BASE + TRAMP_SIZE) {
     uint32_t slot = trap_address - TRAMP_BASE;
     if (getenv("ZM_SHOW_TRACE") && (slot == 0x70 || slot == 0x12C)) {
@@ -1203,6 +1260,63 @@ static uint32_t trap_default(trap_ctx *c) {
   return 0;
 }
 
+/* 最近若干次"applet → 外部（槽）"的调用记录（环形缓冲）。
+ *
+ * 崩溃时由 trap_dump_recent() 打出来，回答"崩之前它刚调了哪些槽、入参是什么" ——
+ * 排查"某个返回值被当指针/尺寸用"导致的野跳、野读时，比翻上万行指令轨迹快得多
+ * （实测 000004dc：崩在 0x128334DC 的取指，靠它才看清是哪一步喂了坏值）。
+ * 只记 4 个入参 + 返回地址，开销可忽略；ZM_NO_TRAP_RING=1 可关。 */
+#define TRAP_RING 32
+static struct {
+  uint32_t addr, r0, r1, r2, r3, lr, ret;
+} s_ring[TRAP_RING];
+static int s_ring_i = 0, s_ring_n = 0;
+
+static int trap_ring_record(uint32_t addr, uint32_t r0, uint32_t r1, uint32_t r2,
+                            uint32_t r3, uint32_t lr) {
+  static int disabled = -1;
+  if (disabled < 0) {
+    const char *e = getenv("ZM_NO_TRAP_RING");
+    disabled = (e && e[0] == '1') ? 1 : 0;
+  }
+  if (disabled)
+    return -1;
+  int slot = s_ring_i;
+  s_ring[slot].addr = addr;
+  s_ring[slot].r0 = r0;
+  s_ring[slot].r1 = r1;
+  s_ring[slot].r2 = r2;
+  s_ring[slot].r3 = r3;
+  s_ring[slot].lr = lr;
+  s_ring[slot].ret = 0;
+  s_ring_i = (s_ring_i + 1) % TRAP_RING;
+  if (s_ring_n < TRAP_RING)
+    s_ring_n++;
+  return slot; /* 供调用方回填返回值（注意陷阱可能嵌套，必须用下标而不是"最后一条"） */
+}
+
+void trap_dump_recent(void) {
+  if (s_ring_n <= 0)
+    return;
+  log_error("最近 %d 次外部调用（从旧到新；槽号是相对 TRAMP/CBK 窗口的偏移）：",
+            s_ring_n);
+  int start = (s_ring_i - s_ring_n + TRAP_RING) % TRAP_RING;
+  for (int k = 0; k < s_ring_n; k++) {
+    int i = (start + k) % TRAP_RING;
+    uint32_t a = s_ring[i].addr;
+    char tag[32];
+    if (a >= TRAMP_BASE && a < TRAMP_BASE + TRAMP_SIZE)
+      snprintf(tag, sizeof(tag), "槽+0x%X", a - TRAMP_BASE);
+    else if (a >= CBK_TRAP_BASE && a < CBK_TRAP_BASE + CBK_TRAP_SIZE)
+      snprintf(tag, sizeof(tag), "CBK文件+0x%X", a - CBK_TRAP_BASE);
+    else
+      snprintf(tag, sizeof(tag), "0x%X", a);
+    log_error("  #%d %s r0=0x%X r1=0x%X r2=0x%X r3=0x%X lr=0x%X -> 返回 0x%X",
+              k + 1, tag, s_ring[i].r0, s_ring[i].r1, s_ring[i].r2, s_ring[i].r3,
+              s_ring[i].lr, s_ring[i].ret);
+  }
+}
+
 void handle_trap(uc_engine *uc, uint32_t trap_address) {
   uint32_t r0 = 0, r1 = 0, r2 = 0, r3 = 0, sp = 0, lr = 0;
   /* 逐个检查寄存器读取结果，避免失败时使用未初始化值污染分发逻辑 */
@@ -1232,13 +1346,56 @@ void handle_trap(uc_engine *uc, uint32_t trap_address) {
   if (g_disasm)
     print_non_zero_registers(uc);
 
-  /* 统计探针（ZM_STAT=1）：在真正分发前记一笔，供"哪个槽位被疯狂调用"分析 */
-  zm_stat_trap(trap_address - TRAMP_BASE);
+  /* 统计探针（ZM_STAT=1）：在真正分发前记一笔，供"哪个槽位被疯狂调用"分析。
+   * 只对常规 TRAMP 区记（CBK 跳板页那边减去 TRAMP_BASE 会得到个巨大的槽号 ✗） */
+  if (trap_address >= TRAMP_BASE && trap_address < TRAMP_BASE + TRAMP_SIZE)
+    zm_stat_trap(trap_address - TRAMP_BASE);
 
   hook_ctx_apply(uc); /* applet 上下文镜像（见 hook.c） */
+  int ring = trap_ring_record(trap_address, r0, r1, r2, r3, lr);
   trap_ctx c = { uc, trap_address, r0, r1, r2, r3, lr, sp, false };
   trap_fn fn = trap_lookup(trap_address);
   uint32_t ret = fn ? fn(&c) : trap_default(&c);
+  if (ring >= 0)
+    s_ring[ring].ret = ret; /* 回填返回值：崩溃时能一眼看出"哪个槽回了什么" */
+
+  /* ---- ZM_CB_PROBE=1：找 applet 的"**注册回调**"API ----
+   *
+   * 思路：如果某次外部调用的入参里出现"**像代码地址**"的值（落在 applet 的
+   * payload 区 [0x100, 0x40000) 且 4 字节对齐），那多半是在把**函数指针**交给
+   * 框架（注册回调 / 设处理器）。按 (槽, 第几个参数) 去重后打印，避免刷屏。
+   *
+   * 为什么需要：实测 000004dc《仙剑》的帧循环是回调驱动的 —— 主循环里
+   *   `if (根表[0x10] != 0) return;`（有回调 ⇒ 由框架驱动 ⇒ 自己不干活）
+   * 而我们没实现"注册/驱动回调"这块 ✗ ⇒ 界面永远不动 ✓。靠它能一眼找出
+   * applet 到底把回调交给了哪个槽 ✓。 */
+  if (getenv("ZM_CB_PROBE")) {
+    static uint32_t seen[96][2];
+    static int n_seen = 0;
+    const uint32_t args[4] = {r0, r1, r2, r3};
+    for (int k = 0; k < 4; k++) {
+      uint32_t v = args[k];
+      if (v < 0x100u || v >= 0x40000u || (v & 3u))
+        continue;
+      int dup = 0;
+      for (int q = 0; q < n_seen; q++)
+        if (seen[q][0] == trap_address && seen[q][1] == (uint32_t)k)
+          dup = 1;
+      if (dup)
+        continue;
+      if (n_seen < 96) {
+        seen[n_seen][0] = trap_address;
+        seen[n_seen][1] = (uint32_t)k;
+        n_seen++;
+      }
+      if (trap_address >= TRAMP_BASE && trap_address < TRAMP_BASE + TRAMP_SIZE)
+        log_info("回调探针: 槽+0x%X r%d=0x%X | r0=0x%X r1=0x%X r2=0x%X r3=0x%X lr=0x%X",
+                 trap_address - TRAMP_BASE, k, v, r0, r1, r2, r3, lr);
+      else
+        log_info("回调探针: 0x%X r%d=0x%X | r0=0x%X r1=0x%X r2=0x%X r3=0x%X lr=0x%X",
+                 trap_address, k, v, r0, r1, r2, r3, lr);
+    }
+  }
 
   /* 带上槽号：排查"某个返回值被 applet 存进对象、之后当指针用"的场景时，
    * 只打 r0 的值分不清是哪个槽返回的。这里只改调试输出，不改任何行为。 */

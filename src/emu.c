@@ -1,5 +1,6 @@
 #include "./emu.h"
 #include "./hook.h"
+#include "./trap.h" /* trap_dump_recent：崩溃时打"最近的外部调用" */
 #include "./log/log.h"
 #include "./tool/odds.h" /* get_filename_from_fullpath */
 #include "./tool/uc_helper.h"
@@ -36,6 +37,53 @@ uint8_t g_cscode[16];
 
 /* -------------------- 实现 -------------------- */
 
+/**
+ * @brief 把 ZM_CRASH_MEM 指定的客户机内存区间转储到 /tmp/zm_crash_mem<N>_<地址>.bin
+ *
+ * 【为什么必须有】有些 applet（实测 000004dc《仙剑奇侠传》）的 .app 在磁盘上是
+ * **加密/压缩**的：运行时内存里的指令与文件字节**完全不同** —— 同一地址，文件里
+ * 解出来是 `pop {…,pc}`，内存里其实是 `blx r2` ✗。没有这个转储就只能对着错的
+ * 指令流推理（为此白绕过很久）。
+ *
+ * 两个触发点：① 崩溃时；② **正常停止时**（ZM_DUMP_ON_EXIT=1）—— 后者专门对付
+ * "不崩但也不干活"的 applet：实测 000004dc 就是无限跑 1ms 定时器、从不 Update，
+ * 要看清那个回调在等什么，必须把运行时的代码/数据 dump 出来离线读。
+ *
+ * 格式：ZM_CRASH_MEM="0x起址:0x长度[;0x起址:0x长度…]"，长度省略默认 0x100。
+ */
+static void emu_dump_mem_ranges(const char *why) {
+  const char *cm = getenv("ZM_CRASH_MEM");
+  if (!cm || !cm[0])
+    return;
+  const char *p = cm;
+  for (int idx = 0; idx < 8 && *p;) {
+    unsigned long a = strtoul(p, (char **)&p, 0);
+    unsigned long len = 0x100;
+    if (*p == ':')
+      len = strtoul(p + 1, (char **)&p, 0);
+    while (*p == ';' || *p == ',')
+      p++;
+    if (len == 0 || len > 0x400000)
+      len = 0x100;
+    char fn[64];
+    snprintf(fn, sizeof(fn), "/tmp/zm_crash_mem%d_%08lX.bin", idx, a);
+    FILE *fp = fopen(fn, "wb");
+    if (fp) {
+      uint8_t *tmp = malloc(len);
+      if (tmp) {
+        if (uc_mem_read(g_uc, a, tmp, len) == UC_ERR_OK)
+          fwrite(tmp, 1, len, fp);
+        else
+          log_error("内存转储: 0x%lX 读不出来（未映射？）", a);
+        free(tmp);
+      }
+      fclose(fp);
+      log_error("内存转储（%s）: %s（0x%lX 起，%lu 字节）", why, fn, a, len);
+    }
+    idx++;
+  }
+}
+
 int zm_emu_map_memory() {
   uc_err err;
   /* 逐个检查：原实现把 6 次映射的返回值连续赋给同一个 err，只验最后一次，
@@ -54,10 +102,95 @@ int zm_emu_map_memory() {
   ZM_MAP(STACK_BASE, STACK_SIZE);
   /* CBK 自管堆专用区（见 emu_mem_regions.h：不能用 blob 区，会撞 applet 的 BSS） */
   ZM_MAP(CBKHEAP_BASE, CBKHEAP_SIZE);
+  /* CBK 堆之上的跳板页：页首放"返回 0"的桩（见 emu_mem_regions.h 的说明），
+   * 它同时充当分配器的"区末上界"与 applet 会 blx 过去的函数指针。 */
+  ZM_MAP(CBK_STUB_BASE, CBK_STUB_SIZE);
+  ZM_MAP(CBK_TAIL_BASE, CBK_TAIL_SIZE); /* 跳板页之后的暂存垫子（见头注释） */
   ZM_MAP(HEAP_BASE, HEAP_SIZE);
   ZM_MAP(SHIM_BASE, SHIM_SIZE);
   ZM_MAP(TRAMP_BASE, TRAMP_SIZE);
 #undef ZM_MAP
+
+  /* 跳板页页首的桩：**返回一个"中性假对象"**。
+   *
+   * 为什么不是"返回 0/1"：调用方是两条不同的路 ——
+   *   00000710 家族：`r2 = [[CBK+0x4C]]+0x30`，结果**按字节当 bool** 用 → 非 0 即真 ✓
+   *   0000050b 家族：`r4 = f(this=分配器, buf, len=12)`，然后
+   *       `movs r4,r0; beq <失败>` → 非 0 继续 ✓
+   *       `ldr r0,[r4]; ldr r3,[r0,#0xc]; blx r3`  ← **把返回值当对象用** ✗
+   *     实测：返 0 走失败分支 → 后面跳野地址崩；返 1（非 0 但不可解引用）
+   *       → 它去读 [1+0xc] 又崩。所以必须给一个**能当对象解引用**的指针。
+   *
+   * 做法（页内布局）：
+   *   +0x000  本桩：ldr r0,[pc,#0]（取 +8 的字）; bx lr; .word 假对象地址
+   *   +0x100  堆管理器（[管理器+8] 也指着页首，兼作"区末上界"）
+   *   +0x200  假虚表：16 个槽全指向本桩（每个"方法"调用后返回同一个假对象 ✓）
+   *   +0x300  假对象：[0] = 假虚表
+   * 指令用 `bh`/`bx` 兼容写法（纯 ARM、`bx lr` 按 lr 最低位切回原模式 ✓）。 */
+  {
+    uint32_t vtab = CBK_STUB_BASE + 0x200u;
+    uint32_t obj = CBK_STUB_BASE + 0x300u;
+    /* 桩：ldr r0,[pc,#0]; bx lr; .word obj */
+    uint32_t code[3] = {0xE59F0000u, 0xE12FFF1Eu, obj};
+    uc_mem_write(g_uc, CBK_STUB_BASE, code, sizeof(code));
+    /* 假虚表：给足 0x100 字节（64 槽）—— 这类 applet 调到的槽偏移不固定
+     * （0000050b 用 +0xc、00000710 用 +0x30、还有别处用 +4），表太小会读到表外。
+     * ★ 但**不能每一槽都返回到"假对象"**：实测 0000050b 会拿某个槽的返回值当
+     *   **尺寸**用（`vt[0x24]` → `malloc(返回値)`），而"假对象地址"是个指针 ✗
+     *   —— 它于是 malloc(0xFD0300 = 16MB) → 失败 → NULL → 后面把尺寸当指针 → 崩。
+     *   所以：+0x24 这类"取尺寸/计数"槽 → 填"返回 0"的桩 ✓（0 尺寸 = 没有内容，
+     *   applet 走"空"分支，不会去访问不存在的缓冲）；其余槽仍返回假对象 ✓
+     *   （有些调用点要的就是一个能继续解引用的对象）。 */
+    uint32_t stub_obj = CBK_STUB_BASE;      /* 返回假对象 */
+    uint32_t stub_zero = CBK_STUB_BASE + 0x10u; /* 返回 0 */
+    static const uint8_t zero8[8] = {0x00, 0x00, 0xA0, 0xE3, 0x1E, 0xFF, 0x2F, 0xE1};
+    uc_mem_write(g_uc, stub_zero, zero8, sizeof(zero8));
+    for (uint32_t o = 0; o < 0x100u; o += 4) {
+      uint32_t fn = (o == 0x24u) ? stub_zero : stub_obj;
+      uc_mem_write(g_uc, vtab + o, &fn, 4);
+    }
+    /* 假对象：[0] = 假虚表 */
+    uc_mem_write(g_uc, obj, &vtab, 4);
+
+    /* ★ 文件对象虚表：给 [CBK+0x4C]→[+0] 的 +8 那条"打开资源文件"路用
+     * （见 emu_mem_regions.h 的 CBK_TRAP_BASE 与 zm_cbk_file.h 的长注释）。
+     *   +0x04 release / +0x08 read / +0x0C write / +0x20 seek / +0x24 **文件大小**
+     * 其余槽一律"返回 0" —— 绝不再让"指针当尺寸"重演 ✗。 */
+    /* ★★ 陷阱窗口要**同时当头"相对偏移表"**（实测 000004dc《仙剑》才看清）：
+     * 这族 applet 的虚调用是**相对**的 ——
+     *     ldr r1,[obj,#8]      ; r1 = 表首
+     *     ldr r2,[r1,#0x1c]    ; r2 = 表首 +0x1C 处的**偏移**（可正可负）
+     *     add ip,r2,r1         ; 目标 = 表首 + 偏移
+     *     blx ip
+     * 它们对我们给出的 [管理器+8] 也这么算：目标 = 0xFD0040 + *(0xFD005C) ✗
+     * —— 那里原来是**没初始化**的字节 → 跳到 0x128334DC 之类野地址 ✓。
+     * 而陷阱是**按 PC 拦截**的，窗口里的字节内容对"直接调用"毫无影响 ✓，所以这里
+     * 把窗口清成 0：任何槽读出的偏移都是 0 ⇒ 目标 = CBK_TRAP_BASE + 0 = 我们的
+     * "打开文件"陷阱 ✓（它拿到的 r1 不是路径时会安静地返回 0，不会造成伤害）。
+     * 备注：文件对象虚表（CBK_FILE_VT）里存的是**绝对**陷阱地址 ✗，只适用于
+     * 绝对约定的那几族（0000050b 实测可用 ✓）；相对约定的 applet 走到那里会跳飞，
+     * 但实测它们还没走到那一步。 */
+    {
+      uint32_t zeros[0x40 / 4] = {0};
+      uc_mem_write(g_uc, CBK_TRAP_BASE, zeros, sizeof(zeros));
+    }
+
+    for (uint32_t o = 0; o < 0x40u; o += 4)
+      uc_mem_write(g_uc, CBK_FILE_VT + o, &stub_zero, 4);
+    {
+      uint32_t t;
+      t = CBK_TRAP_BASE + 0x04u;
+      uc_mem_write(g_uc, CBK_FILE_VT + 0x04u, &t, 4); /* release */
+      t = CBK_TRAP_BASE + 0x08u;
+      uc_mem_write(g_uc, CBK_FILE_VT + 0x08u, &t, 4); /* read */
+      t = CBK_TRAP_BASE + 0x0Cu;
+      uc_mem_write(g_uc, CBK_FILE_VT + 0x0Cu, &t, 4); /* write */
+      t = CBK_TRAP_BASE + 0x10u;
+      uc_mem_write(g_uc, CBK_FILE_VT + 0x20u, &t, 4); /* seek */
+      t = CBK_TRAP_BASE + 0x14u;
+      uc_mem_write(g_uc, CBK_FILE_VT + 0x24u, &t, 4); /* size */
+    }
+  }
 
   /*
    * 客户机堆策略（见 emu.h 中 g_ulibc_heap 的说明）。
@@ -111,6 +244,30 @@ int zm_emu_build_vtables() {
      * +0x90 等字段做"为 0 则创建"的懒初始化，填成 trap 地址会被当成
      * 真实对象解引用（见 emu.h CBK_CTX_SIZE 说明）。 */
     if (addr >= CBK_CTX && addr < CBK_CTX + CBK_CTX_SIZE)
+      continue;
+    /* ★ 根表 +0x10 槽**留 0**，不要填陷阱地址。
+     *
+     * 这一槽我们并没有定义（emu_root_traps.h 里 0x04 / 0x10 / 0x18 都是空的 ✗），
+     * 于是它被填成"陷阱地址"（0xE50010 之类 ✓），非 0 ✗。而有些 applet 把这个
+     * 位置当**对象字段**读 —— 实测 000004dc《仙剑奇侠传》的主循环：
+     *
+     *   0x28BC  bl #get_root          ; 取根对象
+     *   0x28C0  ldr r0,[r0,#0x10]     ; 读 +0x10 当"系统忙 / 暂停"标志
+     *   0x28C4  cmp r0,#0
+     *   0x28C8  bne 0x28FC            ; ★ 非 0 ⇒ **本帧什么都不做，直接返回**
+     *   0x28CC  bl #time64 …          ; 否则才和截止时间比、调 r4->vt[0x18] 干活
+     *
+     * 结果：每帧都读到 0xE50010 ✗ ⇒ 永远"忙" ⇒ 从不 Update ⇒ **永远白屏** ✗。
+     * 【当前状态：实验开关，默认关 ✗】
+     * 置 0 之后 000004dc 的主循环**第一次真的跑起来**了 ✓（以前每帧直接 return ✗），
+     * 但紧接着撞到第二处用法：`0x24D38 ldr r1,[r1,#0x10]; bx r1`（把它当**函数**
+     * 直接调用 ✗）—— 0 当然跳不动 ✗（PC=0 崩）。两处用法矛盾：
+     *   0x28C0 读它   → 非 0 ⇒ 本帧什么都不做（"忙"）
+     *   0x24D38 调它  → 必须是**可调用地址**
+     * ⇒ 这一槽在本族里其实是"**帧回调/处理函数**"，真机上由**框架实现**提供 ✗，
+     *   我们还没实现 ⇒ 先保持旧行为（填陷阱地址），等做出那个桩再默认打开 ✓。
+     * ZM_ROOT_SLOT10_ZERO=1 可提前体验"主循环真的跑起来"的效果（会崩在 bx ✗）。 */
+    if (addr == SHIM_VT_BASE + 0x10 && getenv("ZM_ROOT_SLOT10_ZERO"))
       continue;
     W(addr, TRAMP_BASE + i);
     if (werr != UC_ERR_OK) {
@@ -433,7 +590,10 @@ static uc_hook hook_ctx_handle;
 
 /* 指令级追踪（ZM_TRACE=1）：环形缓冲记录最近 TRACE_N 条指令地址。
  * 只在崩溃时输出，用于定位"最后一步跳到了哪里"。 */
-#define TRACE_N 48
+/* 环形缓冲大小。48 条对"跳进一大片 0/NOP 区一路滑过去"的崩法不够用
+ * ——实测 0000050b 跳进像素池后 48 条全被"滑行"占满，看不到跳飞来源 ✗。
+ * 调大到 512（约 2KB 内存，仅 ZM_TRACE=1 时才记录）。 */
+#define TRACE_N 4096
 uint32_t g_trace[TRACE_N];
 int g_trace_pos = 0;
 int g_trace_enabled = 0;
@@ -541,6 +701,11 @@ int zm_emu_start_applet() {
     uc_reg_read(g_uc, UC_ARM_REG_PC, &pc);
     uc_reg_read(g_uc, UC_ARM_REG_SP, &sp);
     log_info("unicorn engine 正常停止（uc_emu_stop），PC=0x%X SP=0x%X", pc, sp);
+    /* 正常停止也允许转储（ZM_DUMP_ON_EXIT=1）：专门对付"不崩但不干活"的 applet
+     * —— 实测 000004dc 无限跑 1ms 定时器、从不 Update，只有把**运行时的代码** dump
+     * 出来（它的内存代码 ≠ .app 文件 ✗）才能看清那个回调在等什么。 */
+    if (getenv("ZM_DUMP_ON_EXIT"))
+      emu_dump_mem_ranges("正常退出");
   } else {
     /* 出错时 dump 全部通用寄存器 + 栈顶若干字，便于重建调用现场：
      * PC 是出错位置，LR 是最近一次 BL 的返回地址（通常就是"谁跳过去的"），
@@ -571,6 +736,15 @@ int zm_emu_start_applet() {
         log_error("CPSR=0x%X（解释模式：%s）", cpsr,
                   (cpsr & 0x20) ? "Thumb" : "ARM");
     }
+    /* 最近 32 次"applet→外部（槽）"调用：崩在野地址/野读时，这一串通常直接
+     * 指出"哪个槽的返回值被当指针/尺寸用了"（见 trap.c 的 trap_dump_recent）。 */
+    trap_dump_recent();
+    /* 最近的指令地址序列：崩在**非陷阱**的野地址时，靠它看清是哪条指令
+     * （blx / pop {…,pc} / ldr pc,[rX]）把 PC 带走的（见 hook.c）。 */
+    hook_dump_pc_ring();
+
+    /* 崩溃内存转储（见 emu_dump_mem_ranges 的长注释） */
+    emu_dump_mem_ranges("崩溃");
     /* PC 处的**实际字节**：err=10 时用来区分三种情况 ——
      *   ① 跳进了数据区（字节与 .app 文件不一致）；
      *   ② 代码被 self-modify / 被别的写入改坏了（同上）；
@@ -593,12 +767,15 @@ int zm_emu_start_applet() {
 
     uint32_t sp = 0;
     uc_reg_read(g_uc, UC_ARM_REG_SP, &sp);
-    uint32_t stack[12] = {0};
-    if (uc_mem_read(g_uc, sp, stack, sizeof(stack)) == UC_ERR_OK) {
+    /* 从 SP-0x20 铺到 SP+0x20：崩在 `pop {…,pc}` 这类"从栈里弹回野地址"时，
+     * 真正被弹走的字在 **SP 下方**（pop 之后 SP 已经抬高了）—— 只 dump SP 以上
+     * 什么线索也看不到 ✗。实测 000004dc 就靠这一段才看清野地址来自哪个槽。 */
+    uint32_t stack[17] = {0};
+    if (uc_mem_read(g_uc, sp - 0x20, stack, sizeof(stack)) == UC_ERR_OK) {
       p = 0;
-      for (unsigned i = 0; i < 12; i++)
-        p += snprintf(buf + p, sizeof(buf) - (size_t)p, "[SP+%02u]=0x%X ", i * 4,
-                      stack[i]);
+      for (unsigned i = 0; i < 17; i++)
+        p += snprintf(buf + p, sizeof(buf) - (size_t)p, "[SP%+d]=0x%X ",
+                      (int)((int)i * 4 - 0x20), stack[i]);
       log_error("栈顶：%s", buf);
     }
 
@@ -610,13 +787,18 @@ int zm_emu_start_applet() {
       const char *nm;
     } objs[] = {{UC_ARM_REG_R4, "R4"}, {UC_ARM_REG_R3, "R3"},
                 {UC_ARM_REG_R2, "R2"}, {UC_ARM_REG_R5, "R5"},
-                {UC_ARM_REG_R6, "R6"}, {UC_ARM_REG_R7, "R7"}};
+                {UC_ARM_REG_R6, "R6"}, {UC_ARM_REG_R7, "R7"},
+                {UC_ARM_REG_R0, "R0"}, {UC_ARM_REG_R1, "R1"},
+                {UC_ARM_REG_R8, "R8"}, {UC_ARM_REG_R9, "R9"},
+                {UC_ARM_REG_R10, "R10"}, {UC_ARM_REG_LR, "LR"}};
     for (unsigned i = 0; i < sizeof(objs) / sizeof(objs[0]); i++) {
       uint32_t base = 0;
       uc_reg_read(g_uc, objs[i].reg, &base);
       if (!base)
         continue;
-      uint32_t w[4] = {0};
+      /* 打 8 个字（[0..0x1C]）：这类"小对象"的字段往往散在前 0x20 字节里，
+       * 只打前 4 个会漏掉真正被当指针用的那个（实测 00000462 崩在 [r1+4]）✗。 */
+      uint32_t w[8] = {0};
       if (uc_mem_read(g_uc, base, w, sizeof(w)) != UC_ERR_OK)
         continue;
       uint32_t vt = w[0];
@@ -625,11 +807,11 @@ int zm_emu_start_applet() {
       uc_mem_read(g_uc, vt + 4, &vt4, 4);
       uc_mem_read(g_uc, vt + 0x18, &vt18, 4);
       uc_mem_read(g_uc, vt + 0x1C, &vt1c, 4);
-      log_error("obj@%s=0x%X: [0..12]=%X %X %X %X | vt=0x%X vt[0]=0x%X "
-                "vt[4]=0x%X vt[0x18]=0x%X vt[0x1C]=0x%X (vt+vt[4]=0x%X "
-                "vt+vt[0x1C]=0x%X)",
-                objs[i].nm, base, w[0], w[1], w[2], w[3], vt, vt0, vt4, vt18,
-                vt1c, vt + vt4, vt + vt1c);
+      log_error("obj@%s=0x%X: [0..0x1C]=%X %X %X %X %X %X %X %X | vt=0x%X "
+                "vt[0]=0x%X vt[4]=0x%X vt[0x18]=0x%X vt[0x1C]=0x%X "
+                "(vt+vt[4]=0x%X vt+vt[0x1C]=0x%X)",
+                objs[i].nm, base, w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7],
+                vt, vt0, vt4, vt18, vt1c, vt + vt4, vt + vt1c);
       /* this 类对象常把 display / 子对象挂在固定偏移，
        * 打印 this+0x50..0x60 便于确认"display 指针有没有被填上" */
       uint32_t f[6] = {0};

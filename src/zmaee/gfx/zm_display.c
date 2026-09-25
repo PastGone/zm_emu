@@ -3334,6 +3334,12 @@ uint32_t zm_display_DrawImageExt(uc_engine *uc, uint32_t off, uint32_t r0,
    * 屏幕上只剩启动时画过的一次背景渐变 —— 表现就是"槽位统计里画了 584 次，
    * 画面却一动不动"。实现走与 StretchBlt 同一条缩放 blit 通路（含 alpha 混合、
    * 洋红跳过、按当前层裁剪）。 */
+  /* A/B 开关：置 1 退回到老的空桩行为（只当没这张图），用来判断"某个 applet 从
+   * 能跑变不能跑"是不是这条通路引起的。实测 00000462：实现本槽后，点"开始游戏"
+   * 从"能进游戏"变成"进游戏就崩"；单点回退整个 zm_display.c 即恢复 ✓。 */
+  if (getenv("ZM_NO_DRAWEXT"))
+    return 0;
+
   fb_refresh_draw_target();
   int dx = (int)r1, dy = (int)r2, dw = (int)r3;
   int dh = (int)getArg(uc, 4);      /* 栈参 1：h */
@@ -3343,6 +3349,8 @@ uint32_t zm_display_DrawImageExt(uc_engine *uc, uint32_t off, uint32_t r0,
     return 0;
   int sw = 0, sh = 0;
   const uint8_t *rgba = NULL;
+  if (getenv("ZM_NO_DRAWEXT_PIXELS")) /* A/B：跳过"取像素"这一步 */
+    return 0;
   if (!zm_image_get_pixels(img, &sw, &sh, &rgba)) {
     log_debug("DrawImageExt: 0x%X 没有解码后的像素，跳过", img);
     return 0;
@@ -3350,8 +3358,13 @@ uint32_t zm_display_DrawImageExt(uc_engine *uc, uint32_t off, uint32_t r0,
   uint32_t P = r0 + 52u * (uint32_t)uc_read32(uc, r0 + 8) + 36u;
   int cx = (int)uc_read32(uc, P + 0x14), cy = (int)uc_read32(uc, P + 0x18);
   int cw = (int)uc_read32(uc, P + 0x1C), ch = (int)uc_read32(uc, P + 0x20);
-  fb_blit_rgba_scaled_mode(dx, dy, dw, dh, rgba, sw, sh, flags & 7, cx, cy, cw,
-                           ch);
+  /* A/B 开关（排查"某 applet 从能跑变不能跑"）：置 1 只跳过实际落像素，
+   * 其余（取像素、算裁剪区）不变 —— 用来判断问题出在"blit 本身"还是"这条通路
+   * 的其它部分"。实测 00000462：da74f42 实现 DrawImageExt 后，点"开始游戏"
+   * 从"能进游戏"变成"进游戏就崩"（单点回退 zm_display.c 即恢复 ✓）。 */
+  if (!getenv("ZM_NO_DRAWEXT_BLIT"))
+    fb_blit_rgba_scaled_mode(dx, dy, dw, dh, rgba, sw, sh, flags & 7, cx, cy, cw,
+                             ch);
   static uint32_t n = 0;
   if (++n <= 6)
     log_info("DrawImageExt #%u: 图像%dx%d → (%d,%d) %dx%d flags=%d", n, sw, sh, dx,

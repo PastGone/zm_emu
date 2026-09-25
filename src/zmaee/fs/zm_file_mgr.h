@@ -67,6 +67,12 @@ int zm_fs_read_file(const char *name, uint8_t **out_buf, size_t *out_len);
  * 成功 0，失败 -1。 */
 int zm_fs_write_back(const char *full_path, const uint8_t *data, size_t len);
 
+/* 同上的"按 applet 给的名字"版本：走和 zm_fs_read_file 一样的归一化与目录搜索，
+ * **文件不存在就创建**（新建存档就是这种情况），父目录不存在会逐级建。
+ * 用途：CBK 文件对象（zm_cbk_file.c）关闭时落盘 —— 没有它，那一族的
+ * "存档/设置"写进内存就丢了 ✗。成功 0，失败 -1。 */
+int zm_fs_write_back_name(const char *name, const uint8_t *data, size_t len);
+
 /* 默认初始化：设置数据目录（不扫描任何文件） */
 void zm_fs_register_default(const char *applet_dir);
 

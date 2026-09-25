@@ -65,6 +65,63 @@ static constexpr uint32_t TRAMP_SIZE = 1 * HALF_MB;
 static constexpr uint32_t CBKHEAP_BASE = TRAMP_BASE + TRAMP_SIZE;
 static constexpr uint32_t CBKHEAP_SIZE = 1 * ONE_MB;
 
+/* CBK 堆区**之上**的一个 4KB "跳板页"（见 trap.c 的 cbk_heap_init_once）。
+ *
+ * 为什么需要：有一族 applet 把 `[CBK_OBJ+0x4C]` 当"带虚表的对象"用——
+ *   r0 = [CBK+0x4C]; r1 = 1; r2 = [[r0]+0x30]; blx r2      （00000710 家族）
+ *   r0 = [r0];      r3 = [[r0]+0x8];  blx r3                （0000050b 家族）
+ * 而另一条路（00000502 的分配器 0x15DDC/0x175B8）要求
+ *   [分配器+0] = 堆管理器，管理器 { +4 首块, +8 区末 }（+8 是**分配上限**）
+ * 两者在"管理器 +8"上硬冲突：一个要它是数值上界，一个要它是函数指针。
+ *
+ * 解法：把**区末定成这个页的首地址**，并在页首放一段"返回 0"的桩 ✓
+ * —— 它同时满足"分配上限"（堆区正好到页首为止，下面全是已映射内存 ✓）
+ * 和"可调用"（blx 过去就是 mov r0,#0; bx lr ✓）。
+ * 注意：旧实验把 +8 填成 TRAMP_BASE+0x3C（**低于**堆区起点）→ 分配上限 < 区起点
+ * → 分配全失败（00000502 退到 0x7B080C、000007xx 全退 0x18 ✗）。位置**必须在上方**。 */
+static constexpr uint32_t CBK_STUB_BASE = CBKHEAP_BASE + CBKHEAP_SIZE;
+static constexpr uint32_t CBK_STUB_SIZE = 0x1000U;
+/* 管理器搬到跳板页里（页首是桩代码，管理器放 +0x100） */
+static constexpr uint32_t CBK_MGR_OFF = 0x100U;
+
+/* 跳板页里的**宿主陷阱窗口**（见 trap.c 的"CBK 文件对象陷阱"）。
+ *
+ * 这一族 applet（0000050b/00001b63 等）把 [CBK_OBJ+0x4C]（分配器）当"带虚表的对象"，
+ * 并且把它的 [+0]→[+8] 当**打开资源文件**的工厂用：先拼 "<目录>\res\gameN.ypak"
+ * （实测字符串 ✓），再把路径传进来，拿回一个"文件对象"，随后
+ *     size = obj->vt[0x24]();  buf = malloc(size);  obj->vt[0x08](buf, size);
+ * 真机那里是文件/资源服务；我们以前给的是"只会返回假对象的桩" ✗ → size 拿到的是
+ * **指针**（0xFD0300）→ malloc(16MB) 失败 → NULL → 后面拿尺寸当指针 → 崩。
+ * 现在 [管理器+8] 指向这里的第一个陷阱，由宿主按**真文件**办事（见 zm_cbk_file.c）。
+ *
+ * 地址仍在堆区之上 ⇒ 它同时继续充当分配器的"区末上界"（旧要求不能丢 ✗）。 */
+static constexpr uint32_t CBK_TRAP_BASE = CBK_STUB_BASE + 0x40U;
+static constexpr uint32_t CBK_TRAP_SIZE = 0x40U;
+
+/* 文件对象的假虚表与包装对象池（都在跳板页里；页内布局见 emu.c）：
+ *   +0x240 假虚表（给"管理器方法槽"返回的那个假对象用）
+ *   +0x600 文件对象虚表：+0x04 release / +0x08 read / +0x0C write /
+ *                        +0x20 seek / +0x24 **文件大小**
+ *   +0x800 包装对象池（4 × 0x20） */
+static constexpr uint32_t CBK_FILE_VT = CBK_STUB_BASE + 0x600U;
+static constexpr uint32_t CBK_FILE_OBJ = CBK_STUB_BASE + 0x800U;
+static constexpr uint32_t CBK_FILE_OBJ_STRIDE = 0x20U;
+static constexpr uint32_t CBK_FILE_MAX = 4U;
+
+/* 跳板页之后的**尾部暂存区**（256KB，清零）。
+ *
+ * 为什么需要：那一族 applet 拿到"区末"（[管理器+8] = 跳板页首 0xFD0000）之后，
+ * 会把它当"堆后面的空白区"用来**清缓冲** —— 实测 0000050b 就是从 0xFD0000+0x1000
+ * 开始 `strh` 逐 2 字节写 0、一直写到 0xFD3558（约 9.5KB），写到未映射区就 err=7 ✗。
+ * 真机上那片是它自己的可写内存；我们在这里补一块够大的垫子，让它清得过、
+ * 又**不覆盖**跳板页里的桩/管理器（垫子从 CBK_TAIL_BASE = 跳板页之后开始 ✓）。 */
+static constexpr uint32_t CBK_TAIL_BASE = CBK_STUB_BASE + CBK_STUB_SIZE;
+/* 【先粗后细】先给 16MB 兜底，观察这族 applet 到底要用多大、怎么用这块内存
+ * （实测它每加一块垫子就往后要下一块：0xFD1000 → 0x1011000，说明"区末"这个
+ * 值在它眼里可能不是"区末"而是"可用空间起点/缓冲基址"）。等看清用法再收回成
+ * 正确语义的实现，见 CBK_STUB_BASE 那段注释。 */
+static constexpr uint32_t CBK_TAIL_SIZE = 16 * ONE_MB;
+
 static constexpr uint32_t ROOT_SLOT_OFF = 0x180U;
 static constexpr uint32_t APPLET_ENTRY_OFF = 0x188U;
 static constexpr uint32_t APPLET_ENTRY_POINT = BLOB_BASE + APPLET_ENTRY_OFF;

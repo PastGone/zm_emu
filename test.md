@@ -9,7 +9,7 @@ ZM_TEST_DISPLAY=1 ZM_TEST_SEC=0 ./test_all.sh 00000442
 ZM_TEST_DISPLAY=1 ZM_TEST_SEC=0 ./test_all.sh 0000042f
 ZM_TEST_DISPLAY=1 ZM_TEST_SEC=0 ./test_all.sh 0000048a
 //测试多个关键实现
-ZM_TEST_DISPLAY=1 ZM_TEST_SEC=0 ./test_all.sh 00000102 00000506 00000001 000007ca 00000462 00000442 0000042f
+ZM_TEST_DISPLAY=1 ZM_TEST_SEC=0 ./test_all.sh 00000102 00000506 00000001 000007ca 00000462 00000442 0000042f 0000048a
 
 //测试所有实现
 ZM_TEST_DISPLAY=1 ZM_TEST_SEC=1 ./test_all.sh
@@ -20,6 +20,12 @@ ZM_TEST_DISPLAY=1 ZM_TEST_SEC=0 ./test_all.sh
 //扫描工具
 cd ./go_tools/applet_scan
 go run . /home/apollo/文档/古时游戏/zm_emu/applet -o ../../applet_headers.csv
+
+
+//
+
+find . -mindepth 1 -depth -type d -empty -exec rmdir {} \;
+find . -mindepth 1 -depth -type d -empty -print
 ```
 
 
