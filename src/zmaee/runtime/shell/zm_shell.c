@@ -493,7 +493,7 @@ uint32_t zm_util_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
  * 00000506 在标题页点"退出"那一块（约 (96~107, 219~225)）会调它 —— 以前我们
  * 当成未知槽（zm_shell_stub 返回 0），点了毫无反应。
  *
- * 现在：先派发 EV_STOP(evt=1) 让 applet 跑完自己的退出回调（sub_9270：
+ * 现在：先派发 APP_CMD_DESTROY(evt=1) 让 applet 跑完自己的退出回调（sub_9270：
  * ISetting(0) 关声音、pauseMusic、取消定时器、释放 UI 并存盘 data/farm），
  * 收尾后由 TR_enter_event_loop 分支检测到"已请求关闭"而结束模拟。 */
 uint32_t zm_shell_CloseApplet(uc_engine *uc, uint32_t b_ret_to_idle) {

@@ -1971,7 +1971,7 @@ bool zm_display_event_loop(void (*on_click)(uint32_t x, uint32_t y),
         fb_present();
         return true; /* 已派发点击事件 → 让模拟器执行 handler */
       }
-      /* 拖动：按住并移动 → evt=11（PEN_MOVE）。
+      /* 拖动：按住并移动 → APP_CMD_TOUCH_MOVE(evt=11)。
        * applet 的按下/抬起/移动共用同一个处理函数（见 sub_80FC），
        * 由坐标变化自行判断拖动逻辑（如地图滚动）。
        * 坐标映射与点击一致（窗口尺寸按画布等比缩放）。 */

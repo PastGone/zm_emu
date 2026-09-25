@@ -312,7 +312,7 @@ int zm_emu_build_vtables() {
      * 即字号 94 / 20；sub_56C0 还会把这两格拷进 UI 对象 +8 / +0xC）。
      * 2026-09-16 试过填成 (sw, sh)：崩溃现场（pc=0x1EDC / R4=0）与寄存器
      * 完全不变 → 与本次崩溃无关，已撤回。 */
-    /* +0x64 = IFileMgr 指针。00000001 在 EV_CREATE（sub_8300）里：
+    /* +0x64 = IFileMgr 指针。00000001 在 APP_CMD_INIT（sub_8300）里：
      *   R4 = [[CBK_OBJ+0x48] + 0x64]   // 即 [CBK_CTX + 0x64]
      *   sprintf(buf, "record_flag.dat")
      *   R3 = [R4]->vt[+0x08]; BLX R3   // IFileMgr.OpenFile(fm, path, 1)

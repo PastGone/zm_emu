@@ -79,8 +79,8 @@ uint32_t a_timer_return(trap_ctx *c) {
   return 0;
 }
 
-/* 事件循环：一次进来干一件事（EV_CREATE → EV_RESUME → SDL 泵 → EV_STOP），
- * 每次都要回到 applet 的 handler，所以 PC 由分支自己派发。 */
+/* 事件循环：一次进来干一件事（APP_CMD_INIT → APP_CMD_RESUME → SDL 泵 →
+ * APP_CMD_DESTROY），每次都要回到 applet 的 handler，所以 PC 由分支自己派发。 */
 uint32_t a_enter_event_loop(trap_ctx *c) {
   static int stage = 0;
   static int resume_enabled = 1;
@@ -139,9 +139,9 @@ uint32_t a_enter_event_loop(trap_ctx *c) {
     log_info("实例已分配：instance=0x%X（%u 字节），handler=0x%X", INSTANCE, size, handler);
 
     stage = 1;
-    log_info("派发 EV_CREATE(evt=0) -> handler=0x%X", g_handler);
-    dispatch_applet_event(0 /* EV_CREATE */, 0, 0);
-    log_info("EV_CREATE 之后：访问 [CBK_OBJ+0x48] = 0x%X（我们初始化的是 0x%X）",
+    log_info("派发 APP_CMD_INIT -> handler=0x%X", g_handler);
+    dispatch_applet_event(APP_CMD_INIT, 0, 0);
+    log_info("APP_CMD_INIT 之后：访问 [CBK_OBJ+0x48] = 0x%X（我们初始化的是 0x%X）",
              uc_read32(uc, CBK_OBJ + 0x48), CBK_CTX);
     return 0;
   }
@@ -149,8 +149,8 @@ uint32_t a_enter_event_loop(trap_ctx *c) {
   if (stage == 1) {
     stage = 2;
     if (resume_enabled) {
-      log_info("派发 EV_RESUME(evt=3) -> handler=0x%X", g_handler);
-      dispatch_applet_event(3, 0, 0);
+      log_info("派发 APP_CMD_RESUME -> handler=0x%X", g_handler);
+      dispatch_applet_event(APP_CMD_RESUME, 0, 0);
       return 0;
     }
   }
@@ -168,8 +168,8 @@ uint32_t a_enter_event_loop(trap_ctx *c) {
     const char *ex = getenv("ZM_EXIT_EVENT");
     if (ex && *ex && ex[0] != '0') {
       exit_dispatched = 1;
-      log_info("派发 EV_STOP(evt=1) -> handler=0x%X（让 applet 自己收尾）", g_handler);
-      dispatch_applet_event(1, 0, 0);
+      log_info("派发 APP_CMD_DESTROY -> handler=0x%X（让 applet 自己收尾）", g_handler);
+      dispatch_applet_event(APP_CMD_DESTROY, 0, 0);
       return 0;
     }
     uc_emu_stop(uc);

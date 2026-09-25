@@ -102,7 +102,7 @@ void dispatch_applet_event(uint32_t evt, uint32_t x, uint32_t y);
 void on_touch_click(uint32_t x, uint32_t y);
 
 /**
- * @brief 把 SDL 鼠标拖动转发为 applet 触摸移动事件（evt=11 PEN_MOVE）
+ * @brief 把 SDL 鼠标拖动转发为 applet 触摸移动事件（APP_CMD_TOUCH_MOVE, evt=11）
  *
  * 事件码语义（实测 00000506 sub_80FC 的分发表）：
  *   evt=9/10/11 都落到 loc_8478 → obj->vt[0x1C](obj, x, y)
@@ -149,7 +149,7 @@ bool zm_event_async_poll(uc_engine *uc, uint32_t resume_pc, bool starved);
  * @brief applet 调用 IShell.CloseApplet（vtable +0x24）→ 它请求关闭自己
  *
  * 固件侧是 sub_3482C，日志串 "CloseApplet: bRetToIdle = %d"。
- * 我们收到后：先派发 EV_STOP(evt=1) 让 applet 跑完自己的退出回调
+ * 我们收到后：先派发 APP_CMD_DESTROY(evt=1) 让 applet 跑完自己的退出回调
  * （00000506 会停声音 + 写 data/farm 存档），收尾完由事件循环分支结束模拟。
  */
 void zm_event_request_close(void);

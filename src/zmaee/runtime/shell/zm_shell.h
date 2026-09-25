@@ -130,7 +130,7 @@ uint32_t zm_setting_set_sound(uc_engine *uc, uint32_t on);
 
 /* IShell[+0x24] = CloseApplet(bRetToIdle)（RE：固件 sub_3482C，日志串
  * "CloseApplet: bRetToIdle = %d"）。applet 用它请求关闭自己：我们先派发
- * EV_STOP 让它的退出回调跑完（停声音 + 存盘），再由事件循环结束模拟。 */
+ * APP_CMD_DESTROY 让它的退出回调跑完（停声音 + 存盘），再由事件循环结束模拟。 */
 uint32_t zm_shell_CloseApplet(uc_engine *uc, uint32_t b_ret_to_idle);
 
 /* stub DLL 对象 vtable 方法（loadDLL 返回的 DLL_OBJ） */
