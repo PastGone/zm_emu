@@ -106,11 +106,16 @@ uint32_t zm_root_str_assign(uc_engine *uc, uint32_t str_obj,
       }
     }
     if (!as_obj) {
-      /* 裸 C 串缓冲：**追加**到现有内容之后（= strcat） */
+      /* 裸 C 串缓冲：**追加**到现有内容之后（= strcat）。
+       *
+       * ZM_STRASSIGN_COPY=1 是**临时对照开关**：改回"赋值"（覆盖）语义，
+       * 用来定位"某个 applet 到底需要 strcat 还是 strcpy"（回归二分用）。 */
       char cur[ZM_STRCAT_MAX + 1];
       cur[0] = '\0';
       read_cstr(uc, str_obj, cur, sizeof(cur));
       uint32_t cur_len = (uint32_t)strlen(cur);
+      if (getenv("ZM_STRASSIGN_COPY"))
+        cur_len = 0; /* 对照：按覆盖处理 */
       if (cur_len + clen > ZM_STRCAT_MAX) {
         log_warn("strcat: 0x%X 追加后超 %d 字节，截断（现有 %u + 追加 %u）", str_obj,
                  ZM_STRCAT_MAX, cur_len, clen);
@@ -126,6 +131,8 @@ uint32_t zm_root_str_assign(uc_engine *uc, uint32_t str_obj,
     /* 对象形态：也按追加处理（更新 +4/+8 的长度与容量），同样封顶 */
     {
       uint32_t old_len = (w1 <= ZM_STRCAT_MAX) ? w1 : 0;
+      if (getenv("ZM_STRASSIGN_COPY"))
+        old_len = 0; /* 对照：按覆盖处理 */
       if (old_len + clen > ZM_STRCAT_MAX)
         clen = (old_len < ZM_STRCAT_MAX) ? (ZM_STRCAT_MAX - old_len) : 0;
       if (clen)

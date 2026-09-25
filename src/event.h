@@ -48,6 +48,34 @@ void on_touch_move(uint32_t x, uint32_t y);
 bool zm_event_dispatch_pending(void);
 
 /**
+ * @brief 把一个点击放进"待派发触摸"队列（自旋兜底路径用）
+ *
+ * 谁调：zm_display_pump_events —— applet 长时间不回事件循环时，宿主的周期泵
+ * 把 SDL 队列里的点击收进来（那条路不能直接派发：此刻 guest 正在跑，
+ * 直接改 PC 会把它打断在半路）。
+ * 谁取：① 正常路径 —— zm_display_event_loop 每轮先取队列（yield 型 applet）；
+ *       ② 饥饿路径 —— zm_event_async_poll 经异步跳板派发（自旋型 applet）。
+ */
+void zm_event_queue_touch(uint32_t x, uint32_t y);
+
+/** @brief 从待派发触摸队列取一个（FIFO）；空则返回 false */
+bool zm_event_take_queued_touch(uint32_t *x, uint32_t *y);
+
+/**
+ * @brief 自旋型 applet 的触摸异步派发（hook_code 周期性调用）
+ *
+ * applet 一旦停在"0ms 定时器/自旋"主循环里就再也不回事件循环，触摸会被
+ * 无限期饿死（实测 0000048a：点"加入残局"后停在难度列表，32 秒里 5 个点击
+ * 一个都没派发）。本函数在 starved（zm_timer_is_starved）成立时，用定时器
+ * 同一条指令级跳板把 evt=9 送进 handler，下一拍再补 evt=10（成对）。
+ *
+ * @param resume_pc 被打断的指令地址（跳板恢复时从这里继续）
+ * @param starved   是否已超过饥饿门限（由调用方查 zm_timer_is_starved）
+ * @return true 表示已改写 PC/LR（调用方应立即 return，让 Unicorn 去跑 handler）
+ */
+bool zm_event_async_poll(uc_engine *uc, uint32_t resume_pc, bool starved);
+
+/**
  * @brief applet 调用 IShell.CloseApplet（vtable +0x24）→ 它请求关闭自己
  *
  * 固件侧是 sub_3482C，日志串 "CloseApplet: bRetToIdle = %d"。

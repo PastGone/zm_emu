@@ -1309,6 +1309,88 @@ static int fb_merge_layer(void) {
   return painted;
 }
 
+/* 诊断：ZM_SDLCLICK_T="ms:x,y;ms:x,y;..." —— 把点击**投进 SDL 事件队列**，
+ * 走与真人鼠标**完全相同**的一条路：队列 → 事件循环里的 SDL_PollEvent → on_click。
+ *
+ * 为什么必须有这个（与 ZM_CLICK / ZM_CLICK_T 的区别）：
+ *   那两个是**直接调 on_touch_click()**，绕开了 SDL 队列，所以测不出"事件在队列里
+ *   被别处抽干/丢弃"这类 bug。实测就踩到了：fb_commit 每次上屏都会 `while
+ *   (SDL_PollEvent)` 把队列抽干、除 SDL_QUIT 外全部丢弃 → 用户手点（走队列）被吃掉，
+ *   而 ZM_CLICK 注入（不过队列）一切正常 —— 现象差正是"我能进、用户点不动"。
+ * 坐标要做窗口像素换算（与真人点击一致）：客户机坐标 → 窗口坐标 = x * win_w / g_w。 */
+static void sdlclick_tick(void) {
+  static int inited = 0, n = 0, head = 0;
+  static struct {
+    Uint32 at;
+    uint16_t x, y;
+  } q[64];
+  if (!inited) {
+    inited = 1;
+    const char *s = getenv("ZM_SDLCLICK_T");
+    if (s && *s) {
+      const char *p = s;
+      while (n < 64 && *p) {
+        long ms = 0;
+        int x = 0, y = 0;
+        while (*p && (*p < '0' || *p > '9'))
+          p++;
+        if (!*p)
+          break;
+        while (*p >= '0' && *p <= '9')
+          ms = ms * 10 + (*p++ - '0');
+        while (*p && (*p < '0' || *p > '9'))
+          p++;
+        while (*p >= '0' && *p <= '9')
+          x = x * 10 + (*p++ - '0');
+        while (*p && (*p < '0' || *p > '9'))
+          p++;
+        while (*p >= '0' && *p <= '9')
+          y = y * 10 + (*p++ - '0');
+        q[n].at = (Uint32)ms;
+        q[n].x = (uint16_t)x;
+        q[n].y = (uint16_t)y;
+        n++;
+      }
+      if (n > 0)
+        log_info("ZM_SDLCLICK_T: 将按 SDL 队列投递 %d 个点击（真人鼠标同一条路）", n);
+    }
+  }
+  if (head >= n || SDL_GetTicks() < q[head].at)
+    return;
+  int win_w = g_w, win_h = g_h;
+  if (g_win)
+    SDL_GetWindowSize(g_win, &win_w, &win_h);
+  int wx = (win_w > 0 && g_w > 0) ? q[head].x * win_w / g_w : q[head].x;
+  int wy = (win_h > 0 && g_h > 0) ? q[head].y * win_h / g_h : q[head].y;
+  Uint32 at = q[head].at;
+  uint16_t gx = q[head].x, gy = q[head].y;
+  head++;
+  SDL_Event e;
+  SDL_zero(e);
+  e.type = SDL_MOUSEMOTION;
+  e.motion.x = wx;
+  e.motion.y = wy;
+  SDL_PushEvent(&e);
+  SDL_zero(e);
+  e.type = SDL_MOUSEBUTTONDOWN;
+  e.button.button = SDL_BUTTON_LEFT;
+  e.button.state = SDL_PRESSED;
+  e.button.clicks = 1;
+  e.button.x = wx;
+  e.button.y = wy;
+  SDL_PushEvent(&e);
+  SDL_zero(e);
+  e.type = SDL_MOUSEBUTTONUP;
+  e.button.button = SDL_BUTTON_LEFT;
+  e.button.state = SDL_RELEASED;
+  e.button.clicks = 1;
+  e.button.x = wx;
+  e.button.y = wy;
+  SDL_PushEvent(&e);
+  log_info("ZM_SDLCLICK_T: 到点 %ums → 投递 客户机(%u,%u) 窗口(%d,%d)", at, gx, gy, wx,
+           wy);
+}
+
 /* 供宿主侧在 guest 长时间自旋时周期性调用：只泵 SDL 事件（不做上屏）。
  * uc_emu_start(...,0,0) 是无限指令执行，宿主只在 guest 调 IDisplay::Refresh
  * 槽时才会经 fb_commit 泵事件；一旦 guest 自旋（不再调 Refresh）窗口就整块
@@ -1323,12 +1405,35 @@ void zm_display_pump_events(void) {
    * 只有 PollEvent 会内部 Pump，PeepEvents 不会，所以这里必须显式 Pump。 */
   SDL_PumpEvents();
 
-  /* 只**窥探** SDL_QUIT（PEEKEVENT 不移除事件），其余事件原样留给 applet
-   * 自己的输入循环（zm_display_event_loop）去取 —— 否则会把点击"抢走"。 */
+  /* 诊断注入（ZM_SDLCLICK_T）：按时刻把点击**投进 SDL 队列**，走真人鼠标那条路。
+   * 放在这里是因为本函数由 hook 周期性调用 —— 能在 applet **不**处于事件循环、
+   * 正在绘制/自旋的时段投递，正好覆盖用户手点会踩到的窗口期。 */
+  sdlclick_tick();
+
   SDL_Event e;
+  /* 只**窥探** SDL_QUIT（PEEKEVENT 不移除事件）。 */
   if (SDL_PeepEvents(&e, 1, SDL_PEEKEVENT, SDL_QUIT, SDL_QUIT) > 0) {
     log_info("SDL 窗口已关闭，退出模拟");
     exit(0);
+  }
+  /* 把"鼠标按下"取走（GETEVENT）并放进**待派发触摸队列**。
+   *
+   * 为什么不在泵里直接派发：本函数跑在 hook 里、guest 正在执行，直接改 PC 会
+   * 把它打断在半路（异步跳板才是安全的打断方式）。
+   * 收下来之后有两条出路（见 event.h）：
+   *   ① applet 还正常 yield → zm_display_event_loop 每轮先取队列派发；
+   *   ② applet 已自旋到不回事件循环 → hook 的异步跳板（zm_event_async_poll）。
+   * 只取"按下"，鼠标移动/抬起原样留在队列里给事件循环 —— 不破坏拖动。 */
+  while (SDL_PeepEvents(&e, 1, SDL_GETEVENT, SDL_MOUSEBUTTONDOWN,
+                        SDL_MOUSEBUTTONDOWN) > 0) {
+    int win_w = g_w, win_h = g_h;
+    if (g_win)
+      SDL_GetWindowSize(g_win, &win_w, &win_h);
+    uint32_t cx = (win_w > 0) ? (uint32_t)(e.button.x * g_w / win_w)
+                              : (uint32_t)e.button.x;
+    uint32_t cy = (win_h > 0) ? (uint32_t)(e.button.y * g_h / win_h)
+                              : (uint32_t)e.button.y;
+    zm_event_queue_touch(cx, cy);
   }
   /* ★ 主动让出 CPU。uc_emu_start 是无限指令执行，guest 一旦在某个循环里自旋，
    * 模拟器会一直占满 CPU：桌面 compositor/X 抢不到时间片 → 表现为"整个桌面
@@ -1349,13 +1454,35 @@ static void fb_commit(void) {
     return;
   fb_present();
 
-  /* 处理一下事件，避免窗口卡死无响应 */
+  /* 只**窥探** SDL_QUIT，其余事件原样留在队列里给 applet 自己的输入循环
+   * （zm_display_event_loop 里的 SDL_PollEvent）去取。
+   *
+   * 【为什么不能"抽干"】这里曾经是：
+   *     while (SDL_PollEvent(&e)) { if (e.type == SDL_QUIT) exit(0); }
+   * 除了 SDL_QUIT 之外**全部丢弃**，其中包括 SDL_MOUSEBUTTONDOWN。而本函数是
+   * applet 每次调 IDisplay::Refresh 上屏时都要走的：只要用户点击落在 applet
+   * **不在**自身事件循环里（正在绘制/动画/自旋）的那段时间，点击就躺在队列里等
+   * 下一次 Refresh —— 然后被这一行无声吃掉。表现就是"鼠标点按钮点不动"，而模拟
+   * 本身一切正常（从内部直接调 on_touch_click 的 ZM_CLICK 注入却毫无问题，所以
+   * 这个 bug 一直没被那些诊断用例发现）。
+   * 实测（0000048a：ZM_SDLCLICK_T 往队列投 4 个点击）：修前"触摸派发=0"，
+   * 修后 4 个点击全部送达、能一路点进"加入残局"。
+   *
+   * SDL_PumpEvents 仍必须调：guest 长时间自旋、没人读 X11 socket 时会把整个桌面
+   * 堵住（详见 zm_display_pump_events 的说明）。 */
+  SDL_PumpEvents();
   SDL_Event e;
-  while (SDL_PollEvent(&e)) {
-    if (e.type == SDL_QUIT) {
-      /* 用户关闭窗口：直接退出进程（applet 一般不响应，强制结束） */
-      log_info("SDL 窗口已关闭，退出模拟");
-      exit(0);
+  if (SDL_PeepEvents(&e, 1, SDL_PEEKEVENT, SDL_QUIT, SDL_QUIT) > 0) {
+    /* 用户关闭窗口：直接退出进程（applet 一般不响应，强制结束） */
+    log_info("SDL 窗口已关闭，退出模拟");
+    exit(0);
+  }
+  /* 兜底：applet 万一长时间不进自己的输入循环，队列会一直涨。超过阈值才退化成
+   * 老行为（整体抽干）—— 只可能发生在"applet 根本不理输入"的极端情况，
+   * 正常交互不会碰到。 */
+  if (SDL_PeepEvents(NULL, 0, SDL_PEEKEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT) > 512) {
+    log_warn("SDL 事件队列积压过多，丢弃一轮（applet 长期未进输入循环）");
+    while (SDL_PollEvent(&e)) {
     }
   }
 }
@@ -1643,6 +1770,16 @@ bool zm_display_event_loop(void (*on_click)(uint32_t x, uint32_t y),
   SDL_Event e;
   Uint32 start = SDL_GetTicks();
   for (;;) {
+    /* 自旋泵（zm_display_pump_events）收下的点击：正常 yield 的 applet 从这里
+     * 派发 —— 保证"泵只为自旋 applet 抢点击"这件事不会让正常 applet 丢事件。 */
+    {
+      uint32_t qx = 0, qy = 0;
+      if (on_click && zm_event_take_queued_touch(&qx, &qy)) {
+        on_click(qx, qy);
+        fb_present();
+        return true; /* 已派发点击 → 让模拟器执行 handler */
+      }
+    }
     while (SDL_PollEvent(&e)) {
       if (e.type == SDL_QUIT) {
         log_info("事件循环结束：收到 SDL_QUIT（窗口关闭）");

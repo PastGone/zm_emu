@@ -218,21 +218,43 @@ static uint32_t s_last_yield_ms = 0;
 
 void zm_timer_note_yield(uint32_t now_ms) { s_last_yield_ms = now_ms; }
 
-bool zm_timer_interrupt(uc_engine *uc, uint32_t resume_pc) {
-  static int disabled = -1;
-  static uint32_t idle_limit = 0;
-  if (disabled < 0) {
-    const char *e = getenv("ZM_NO_ASYNC_TIMER");
-    disabled = (e && e[0] == '1') ? 1 : 0;
+/* 异步打断参数（环境变量只解析一次，并打一行说明）。 */
+static uint32_t async_idle_limit_ms(void) {
+  static uint32_t v = 0;
+  if (v == 0) {
     const char *t = getenv("ZM_ASYNC_IDLE_MS");
-    idle_limit = (t && atoi(t) > 0) ? (uint32_t)atoi(t) : 300u;
-    if (disabled)
+    v = (t && atoi(t) > 0) ? (uint32_t)atoi(t) : 300u;
+  }
+  return v;
+}
+
+static bool async_disabled(void) {
+  static int v = -1;
+  if (v < 0) {
+    const char *e = getenv("ZM_NO_ASYNC_TIMER");
+    v = (e && e[0] == '1') ? 1 : 0;
+    if (v)
       log_info("定时器异步中断已禁用（ZM_NO_ASYNC_TIMER=1）");
     else
       log_info("定时器异步中断：仅当 applet 连续 %ums 未回事件循环时启用",
-               idle_limit);
+               async_idle_limit_ms());
   }
-  if (disabled || s_int_active || !uc || !resume_pc)
+  return v != 0;
+}
+
+bool zm_timer_is_starved(uc_engine *uc) {
+  if (async_disabled() || !uc)
+    return false;
+  uint32_t now = zm_root_get_tick(uc);
+  if (s_last_yield_ms == 0) {
+    s_last_yield_ms = now; /* 首次：先给它一个完整的观察窗口 */
+    return false;
+  }
+  return (int32_t)(now - s_last_yield_ms) >= (int32_t)async_idle_limit_ms();
+}
+
+bool zm_timer_interrupt(uc_engine *uc, uint32_t resume_pc) {
+  if (async_disabled() || s_int_active || !uc || !resume_pc)
     return false; /* 忙：回调自己也会再触发 hook_code，别嵌套 */
 
   uint32_t now = zm_root_get_tick(uc);
@@ -242,7 +264,7 @@ bool zm_timer_interrupt(uc_engine *uc, uint32_t resume_pc) {
     s_last_yield_ms = now; /* 首次：先给它一个完整的观察窗口 */
     return false;
   }
-  if ((int32_t)(now - s_last_yield_ms) < (int32_t)idle_limit)
+  if ((int32_t)(now - s_last_yield_ms) < (int32_t)async_idle_limit_ms())
     return false;
   uint32_t cb = 0, arg0 = 0, arg1 = 0;
   const char *what = NULL;
@@ -278,6 +300,20 @@ bool zm_timer_interrupt(uc_engine *uc, uint32_t resume_pc) {
   if (!what || !cb)
     return false;
 
+  uint32_t args[2] = {arg0, arg1};
+  return zm_timer_async_call(uc, resume_pc, what, cb, args, 2);
+}
+
+/* 通用异步跳板（见 zm_timer.h 的说明）：把 guest 打断在 resume_pc，去执行
+ * cb(r0..r{nargs-1})，回调 `bx lr` 落回 TR_timer_return → 恢复现场继续。
+ * 定时器（本文件）与触摸事件（event.c 的 zm_event_async_poll）共用这一条路。 */
+bool zm_timer_async_call(uc_engine *uc, uint32_t resume_pc, const char *what,
+                         uint32_t cb, const uint32_t *args, int nargs) {
+  if (s_int_active || !uc || !resume_pc || !cb)
+    return false; /* 忙：回调自己也会再触发 hook_code，别嵌套 */
+  if (nargs > 5)
+    nargs = 5;
+
   /* 保存被打断的现场（R0-R12/SP/LR/CPSR + 恢复点 PC） */
   for (uint32_t i = 0; i < 13; ++i)
     uc_reg_read(uc, (int)(UC_ARM_REG_R0 + i), &s_int_r[i]);
@@ -289,8 +325,9 @@ bool zm_timer_interrupt(uc_engine *uc, uint32_t resume_pc) {
   /* 挂跳板：LR = 专用返回 trap，PC = 回调 */
   uint32_t lr = TR_timer_return;
   uc_reg_write(uc, UC_ARM_REG_LR, &lr);
-  uc_reg_write(uc, UC_ARM_REG_R0, &arg0);
-  uc_reg_write(uc, UC_ARM_REG_R1, &arg1);
+  if (args)
+    for (int i = 0; i < nargs; ++i)
+      uc_reg_write(uc, (int)(UC_ARM_REG_R0 + i), (void *)&args[i]);
   uc_reg_write(uc, UC_ARM_REG_PC, &cb);
   s_int_active = true;
   /* 前几次把被打断时的**模式**也打出来：回调是 ARM 代码（地址偶数），
@@ -298,15 +335,21 @@ bool zm_timer_interrupt(uc_engine *uc, uint32_t resume_pc) {
    * 排查 0000042f 在"返回主菜单"时崩（PC=0x3A48 实测是合法 ARM `str fp,[sp]`）时加的。 */
   {
     static uint32_t n = 0;
-    if (n < 3) {
+    if (n < 3 && nargs <= 2) {
       n++;
       log_info("%s 异步派发 -> cb=0x%08X(arg0=0x%X)（打断 PC=0x%X，LR=0x%X，"
                "CPSR=0x%X %s）",
-               what, cb, arg0, resume_pc, s_int_lr, s_int_cpsr,
+               what, cb, nargs > 0 ? args[0] : 0, resume_pc, s_int_lr, s_int_cpsr,
                (s_int_cpsr & 0x20) ? "Thumb" : "ARM");
-    } else {
+    } else if (nargs <= 2) {
       log_info("%s 异步派发 -> cb=0x%08X(arg0=0x%X)（打断 PC=0x%X）", what, cb,
-               arg0, resume_pc);
+               nargs > 0 ? args[0] : 0, resume_pc);
+    } else {
+      /* 多参数（触摸事件）：把 r0..r3 全打出来，便于对照 applet 的 handler */
+      log_info("%s 异步派发 -> cb=0x%08X(r0=0x%X r1=0x%X r2=0x%X r3=0x%X)"
+               "（打断 PC=0x%X）",
+               what, cb, nargs > 0 ? args[0] : 0, nargs > 1 ? args[1] : 0,
+               nargs > 2 ? args[2] : 0, nargs > 3 ? args[3] : 0, resume_pc);
     }
   }
   return true;

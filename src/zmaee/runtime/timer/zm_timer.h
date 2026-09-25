@@ -97,6 +97,20 @@ uint32_t zm_timer_StopTimer(uc_engine *uc, uint32_t id);
 bool zm_timer_interrupt(uc_engine *uc, uint32_t resume_pc);
 void zm_timer_interrupt_return(uc_engine *uc);
 
+/* 通用异步跳板：把 guest 打断在 resume_pc，去执行 cb(r0..r{nargs-1})。
+ * args 最多 5 个（R0-R4，zmaee 的事件回调约定要 R4=this，所以触摸用 5 个）。
+ * 与 zm_timer_interrupt 共用同一套现场保存/恢复（TR_timer_return），
+ * 所以同一时刻只能有一个在飞（s_int_active 忙标志会挡住第二个）。
+ * 触摸事件的异步派发（event.c 的 zm_event_async_poll）走这个入口。 */
+bool zm_timer_async_call(uc_engine *uc, uint32_t resume_pc, const char *what,
+                         uint32_t cb, const uint32_t *args, int nargs);
+
+/* "applet 是否已经饿到可以被异步打断"：连续 idle_limit（默认 300ms，
+ * ZM_ASYNC_IDLE_MS 可调）没回过事件循环。触摸事件用它做同样的门限判断
+ * —— 正常 yield 的 applet 永远走事件循环那条路，不会被异步打断。
+ * ZM_NO_ASYNC_TIMER=1 会一并关掉（A/B 对比用）。 */
+bool zm_timer_is_starved(uc_engine *uc);
+
 /* 由 zm_timer_poll 在**每次 applet yield（进事件循环）**时调用，记录时刻。
  *
  * 异步派发靠它做饥饿判断：applet 只要还在正常 yield，就绝不打断它

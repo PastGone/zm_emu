@@ -1,9 +1,10 @@
 #include "./hook.h"
+#include "./event.h" /* zm_event_async_poll：触摸事件的异步派发 */
 #include "./log/log.h"
 #include "./tool/disasm_log.h"
 #include "./trap.h"
 #include "./zmaee/gfx/zm_display.h" /* zm_display_pump_events：周期性泵窗口事件 */
-#include "./zmaee/runtime/timer/zm_timer.h" /* zm_timer_interrupt：指令级定时器派发 */
+#include "./zmaee/runtime/timer/zm_timer.h" /* zm_timer_interrupt / zm_timer_async_call */
 #include <inttypes.h>
 #include <stdio.h>
 
@@ -57,6 +58,22 @@ void hook_code(uc_engine *uc, uint64_t address, uint32_t size,
     if (((++s_timer_tick) & 0xFFFFu) == 0) {
       if (zm_timer_interrupt(uc, (uint32_t)address))
         return; /* 已改写 PC/LR → 让 Unicorn 直接去跑回调 */
+    }
+  }
+
+  /* 触摸事件的异步派发（与定时器共用同一条指令级跳板）。
+   *
+   * 背景：有些 applet 的主循环是"0ms 定时器驱动 + 自旋"，它**再也不回事件循环**
+   * （实测 0000048a《象棋新说》：点进难度列表后 32 秒只回 0 次），而我们的触摸
+   * 原本只在事件循环那条路上派发 → 用户点击被无限期饿死，表现就是"点按钮没反应"。
+   * 这里在 zm_timer_is_starved()（同样 300ms 门限，ZM_ASYNC_IDLE_MS 可调）成立时，
+   * 把 zm_display_pump_events 收进队列的点击用跳板送进 handler（evt=9，下一拍补 10）。
+   * 正常 yield 的 applet 永远走事件循环那条路，不受影响；ZM_NO_ASYNC_TOUCH=1 可关。 */
+  {
+    static uint32_t s_evt_tick = 0;
+    if (((++s_evt_tick) & 0xFFFFu) == 0) {
+      if (zm_event_async_poll(uc, (uint32_t)address, zm_timer_is_starved(uc)))
+        return; /* 已改写 PC/LR → 让 Unicorn 直接去跑 handler */
     }
   }
 
