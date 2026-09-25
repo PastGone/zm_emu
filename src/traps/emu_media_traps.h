@@ -1,7 +1,7 @@
 #ifndef EMU_MEDIA_TRAPS_H
 #define EMU_MEDIA_TRAPS_H
 
-#include "emu_mem_layout.h"
+#include "../emu_mem_layout.h"
 
 /* -------------------- MEDIA_VT_ADDR 枚举 -------------------- */
 /* ZMAEE IMedia 原生虚表槽位（基址 MEDIA_VT_ADDR，25 槽，止于 +0x60） */

@@ -2,7 +2,7 @@
 #define EMU_MEM_LAYOUT_H
 
 #include "emu_mem_regions.h" /* 纯地址算术：各 region 基址/尺寸 */
-#include "emu_obj_layout.h"  /* 对象区：服务对象实例/结构体 */
+#include "emu_obj_layout.h"
 
 /* ============================================================
  *                        虚 表 区  (0x00000)

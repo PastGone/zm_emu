@@ -1,7 +1,7 @@
 #ifndef EMU_DISPLAY_TRAPS_H
 #define EMU_DISPLAY_TRAPS_H
 
-#include "emu_mem_layout.h"
+#include "../emu_mem_layout.h"
 
 /* -------------------- DISPLAY_VT_ADDR 枚举 -------------------- */
 /* ZMAEE IDisplay 原生虚表槽位（基址 DISPLAY_VT_ADDR，共 58 槽，止于 +0xE4）。

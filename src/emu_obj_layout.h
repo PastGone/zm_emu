@@ -1,7 +1,7 @@
 #ifndef EMU_OBJ_LAYOUT_H
 #define EMU_OBJ_LAYOUT_H
 
-#include "emu_mem_regions.h" /* 拿 SHIM_OBJ_BASE */
+#include "emu_mem_regions.h"
 
 /* ============================================================
  *                        对 象 区  (0x10000)

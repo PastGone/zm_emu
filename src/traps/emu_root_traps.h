@@ -1,7 +1,7 @@
 #ifndef EMU_ROOT_TRAPS_H
 #define EMU_ROOT_TRAPS_H
 
-#include "emu_mem_layout.h"
+#include "../emu_mem_layout.h"
 
 /* -------------------- ROOT_TABLE_ADDR 枚举 -------------------- */
 enum ZM_ROOT_TABLE : uint32_t {

@@ -1,7 +1,7 @@
 #ifndef EMU_SHELL_TRAPS_H
 #define EMU_SHELL_TRAPS_H
 
-#include "emu_mem_layout.h"
+#include "../emu_mem_layout.h"
 
 /* -------------------- SHELL_VT_ADDR 枚举 -------------------- */
 /* ZMAEE IShell 原生虚表槽位（基址 SHELL_VT_ADDR，34 槽，止于 +0x88）

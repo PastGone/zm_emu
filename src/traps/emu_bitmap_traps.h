@@ -1,7 +1,7 @@
 #ifndef EMU_BITMAP_TRAPS_H
 #define EMU_BITMAP_TRAPS_H
 
-#include "emu_mem_layout.h"
+#include "../emu_mem_layout.h"
 
 /* -------------------- ZM_BITMAP_VT 枚举 -------------------- */
 /* ZMAEE IBitmap 原生虚表槽位（基址 BITMAP_VT_ADDR，共 7 槽，止于 +0x18） */

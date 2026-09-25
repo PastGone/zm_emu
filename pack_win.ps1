@@ -11,7 +11,7 @@
             zm_emu.exe                      主程序
             vcruntime140.dll                VC++ 运行库（可再分发，免装）
             applet/                         全部 applet 资源
-            src/zmaee/unifont_t-18.0.01.pcf 自带像素字体（含全部汉字字形）
+            assets/unifont_t-18.0.01.pcf    自带像素字体（含全部汉字字形）
             使用说明.txt
 
     不打包 res/ —— 那是素材/参考包，运行时用不到（applet 请求的 "res\xxx"
@@ -85,9 +85,9 @@ if (-not (Test-Path -LiteralPath $EXE)) {
 $APPLET = Join-Path $ScriptDir 'applet'
 if (-not (Test-Path -LiteralPath $APPLET)) { Write-Error "找不到 applet 目录: $APPLET"; exit 1 }
 
-# 自带像素字体：程序按 "src/zmaee/unifont_t-18.0.01.pcf"（相对项目根/工作目录）
+# 自带像素字体：程序按 "assets/unifont_t-18.0.01.pcf"（相对项目根/工作目录）
 # 查找，包里必须保持同样的相对路径。
-$FONT_REL = 'src\zmaee\unifont_t-18.0.01.pcf'
+$FONT_REL = 'assets\unifont_t-18.0.01.pcf'
 $FONT = Join-Path $ScriptDir $FONT_REL
 if (-not (Test-Path -LiteralPath $FONT)) { Write-Error "找不到自带字体: $FONT"; exit 1 }
 
@@ -100,7 +100,7 @@ if (Test-Path -LiteralPath $pkgDir) {
     Remove-Item -LiteralPath $pkgDir -Recurse -Force
 }
 New-Item -ItemType Directory -Force -Path $pkgDir | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $pkgDir 'src\zmaee') | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $pkgDir 'assets') | Out-Null
 
 Write-Host "复制主程序 ..."
 Copy-Item -LiteralPath $EXE -Destination (Join-Path $pkgDir 'zm_emu.exe') -Force
@@ -157,13 +157,13 @@ zm_emu —— zmaee applet 模拟器（Windows x64 便携版）
 【目录说明】（请勿打散或移动，程序按相对路径找资源）
   zm_emu.exe                        主程序
   applet\                           所有 applet 资源
-  src\zmaee\unifont_t-18.0.01.pcf   自带像素字体（Unifont，含全部汉字字形）
+  assets\unifont_t-18.0.01.pcf      自带像素字体（Unifont，含全部汉字字形）
   vcruntime140.dll                  Microsoft VC++ 运行库（已附带，免安装）
   使用说明.txt                       本文件
 
 【常见问题】
   * 画面正常但没有文字？
-      确认 src\ 目录还在、且没被移动。程序找不到自带字体时会退回系统字体。
+      确认 assets\ 目录还在、且没被移动。程序找不到自带字体时会退回系统字体。
   * 提示缺少 dll？
       本包已带 vcruntime140.dll；若仍报错，可安装微软官方
       "Visual C++ Redistributable (x64)"。

@@ -1,7 +1,7 @@
 #ifndef EMU_FILE_TRAPS_H
 #define EMU_FILE_TRAPS_H
 
-#include "emu_mem_layout.h"
+#include "../emu_mem_layout.h"
 
 /* -------------------- FILE_VT_ADDR 枚举 -------------------- */
 /* ZMAEE IFile 虚表槽位（基址 FILE_VT_ADDR） */

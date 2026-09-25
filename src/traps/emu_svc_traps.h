@@ -1,7 +1,7 @@
 #ifndef EMU_SVC_TRAPS_H
 #define EMU_SVC_TRAPS_H
 
-#include "emu_mem_layout.h"
+#include "../emu_mem_layout.h"
 
 /* -------------------- 服务对象虚表枚举 -------------------- */
 

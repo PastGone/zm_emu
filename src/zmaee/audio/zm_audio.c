@@ -8,7 +8,7 @@
 #include <string.h>
 
 #include "../../emu.h"            /* g_uc（完成回调跳板） */
-#include "../../emu_root_traps.h" /* TR_enter_event_loop（回调返回落点） */
+#include "../../traps/emu_root_traps.h"
 #include "../../log/log.h"
 #include "../../tool/uc_helper.h"
 #include "../fs/zm_file_mgr.h"

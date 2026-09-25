@@ -1,7 +1,7 @@
 #ifndef EMU_SETTING_TRAPS_H
 #define EMU_SETTING_TRAPS_H
 
-#include "emu_mem_layout.h"
+#include "../emu_mem_layout.h"
 
 /* -------------------- SETTING_VT_ADDR 枚举 -------------------- */
 /* ZMAEE ISetting 原生虚表槽位（基址 SETTING_VT_ADDR，14 槽，止于 +0x38） */

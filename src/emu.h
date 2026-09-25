@@ -10,8 +10,8 @@
 
 /* 子模块拆分（纯常量 / root 分发表 / 各对象虚表，均不依赖本文件） */
 #include "emu_mem_layout.h" /* BLOB/STACK/HEAP/SHIM 布局 + 对象/虚表地址 + TRAP 宏 */
-#include "emu_root_traps.h" /* ROOT_TABLE_ADDR 枚举 + TR_root_* 宏 */
-#include "emu_vt_traps.h"   /* shell/file/filemgr/media/setting/display/image/bitmap/surf 等虚表 trap */
+#include "traps/emu_root_traps.h"
+#include "emu_vt_traps.h"
 
 // -------------------- 全局变量 --------------------
 extern uc_engine *g_uc;

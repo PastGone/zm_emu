@@ -1,7 +1,7 @@
 #ifndef EMU_IMAGE_TRAPS_H
 #define EMU_IMAGE_TRAPS_H
 
-#include "emu_mem_layout.h"
+#include "../emu_mem_layout.h"
 
 /* -------------------- IMAGE_VT_ADDR 枚举 -------------------- */
 /* ZMAEE IImage 原生虚表槽位（基址 IMAGE_VT_ADDR） */

@@ -59,7 +59,7 @@
  *
  * 优先级：ZM_FONT 环境变量 > 随仓库自带字体 > 系统 CJK 字体 > 拉丁兜底。
  *
- * 【自带字体】src/zmaee/unifont_t-18.0.01.pcf（GNU Unifont）
+ * 【自带字体】assets/unifont_t-18.0.01.pcf（GNU Unifont）
  *   - 位图字体，不是矢量：字形是 8x16 点阵，**天生就是像素风**，与这类
  *     240x320 功能机 applet 的原生观感一致（矢量字体抗锯齿反而"不像"）；
  *   - 覆盖面最广（Unifont 的卖点就是无豆腐块），汉字/生僻字都有；
@@ -67,7 +67,7 @@
  *     换了工作目录导致 fopen 失败时会自动回退到下面的系统字体。
  *   - 位图字体只有固定的几个像素尺寸，字号要取到它的原生高度（16）才最清晰，
  *     故默认字号同步改为 16（见 get_font 的 ZM_FONT_SIZE 兜底值）。 */
-#define ZM_FONT_BUNDLED "src/zmaee/unifont_t-18.0.01.pcf"
+#define ZM_FONT_BUNDLED "assets/unifont_t-18.0.01.pcf"
 #define ZM_FONT_DEFAULT_SIZE 16 /* 与上面位图字体的原生点阵高度对齐 */
 /* 拉丁兜底字体：必须**按平台**选。原来写死 Linux 的 Liberation 路径，于是在
  * Windows 上这个 fopen 必然失败 → 连兜底都没有，界面上的**文字整块不出现**
