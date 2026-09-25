@@ -564,6 +564,40 @@ uint32_t zm_fileMgr_GetFreeSize(uc_engine *uc, uint32_t r0, uint32_t drive) {
   return freeb;
 }
 
+/* ★ 共享数据目录映射：guest 的框架数据根 → 仓库的 **applet/data/**。
+ *
+ * 【guest 侧的真实路径】applet 模板是 `e:\zmol\zmdata\qblox.dat`（字面量，
+ * 首字节被盘符覆盖），但它的路径拼装函数会把它**重建成框架形态**：
+ *       盘符:  +  `\zmaee\data\`  +  模板 +8 起（"zmdata\qblox.dat"）
+ * 实测本 applet 最终请求的就是：
+ *       "E:\zmaee\data\zmdata\qblox.dat"      ← 日志里的原始名字
+ * （`\zmol\` 那份常量只用于"判断模板形态"，`\zmaee\data\` 才是落点。）
+ *
+ * 【仓库侧的既有约定】applet/data/zmdata/ 下已经放着 castlev/、huarongdao/
+ * 两个占位目录 —— 就是给这些 guest 数据文件用的。所以：
+ *       /zmaee/data/zmdata/qblox.dat  →  <仓库>/applet/data/zmdata/qblox.dat
+ *       /zmol/zmdata/...              →  同样落到 applet/data/...（保险，另一形态）
+ * 改动前落到 <applet 自己的目录>/zmaee/data/... ✗ —— 与仓库约定不符。
+ *
+ * 资源类路径（"c:\0000042f.zmr" → "/0000042f.zmr"）不以这两个根开头，不受影响。 */
+static const char *map_shared_data(const char *rel, char *out, size_t cap) {
+  const char *tail = NULL;
+  if (strncmp(rel, "/zmaee/data", 11) == 0 && (rel[11] == '\0' || rel[11] == '/'))
+    tail = rel + 11;
+  else if (strncmp(rel, "/zmol", 5) == 0 && (rel[5] == '\0' || rel[5] == '/'))
+    tail = rel + 5;
+  if (!tail)
+    return rel; /* 不是框架数据根 → 原样返回 */
+  char parent[ZM_FULL_PATH_MAX];
+  snprintf(parent, sizeof(parent), "%s", s_data_dir);
+  char *slash = strrchr(parent, '/');
+  if (!slash)
+    return rel;
+  *slash = '\0'; /* <...>/applet （applet 目录的上一级） */
+  snprintf(out, cap, "%s/data%s", parent, tail);
+  return out;
+}
+
 /* ==========================================================================
  * 目录创建（IFileMgr +0x14）与"新建文件"判定
  *
@@ -635,7 +669,11 @@ uint32_t zm_fileMgr_make_dir(uc_engine *uc, uint32_t path_ptr) {
   if (convert_file_name(name, rel, sizeof(rel)) < 0)
     return 0; /* 例如纯盘符 "E:"：没有目录段，无事可做 */
   char full[ZM_FULL_PATH_MAX];
-  snprintf(full, sizeof(full), "%s%s", s_data_dir, rel);
+  char mapped[ZM_FULL_PATH_MAX];
+  if (map_shared_data(rel, mapped, sizeof(mapped)) != rel)
+    snprintf(full, sizeof(full), "%s", mapped);
+  else
+    snprintf(full, sizeof(full), "%s%s", s_data_dir, rel);
   mkdir_p(full);
   remember_made_dir(full);
   log_info("[MKDIR] \"%s\" → %s", name, full);
@@ -703,7 +741,14 @@ uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr) {
   }
 
   char full_path[ZM_FULL_PATH_MAX];
-  snprintf(full_path, sizeof(full_path), "%s%s", s_data_dir, rel);
+  {
+    /* 共享数据根（X:\zmol\...）→ 仓库 applet/data/...，见 map_shared_data */
+    char mapped[ZM_FULL_PATH_MAX];
+    if (map_shared_data(rel, mapped, sizeof(mapped)) != rel)
+      snprintf(full_path, sizeof(full_path), "%s", mapped);
+    else
+      snprintf(full_path, sizeof(full_path), "%s%s", s_data_dir, rel);
+  }
   /* ★ 退化名回退：当 applet 请求的文件名只剩后缀（如 ".dat"，主文件名为空）时，
    * 回退到**该 applet 目录下 *.app 的主文件名 + 该后缀**（00000502/ →
    * 00000502.dat ✓，000004051/ 里是 00000405.app → 00000405.dat ✓）。
