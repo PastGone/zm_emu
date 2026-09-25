@@ -1435,6 +1435,25 @@ void zm_display_pump_events(void) {
                               : (uint32_t)e.button.y;
     zm_event_queue_touch(cx, cy);
   }
+  /* ★ 鼠标**移动**事件不能积压。
+   *
+   * 背景：fb_commit 不再抽干事件之后（见那里的说明），applet 若长时间不回自己的
+   * 输入循环，就没有任何人取走鼠标移动 —— 真窗口下用户一动鼠标就攒，几分钟就是
+   * 几千条。后果有两个，都表现为"很卡"：
+   *   ① 每次 SDL_PumpEvents / PeepEvents 都要遍历更长的队列；
+   *   ② 攒到阈值后下面那条兜底清理会一口气丢掉几百条 = 明显卡顿一下。
+   * 这里在队列偏长时**只丢移动事件**（按钮/退出照旧保留，点击不会丢）：
+   * 移动是"即时信息"，applet 忙过这一阵之后再看到旧坐标本来也没意义。
+   * 拖动场景不受影响 —— 正常 yield 的 applet 在事件循环里会及时把移动取走。 */
+  if (SDL_PeepEvents(NULL, 0, SDL_PEEKEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT) > 256) {
+    int dropped = 0;
+    while (SDL_PeepEvents(&e, 1, SDL_GETEVENT, SDL_MOUSEMOTION,
+                          SDL_MOUSEMOTION) > 0)
+      dropped++;
+    if (dropped > 0 && getenv("ZM_EVQ_DBG"))
+      log_info("[事件队列] 丢弃积压的鼠标移动 %d 条（applet 未进输入循环）",
+               dropped);
+  }
   /* ★ 主动让出 CPU。uc_emu_start 是无限指令执行，guest 一旦在某个循环里自旋，
    * 模拟器会一直占满 CPU：桌面 compositor/X 抢不到时间片 → 表现为"整个桌面
    * 鼠标能动、点击没反应、窗口关不掉"。这里限制到每 ~8ms 让出 1ms，

@@ -62,13 +62,27 @@ bool zm_event_take_queued_touch(uint32_t *x, uint32_t *y) {
 
 bool zm_event_async_poll(uc_engine *uc, uint32_t resume_pc, bool starved) {
   static int disabled = -1;
+  static uint32_t touch_idle = 0;
   if (disabled < 0) {
     const char *e = getenv("ZM_NO_ASYNC_TOUCH");
     disabled = (e && e[0] == '1') ? 1 : 0;
+    /* 【触摸自己的饥饿门限】定时器那条是 300ms（打断 applet 有风险，慢一点没关系），
+     * 但触摸是**用户手点** —— 用 300ms 的话手感就是"点了半秒才动"，实测反馈就是
+     * "很卡"（applet 自身约 10~19 fps，再叠 300ms 就非常迟钝）。
+     * 触摸在真机上本来就是**异步事件**（Java 事件线程随时回调 handler），所以这里
+     * 用小得多的门限：默认 60ms，ZM_TOUCH_IDLE_MS 可调。 */
+    const char *t = getenv("ZM_TOUCH_IDLE_MS");
+    touch_idle = (t && atoi(t) > 0) ? (uint32_t)atoi(t) : 60u;
     if (disabled)
       log_info("触摸异步派发已禁用（ZM_NO_ASYNC_TOUCH=1）");
+    else
+      log_info("触摸异步派发：applet 连续 %ums 未回事件循环即送入（ZM_TOUCH_IDLE_MS 可调）",
+               touch_idle);
   }
-  if (disabled || !starved || !uc || !resume_pc || !g_handler || !g_instance)
+  if (disabled || !uc || !resume_pc || !g_handler || !g_instance)
+    return false;
+  /* 饥饿判定用触摸自己的门限（比定时器紧得多） */
+  if (!starved && !zm_timer_is_starved_ms(uc, touch_idle))
     return false;
 
   uint32_t evt, x, y;

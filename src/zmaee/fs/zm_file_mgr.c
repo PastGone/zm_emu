@@ -586,6 +586,17 @@ static const char *map_shared_data(const char *rel, char *out, size_t cap) {
     tail = rel + 11;
   else if (strncmp(rel, "/zmol", 5) == 0 && (rel[5] == '\0' || rel[5] == '/'))
     tail = rel + 5;
+  /* **相对形态**：applet 直接拿 "zmdata\\qblox.dat" 当名字（不带盘符/框架前缀）。
+   * 实测 0000042f（存档）就是这么请求的 —— 以前这条落进 applet 自己的目录，
+   * 于是：
+   *   · 存档写到了 <applet 目录>/zmdata/qblox.dat（仓库里那 30 个空 zmdata/、
+   *     52 个空 zmaee/ 残留就是这么来的）；
+   *   · 而仓库约定这些公共数据放在 **applet/data/**（E:\zmaee\data\ 的宿主侧，
+   *     里面已经有 font/ zmimages/ castlev/ huarongdao/ 等 21 个公共数据包）。
+   * 这里把 "zmdata/..." 整段当 tail —— 结果就是 <repo>/applet/data/zmdata/...，
+   * 与另外两种形态（/zmaee/data/…、/zmol/…）**落到同一个地方** ✓。 */
+  else if (strncmp(rel, "/zmdata", 7) == 0 && (rel[7] == '\0' || rel[7] == '/'))
+    tail = rel; /* 注意：整段都算 tail（它自己就含 zmdata 这一级） */
   if (!tail)
     return rel; /* 不是框架数据根 → 原样返回 */
   char parent[ZM_FULL_PATH_MAX];

@@ -111,6 +111,10 @@ bool zm_timer_async_call(uc_engine *uc, uint32_t resume_pc, const char *what,
  * ZM_NO_ASYNC_TIMER=1 会一并关掉（A/B 对比用）。 */
 bool zm_timer_is_starved(uc_engine *uc);
 
+/* 同上，但用调用方给的门限（触摸用：默认 60ms，比定时器的 300ms 紧得多
+ * —— 用户手点不能等半秒，见 event.c 的 zm_event_async_poll）。 */
+bool zm_timer_is_starved_ms(uc_engine *uc, uint32_t limit_ms);
+
 /* 由 zm_timer_poll 在**每次 applet yield（进事件循环）**时调用，记录时刻。
  *
  * 异步派发靠它做饥饿判断：applet 只要还在正常 yield，就绝不打断它

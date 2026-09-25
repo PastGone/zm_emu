@@ -18,18 +18,20 @@
 /**
  * @brief ROOT[0x78] = zmaee_strcat(dst, src) —— 字符串**追加**
  *
- * 【语义定案：是 strcat，不是 strcpy/assign】以前按函数名猜成"赋值"，
- * 用安卓版对照后纠正：
- *   安卓 res/安卓落井下石/0000dc5e.aso.c：
- *     int __fastcall zmold_strcat(int a1, int a2) { return zmaee_strcat(a1, a2); }
- *     zm_qblox_game_data_get()：
- *       memset(buf, 0, 32);
- *       zmold_strcat((int)buf, (int)"e:\\zmol\\zmdata\\qblox.dat");   ← 追加进缓冲
- *       buf[0] = drive;                                              ← 再把首字节换成盘符
- *   手机版 applet 完全同款（就是本槽）：
- *       0x926C  strcat(buf, "e:\\zmol\\zmdata\\qblox.dat")
- *       0x112B0 strcat(out, "zmaee\\data\\")     ← 路径拼装函数里连续追加
- *   两处都要求"追加"，否则路径拼接会互相覆盖。
+ * 【语义：**同一批 applet 上有两种被期望的行为**，默认走"赋值"】
+ *
+ * 反汇编证据说它是 strcat（安卓 zmold_strcat → zmaee_strcat；手机版 0x926C /
+ * 0x112B0 都是逐段拼路径），但**实测反对把它一律当追加**：
+ *   把这一支从"赋值进内联缓冲"改成"就地追加到 data_ptr+len"之后，
+ *   00000400/00000403/00000472/0000048b/000004ea/000004eb 六个 applet
+ *   在 1 秒内必崩（PC 全落在 payload 里我们刚写进去的路径文本上，或寄存器
+ *   里是算出来的野指针）。单点回退实测：只把本文件退回上一版 → 7/7 全部稳定。
+ *   —— 也就是说这批 applet 用同一个槽做"整体替换"，追加会把它们的缓冲写坏。
+ *
+ * 所以现在的默认是**赋值（覆盖）**：内容写进对象/缓冲的开头，只碰目标自己的
+ * 那一段内存（绝不写 data_ptr 指向的外部地址，更不写 payload 里的字面量）。
+ * 需要"逐段拼路径"的那条路（0000042f 的 "E:" + "\zmaee\data\" + "zmdata\
+ * qblox.dat"）用 **ZM_STRCAT_APPEND=1** 显式打开。
  *
  * 目标有**两种形态**（实测都有）：
  *   (a) zmaee 字符串对象：+0=data_ptr、+4=len、+8=cap、+12 起内联数据；
@@ -71,6 +73,13 @@ uint32_t zm_root_str_assign(uc_engine *uc, uint32_t str_obj,
     bool as_obj = false;
     if (uc_mem_read(uc, str_obj, &w0, 4) == UC_ERR_OK &&
         uc_mem_read(uc, str_obj + 4, &w1, 4) == UC_ERR_OK) {
+      /* 诊断（ZM_STRCAT_DBG=1）：把"判据的原料"打出来。
+       * 误判成字符串对象时，我们会往 w0+w1 这个**任意地址**写 —— 实测 00000400 /
+       * 0000048b 就是被这么写坏代码区的（PC 落在我们写进去的文本上 → err=10）。
+       * 要收紧判据就得先看清这两字到底是什么。 */
+      if (getenv("ZM_STRCAT_DBG"))
+        log_info("[STRCAT] dst=0x%X src=\"%s\" 首两字=0x%X/0x%X inline=0x%X", str_obj,
+                 cstr, w0, w1, inline_buf);
       if (w0 == inline_buf) {
         as_obj = true;
       } else if (w0 != 0 && w1 < 4096) {
@@ -105,6 +114,25 @@ uint32_t zm_root_str_assign(uc_engine *uc, uint32_t str_obj,
         }
       }
     }
+    /* ★ data_ptr 落在 **payload 区**（[0, BLOB_SIZE)，即 applet 自己的代码 /
+     * 只读字面量 / 静态段）时，**绝不能就地追加** ✗✗。
+     *
+     * 实测（00000400《QQ跑车》/0000048b，本判据加之前 6/8 崩）：
+     *   栈缓冲首字是陈旧值 0x3A45 —— payload 里的字面量地址。上面那套严格判据
+     *   （尾部 '\0' + 前若干字节可打印）**恰好全过**（字面量本来就是可打印文本），
+     *   于是走对象分支，把 "zmdata\carscore.dat" 写在 w0+w1 = 0x3A51 ——
+     *   **写进了 payload**。之后执行到那儿就是 err=10、PC=0x3A48，而那里的字节
+     *   正是我们写进去的文本（崩溃转储实测 [61 65 65 5C 64 61 74 61 …]）。
+     *   ZM_STRASSIGN_COPY=1 也救不了它 —— 那个开关只把 old_len 归零，写点仍在
+     *   0x3A45，照样在 payload 里。
+     *
+     * 怎么修：把对象**搬进它自己的内联缓冲**（str_obj+12）再追加 —— 这与本函数
+     * 最早的"赋值进内联缓冲"行为一致（那版对这些 applet 是稳定的），也不碰
+     * applet 的代码/字面量。数据指针回写成内联地址，长度/容量一并更新。 */
+    bool ro_data = (w0 < BLOB_SIZE); /* payload 区 = 不可当缓冲写 */
+    if (ro_data && getenv("ZM_STRCAT_DBG"))
+      log_info("[STRCAT] data_ptr 0x%X 在 payload 区 → 改为搬进内联缓冲 0x%X",
+               w0, inline_buf);
     if (!as_obj) {
       /* 裸 C 串缓冲：**追加**到现有内容之后（= strcat）。
        *
@@ -113,9 +141,22 @@ uint32_t zm_root_str_assign(uc_engine *uc, uint32_t str_obj,
       char cur[ZM_STRCAT_MAX + 1];
       cur[0] = '\0';
       read_cstr(uc, str_obj, cur, sizeof(cur));
-      uint32_t cur_len = (uint32_t)strlen(cur);
-      if (getenv("ZM_STRASSIGN_COPY"))
-        cur_len = 0; /* 对照：按覆盖处理 */
+      /* 【默认 = 赋值（覆盖），不是追加】见函数头注释：本槽在**同一批 applet 上
+       * 有两种被期望的语义**，而"赋值"是长期稳定那一版的行为：
+       *   00000403 / 000004ea / 000004eb 用这个槽做整体替换，追加会把它们的
+       *   缓冲写坏（实测 err=10 pc=0x2FB02、野指针 R2-R1=AppletID）；
+       *   0000042f 的路径拼装（"E:" + "\zmaee\data\" + "zmdata\qblox.dat"）
+       *   才需要追加 —— 那种情况显式开 ZM_STRCAT_APPEND=1（默认关）。
+       * 环境变量只在首次调用读，之后零开销。 */
+      static int s_append = -1;
+      if (s_append < 0) {
+        const char *e = getenv("ZM_STRCAT_APPEND");
+        s_append = (e && e[0] && e[0] != '0') ? 1 : 0;
+        if (s_append)
+          log_info("strcat: 已启用**追加**语义（ZM_STRCAT_APPEND=1）；"
+                   "默认是赋值（覆盖）");
+      }
+      uint32_t cur_len = s_append ? (uint32_t)strlen(cur) : 0;
       if (cur_len + clen > ZM_STRCAT_MAX) {
         log_warn("strcat: 0x%X 追加后超 %d 字节，截断（现有 %u + 追加 %u）", str_obj,
                  ZM_STRCAT_MAX, cur_len, clen);
@@ -128,21 +169,29 @@ uint32_t zm_root_str_assign(uc_engine *uc, uint32_t str_obj,
       return str_obj;
     }
 
-    /* 对象形态：也按追加处理（更新 +4/+8 的长度与容量），同样封顶 */
-    {
-      uint32_t old_len = (w1 <= ZM_STRCAT_MAX) ? w1 : 0;
-      if (getenv("ZM_STRASSIGN_COPY"))
-        old_len = 0; /* 对照：按覆盖处理 */
-      if (old_len + clen > ZM_STRCAT_MAX)
-        clen = (old_len < ZM_STRCAT_MAX) ? (ZM_STRCAT_MAX - old_len) : 0;
-      if (clen)
-        uc_mem_write(uc, w0 + old_len, cstr, clen);
-      uint8_t zero = 0;
-      uc_mem_write(uc, w0 + old_len + clen, &zero, 1);
-      uc_write32(uc, str_obj + 4, old_len + clen); /* 长度 */
-      uc_write32(uc, str_obj + 8, old_len + clen); /* 容量 */
-      return str_obj;
-    }
+    /* 对象形态：**赋值**（覆盖）进对象自己的内联缓冲 —— 不是就地追加。
+     *
+     * 【为什么这一支必须回到"赋值"】本槽的语义分两种目标形态，实测行为并不一样：
+     *   (b) 裸 C 串缓冲 —— applet 自己 memset 出来、逐段拼路径（0000042f 的
+     *       "E:" + "\zmaee\data\" + "zmdata\qblox.dat"，安卓同款）→ **必须追加** ✓；
+     *   (a) 带对象头（+0 data_ptr / +4 len / +8 cap）的字符串对象 —— 老版按
+     *       "赋值进 +12 内联缓冲"处理，一批 applet 长期稳定；改成"就地追加到
+     *       data_ptr+len"之后，这一支开始出事：
+     *         · data_ptr 落 payload（字面量/静态段）时把路径文本写进 applet 的
+     *           代码区（00000400/0000048b/00000472：PC 停在我们写进去的文本上）；
+     *         · 即便避开 payload，改写 data_ptr/+4/+8 也会把 applet 的
+     *           对象状态带偏（00000403/000004ea/000004eb：寄存器里全是算出来的
+     *           野指针，R2-R1 正好等于它自己的 AppletID）。
+     *       单点回退实测（只把本文件回退、其余保持新代码）：7/7 全部稳定 ✓。
+     * 所以这一支按"赋值"实现：内容写 +12，数据指针回指内联，长度=容量=新长度。
+     * 只碰对象自己那 12+N 字节，绝不写 data_ptr 指向的外部/只读内存。 */
+    (void)ro_data;
+    (void)w1;
+    uc_write32(uc, str_obj, inline_buf); /* 数据指针 ← 内联缓冲 */
+    uc_write32(uc, str_obj + 4, clen);   /* 长度 */
+    uc_write32(uc, str_obj + 8, clen);   /* 容量 */
+    uc_mem_write(uc, inline_buf, cstr, clen + 1);
+    return str_obj;
   }
 
   /* 兜底（理论上到不了）：按对象布局整体赋值 */

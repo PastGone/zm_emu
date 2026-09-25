@@ -242,7 +242,7 @@ static bool async_disabled(void) {
   return v != 0;
 }
 
-bool zm_timer_is_starved(uc_engine *uc) {
+bool zm_timer_is_starved_ms(uc_engine *uc, uint32_t limit_ms) {
   if (async_disabled() || !uc)
     return false;
   uint32_t now = zm_root_get_tick(uc);
@@ -250,7 +250,11 @@ bool zm_timer_is_starved(uc_engine *uc) {
     s_last_yield_ms = now; /* 首次：先给它一个完整的观察窗口 */
     return false;
   }
-  return (int32_t)(now - s_last_yield_ms) >= (int32_t)async_idle_limit_ms();
+  return (int32_t)(now - s_last_yield_ms) >= (int32_t)limit_ms;
+}
+
+bool zm_timer_is_starved(uc_engine *uc) {
+  return zm_timer_is_starved_ms(uc, async_idle_limit_ms());
 }
 
 bool zm_timer_interrupt(uc_engine *uc, uint32_t resume_pc) {
