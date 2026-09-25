@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "./tool/paser_info.h"
+#include "./tool/app_header.h"
 #include <capstone/capstone.h>
 #include <unicorn/unicorn.h>
 
@@ -43,7 +43,7 @@ extern int g_trap_pause;
 extern int g_disasm;
 
 /* 当前载入 applet 的短名称（如 "00000102.app"），由 main.c 设置，
- * 供 TR_init_callback 写入 applet instance+4。 */
+ * 供 TR_Applet_Internal_Reg_callback 写入 applet instance+4。 */
 extern char
     g_app_pathname[4096]; // 4096是 linux
                           // 的最长文件名,这里设了这么大是为了防止搞什么摇蛾子

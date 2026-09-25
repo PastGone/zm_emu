@@ -1,7 +1,7 @@
 #include "./trap.h"
 #include "hook.h" /* hook_ctx_apply：applet 上下文镜像 */
 #include "./log/log.h"
-#include "./test/zm_stat.h" /* zm_stat_trap：槽位调用次数统计（ZM_STAT=1） */
+#include "./debug/zm_stat.h" /* zm_stat_trap：槽位调用次数统计（ZM_STAT=1） */
 #include <inttypes.h> /* PRIx32，用于第 294 行格式化输出 */
 #include <stdint.h>
 #include <stdio.h>
@@ -798,7 +798,7 @@ static uint32_t d_zip_stub(trap_ctx *c) {
 }
 
 /* ---- 控制流类（自行写 PC / 停 emu，置 handled）---- */
-static uint32_t a_init_callback(trap_ctx *c) {
+static uint32_t a_reg_callback(trap_ctx *c) {
   uint32_t a0 = SIZE_SLOT;
   uint32_t a1 = API_SLOT;
   uc_reg_write(c->uc, UC_ARM_REG_R0, &a0);
@@ -942,7 +942,7 @@ static uint32_t a_enter_event_loop(trap_ctx *c) {
 static const struct { uint32_t lo, hi; trap_fn fn; } k_trap_table[] = {
   /* 控制流 / 特殊 */
   { TR_timer_return, TR_timer_return, a_timer_return },
-  { TR_init_callback, TR_init_callback, a_init_callback },
+  { TR_Applet_Internal_Reg_callback, TR_Applet_Internal_Reg_callback, a_reg_callback },
   { TR_register_event_loop, TR_register_event_loop, a_register_event_loop },
   { TR_abort, TR_abort, a_abort },
   { TR_enter_event_loop, TR_enter_event_loop, a_enter_event_loop },

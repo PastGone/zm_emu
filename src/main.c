@@ -10,8 +10,8 @@
 #include "./log/log.h"
 //
 #include "./emu.h"
-#include "./test/test_diag.h"
-#include "./test/zm_stat.h" /* zm_stat_init/dump：槽位与点击统计（ZM_STAT=1） */
+#include "./debug/test_diag.h"
+#include "./debug/zm_stat.h" /* zm_stat_init/dump：槽位与点击统计（ZM_STAT=1） */
 #include "./tool/odds.h"
 #include "./zmaee/audio/zm_audio.h"
 #include "./zmaee/fs/zm_file_mgr.h"
@@ -551,7 +551,7 @@ int main(int argc, char **argv) {
   // 启动 applet（init → 绘制 → 停止）
   zm_emu_start_applet();
 
-  // 调试 & 自测（已拆至 test/test_diag.c）//diag 的意思是诊断
+  // 调试 & 自测（已拆至 debug/test_diag.c）//diag 的意思是诊断
   zm_diag_dump_buttons(g_uc);
   // // zm_diag_audio_test(g_uc);
   // zm_diag_run_event_loop();

@@ -77,7 +77,7 @@ enum ZM_ROOT_TABLE : uint32_t {
   ZM_x68C = 0x68CU,
   ZM_EnterEventLoop = 0x1180U,
   ZM_RegisterEventLoop = 0x1184U,
-  ZM_InitCallback = 0x118cU
+  ZM_Applet_Internal_Reg_Callback = 0x118cU
 };
 
 /* FS vtable 槽，基址是 FS_VT，不跟 ROOT_TABLE_ADDR 混在一起 */
@@ -190,7 +190,7 @@ enum ZM_ROOT_TRAPS : uint32_t {
 
   /* 事件回调相关的 ROOT_TABLE_ADDR 槽（applet 无主循环，由宿主驱动）。 */
   /* 初始化回调 */
-  TR_init_callback = TRAP(ROOT_TABLE_ADDR + ZM_InitCallback),
+  TR_Applet_Internal_Reg_callback = TRAP(ROOT_TABLE_ADDR + ZM_Applet_Internal_Reg_Callback),
 
   /* 事件回调因为 apple 是没有主循环的所以要用外部来完成这个主循环 */
   /* 定时器"异步中断"的**返回跳板**（配套 zm_timer_interrupt）。
@@ -206,7 +206,7 @@ enum ZM_ROOT_TRAPS : uint32_t {
 
   TR_enter_event_loop = TRAP(ROOT_TABLE_ADDR + ZM_EnterEventLoop),
 
-  /* TR_init_callback 执行期间，applet 会调用 ROOT_TABLE_ADDR+0x1184
+  /* TR_Applet_Internal_Reg_callback 执行期间，applet 会调用 ROOT_TABLE_ADDR+0x1184
    * 把事件循环的入口 传出来（"注册主循环"）。模拟器据此单独调用
    * handler，而不是依赖那个 已经退化的 LR 约定——实测 00000506 的 init 顺序是
    *   ROOT_TABLE_ADDR+0x1184(handler) → ROOT_TABLE_ADDR+0x118c() → 返回

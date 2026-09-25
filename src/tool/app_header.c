@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "paser_info.h" /* AppletHeader：唯一定义在这里，本文件不再另抄一份 */
+#include "app_header.h" /* AppletHeader：唯一定义在这里，本文件不再另抄一份 */
 
 /* 头部固定大小 (392 字节) */
 #define HEADER_SIZE 0x188

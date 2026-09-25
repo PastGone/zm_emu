@@ -612,7 +612,7 @@ int zm_emu_start_applet() {
 
   uc_reg_write(
       g_uc, UC_ARM_REG_LR,
-      &(uint32_t){TR_init_callback}); // LR 是返回地址，这里写入初始化回调
+      &(uint32_t){TR_Applet_Internal_Reg_callback}); // LR 是返回地址，这里写入初始化回调
   uc_reg_write(g_uc, UC_ARM_REG_R0, &(uint32_t){SIZE_SLOT});
   uc_reg_write(g_uc, UC_ARM_REG_R1, &(uint32_t){API_SLOT});
 

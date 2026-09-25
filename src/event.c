@@ -2,7 +2,7 @@
 #include "./log/log.h"
 #include "./tool/uc_helper.h"       /* uc_read32：调试用实例字段 dump */
 #include "./zmaee/audio/zm_audio.h" /* zm_audio_note_user_input：首次点击通知 */
-#include "./test/zm_stat.h"        /* zm_stat_touch：点击坐标统计（ZM_STAT=1） */
+#include "./debug/zm_stat.h"       /* zm_stat_touch：点击坐标统计（ZM_STAT=1） */
 #include "./zmaee/runtime/timer/zm_timer.h" /* zm_timer_async_call：触摸异步跳板 */
 /* 键码真值在 event.h 的 ZMAEE_APPLET_INTERNAL_KEYCODE（见本文件末尾的映射说明）。
  * 注意：不要再 include zmaee/inc/zm_key_code.h —— 那份是旧的顺序枚举，
