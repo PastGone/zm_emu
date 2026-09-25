@@ -26,8 +26,7 @@
 #include "emu_bitmap_traps.h" /* ZMAEE IBitmap 原生虚表槽位（BITMAP_VT_ADDR） */
 #include "./zmaee/runtime/shell/zm_shell.h"
 #include "./zmaee/runtime/timer/zm_timer.h" /* IShell 定时器子系统 */
-#include "event.h"
-#include "zmaee/inc/zm_event_code.h"
+#include "event.h" /* APP_CMD_* 事件码（派发见 event.c） */
 
 /*
  * ==========================================================================

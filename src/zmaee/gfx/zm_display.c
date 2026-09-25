@@ -1391,6 +1391,146 @@ static void sdlclick_tick(void) {
            wy);
 }
 
+/* ---- 按键注入（ZM_SDLKEY_T）：把按键**投进 SDL 队列** ----
+ *
+ * 与 ZM_SDLCLICK_T 同一条思路：走真人键盘那条路（SDL 队列 → 事件循环 →
+ * zm_event_key → applet handler），这样测出来的就是真实交互链路 ✓，
+ * 而不是"从内部直接调 handler"那种绕过去的假验证。
+ *
+ * 用法：ZM_SDLKEY_T="毫秒,键名[;毫秒,键名…]"
+ *   键名（与 docs/sdl 和内部键码的对应.md 一致）：
+ *     w|up=上   s|down=下   a|left=左   d|right=右
+ *     q|soft1=左软键(确认)        e|soft2|back|esc=右软键(返回)
+ *     z|call=拨号   n|star|*=星号   m|pound|#=井号
+ *     space|enter|ok|center=中心确认     h|home=Home     f|search=Search
+ *     数字直接用 0..9（挂机键 DECALL 文档标"待定" ⇒ 不支持）
+ *   键名后加 '+' 表示**按住不放**（用来验证 LONG_PRESS(7) / 连发(8)）
+ * 例：ZM_SDLKEY_T="800,w;1400,space;2000,5;2600,s+" */
+static SDL_Keycode sym_from_name(const char *n) {
+  static const struct {
+    const char *n;
+    SDL_Keycode s;
+  } t[] = {
+      /* 方向：文档用 W/A/S/D；up/down/left/right 作为等价写法（投方向键） */
+      {"w", SDLK_w},          {"up", SDLK_UP},       {"s", SDLK_s},
+      {"down", SDLK_DOWN},    {"a", SDLK_a},         {"left", SDLK_LEFT},
+      {"d", SDLK_d},          {"right", SDLK_RIGHT},
+      /* 中心确认：文档列 空格/\r/\n */
+      {"space", SDLK_SPACE},  {"ok", SDLK_SPACE},    {"center", SDLK_SPACE},
+      {"enter", SDLK_RETURN}, {"select", SDLK_RETURN},
+      /* 左软键 Q / 右软键(返回) E；BACK 与 SOFT_RIGHT 同为 11 */
+      {"q", SDLK_q},          {"soft1", SDLK_q},     {"lsoft", SDLK_q},
+      {"e", SDLK_e},          {"soft2", SDLK_e},     {"rsoft", SDLK_e},
+      {"back", SDLK_ESCAPE},  {"esc", SDLK_ESCAPE},  {"exit", SDLK_ESCAPE},
+      /* 拨号 Z / 星号 N / 井号 M（PC 上的 * # 也认） */
+      {"z", SDLK_z},          {"call", SDLK_z},
+      {"n", SDLK_n},          {"star", SDLK_ASTERISK},{"*", SDLK_ASTERISK},
+      {"m", SDLK_m},          {"pound", SDLK_HASH},  {"hash", SDLK_HASH},
+      {"#", SDLK_HASH},
+      /* Home H / Search F（挂机键 DECALL 文档"待定" ⇒ 不提供） */
+      {"h", SDLK_h},          {"home", SDLK_h},
+      {"f", SDLK_f},          {"search", SDLK_f},
+  };
+  for (unsigned i = 0; i < sizeof(t) / sizeof(t[0]); i++)
+    if (!strcmp(n, t[i].n))
+      return t[i].s;
+  if (n[0] && !n[1]) { /* 单字符：数字 / 字母 */
+    if (n[0] >= '0' && n[0] <= '9')
+      return (SDL_Keycode)(SDLK_0 + (n[0] - '0'));
+    if (n[0] >= 'a' && n[0] <= 'z')
+      return (SDL_Keycode)(SDLK_a + (n[0] - 'a'));
+  }
+  return 0;
+}
+
+static void sdlkey_tick(void) {
+  static int inited = 0, n = 0, head = 0;
+  static struct {
+    Uint32 at;
+    SDL_Keycode sym;
+    int hold, sent;
+    Uint32 up_at; /* 抬起时刻；0 = 按住不放或已抬起 */
+  } q[64];
+  if (!inited) {
+    inited = 1;
+    const char *s = getenv("ZM_SDLKEY_T");
+    if (s && *s) {
+      const char *p = s;
+      while (n < 64 && *p) {
+        long ms = 0;
+        while (*p && (*p < '0' || *p > '9'))
+          p++;
+        if (!*p)
+          break;
+        while (*p >= '0' && *p <= '9')
+          ms = ms * 10 + (*p++ - '0');
+        while (*p == ',' || *p == ' ') /* 吃掉"毫秒,键名"里的分隔符 */
+          p++;
+        char nm[16];
+        int k = 0;
+        while (*p && *p != ';' && k < 15)
+          nm[k++] = *p++;
+        while (k > 0 && nm[k - 1] == ' ')
+          nm[--k] = '\0';
+        nm[k] = '\0';
+        int hold = 0;
+        for (int i = 0; nm[i]; i++)
+          if (nm[i] == '+') {
+            hold = 1;
+            nm[i] = '\0';
+            break;
+          }
+        SDL_Keycode sym = sym_from_name(nm);
+        if (sym) {
+          q[n].at = (Uint32)ms;
+          q[n].sym = sym;
+          q[n].hold = hold;
+          q[n].sent = 0;
+          q[n].up_at = 0;
+          n++;
+        } else {
+          log_warn("ZM_SDLKEY_T: 认不出的键名 \"%s\"，跳过", nm);
+        }
+      }
+      if (n > 0)
+        log_info("ZM_SDLKEY_T: 将按 SDL 队列投递 %d 个按键（真人键盘同一条路）", n);
+    }
+  }
+  if (!n)
+    return;
+  Uint32 now = SDL_GetTicks();
+
+  for (int i = head; i < n; i++) {
+    if (q[i].sent || now < q[i].at)
+      continue;
+    SDL_Event e;
+    SDL_zero(e);
+    e.type = SDL_KEYDOWN;
+    e.key.state = SDL_PRESSED;
+    e.key.repeat = 0;
+    e.key.keysym.sym = q[i].sym;
+    SDL_PushEvent(&e);
+    q[i].sent = 1;
+    q[i].up_at = q[i].hold ? 0 : now + 60; /* 短按 60ms；带 '+' 的按住不放 */
+    log_info("ZM_SDLKEY_T: %ums → 按下 sym=0x%X%s", q[i].at, (unsigned)q[i].sym,
+             q[i].hold ? "（按住不放）" : "");
+  }
+  for (int i = 0; i < n; i++) {
+    if (!q[i].up_at || now < q[i].up_at)
+      continue;
+    SDL_Event e;
+    SDL_zero(e);
+    e.type = SDL_KEYUP;
+    e.key.state = SDL_RELEASED;
+    e.key.repeat = 0;
+    e.key.keysym.sym = q[i].sym;
+    SDL_PushEvent(&e);
+    q[i].up_at = 0;
+  }
+  while (head < n && q[head].sent && !q[head].up_at)
+    head++;
+}
+
 /* 供宿主侧在 guest 长时间自旋时周期性调用：只泵 SDL 事件（不做上屏）。
  * uc_emu_start(...,0,0) 是无限指令执行，宿主只在 guest 调 IDisplay::Refresh
  * 槽时才会经 fb_commit 泵事件；一旦 guest 自旋（不再调 Refresh）窗口就整块
@@ -1409,6 +1549,7 @@ void zm_display_pump_events(void) {
    * 放在这里是因为本函数由 hook 周期性调用 —— 能在 applet **不**处于事件循环、
    * 正在绘制/自旋的时段投递，正好覆盖用户手点会踩到的窗口期。 */
   sdlclick_tick();
+  sdlkey_tick(); /* ZM_SDLKEY_T：按键注入（与点击同一条真人输入链路） */
 
   SDL_Event e;
   /* 只**窥探** SDL_QUIT（PEEKEVENT 不移除事件）。 */
@@ -1434,6 +1575,16 @@ void zm_display_pump_events(void) {
     uint32_t cy = (win_h > 0) ? (uint32_t)(e.button.y * g_h / win_h)
                               : (uint32_t)e.button.y;
     zm_event_queue_touch(cx, cy);
+  }
+  /* 键盘同理：applet 一旦自旋到不回事件循环，按键也必须有人收 —— 否则表现就是
+   * "按了没反应"。收进**带事件码**的通用队列（见 event.c），随后由异步跳板派发。
+   * 范围取 SDL_KEYDOWN..SDL_KEYUP（两者相邻）：按下和抬起都要，applet 的
+   * 按键语义同样依赖这一对。 */
+  while (SDL_PeepEvents(&e, 1, SDL_GETEVENT, SDL_KEYDOWN, SDL_KEYUP) > 0) {
+    uint32_t code = 0;
+    if (zm_event_key_from_sdl((int)e.key.keysym.sym, &code))
+      zm_event_queue((e.type == SDL_KEYDOWN) ? APP_CMD_KEY_DOWN : APP_CMD_KEY_UP,
+                     code, 0);
   }
   /* ★ 鼠标**移动**事件不能积压。
    *
@@ -1789,14 +1940,20 @@ bool zm_display_event_loop(void (*on_click)(uint32_t x, uint32_t y),
   SDL_Event e;
   Uint32 start = SDL_GetTicks();
   for (;;) {
-    /* 自旋泵（zm_display_pump_events）收下的点击：正常 yield 的 applet 从这里
-     * 派发 —— 保证"泵只为自旋 applet 抢点击"这件事不会让正常 applet 丢事件。 */
+    /* 自旋泵（zm_display_pump_events）收下的事件：正常 yield 的 applet 从这里
+     * 派发 —— 保证"泵只为自旋 applet 抢事件"这件事不会让正常 applet 丢事件。
+     * 队列已带事件码（见 event.c）：触摸走 on_click，其余（按键等）按语义派发。 */
     {
-      uint32_t qx = 0, qy = 0;
-      if (on_click && zm_event_take_queued_touch(&qx, &qy)) {
-        on_click(qx, qy);
+      uint32_t qevt = 0, qx = 0, qy = 0;
+      if (zm_event_take_queued_evt(&qevt, &qx, &qy)) {
+        if (qevt == APP_CMD_TOUCH_DOWN && on_click) {
+          /* on_click 内部会派发"按下"并排好配对的"抬起"（见 event.c） */
+          on_click(qx, qy);
+        } else {
+          zm_event_send(qevt, qx, qy); /* 按键等按语义派发 */
+        }
         fb_present();
-        return true; /* 已派发点击 → 让模拟器执行 handler */
+        return true; /* 已派发 → 让模拟器执行 handler */
       }
     }
     while (SDL_PollEvent(&e)) {
@@ -1826,6 +1983,47 @@ bool zm_display_event_loop(void (*on_click)(uint32_t x, uint32_t y),
         on_touch_move(cx, cy);
         return true; /* 让模拟器执行 handler */
       }
+      /* ★ 键盘 → APP_CMD_KEY_DOWN(5) / KEY_UP(6)
+       * 键码是 event.h 的 ZMAEE_APPLET_INTERNAL_KEYCODE（事件码 5~8 的附带参数，
+       * 真值由 Android 键码推断，见 docs/sdl 和内部键码的对应.md），
+       * 长按(7)/连发(8) 由下面每轮的 zm_event_key_tick 补齐。
+       * 以前这里完全没有键盘处理 ✗ —— 只按键盘的 applet 永远收不到输入。 */
+      if (e.type == SDL_KEYDOWN || e.type == SDL_KEYUP) {
+        uint32_t code = 0;
+        if (zm_event_key_from_sdl((int)e.key.keysym.sym, &code)) {
+          zm_event_key(code, e.type == SDL_KEYDOWN);
+          return true; /* 让模拟器执行 handler */
+        }
+      }
+      /* 切后台 / 回前台 → PAUSE(2) / RESUME(3)
+       *
+       * ★ 两道闸门，缺一不可：
+       *   ① **无头模式一律不派发**（SDL_VIDEODRIVER=dummy/offscreen、批量回归时）：
+       *      dummy 驱动照样会发 SHOWN/FOCUS_GAINED 之类窗口事件，派进去就是给
+       *      applet 送**意外的生命周期事件** —— 实测 00000472 因此在回归里崩掉 ✗。
+       *      真机/真窗口才会真的切前后台。
+       *   ② **只在真的切换时派一次**：SDL 会连续重复同一类窗口事件，不判重就是
+       *      反复打断 applet（一次切后台能发好几条 RESUME ✗）。 */
+      if (e.type == SDL_WINDOWEVENT && !zm_display_driver_is_headless()) {
+        static bool s_paused = false;
+        if (e.window.event == SDL_WINDOWEVENT_FOCUS_LOST ||
+            e.window.event == SDL_WINDOWEVENT_HIDDEN ||
+            e.window.event == SDL_WINDOWEVENT_MINIMIZED) {
+          if (!s_paused) {
+            s_paused = true;
+            zm_event_pause();
+            return true;
+          }
+        } else if (e.window.event == SDL_WINDOWEVENT_FOCUS_GAINED ||
+                   e.window.event == SDL_WINDOWEVENT_SHOWN ||
+                   e.window.event == SDL_WINDOWEVENT_RESTORED) {
+          if (s_paused) {
+            s_paused = false;
+            zm_event_resume();
+            return true;
+          }
+        }
+      }
     }
     if (timeout_ms != 0 && SDL_GetTicks() - start >= timeout_ms)
       return false; /* 超时 → 模拟结束 */
@@ -1846,6 +2044,18 @@ bool zm_display_event_loop(void (*on_click)(uint32_t x, uint32_t y),
      * 所以与 applet 自己的合成结果一致，不会来回闪。 */
     fb_composite_default();
     fb_present();
+
+    /* 诊断注入（ZM_SDLCLICK_T / ZM_SDLKEY_T）也要在这里补一次：
+     * 这两条注入原本只挂在"自旋泵"（zm_display_pump_events）上，而泵只在 **guest
+     * 正在跑指令** 时才被调用 —— yield 型 applet 几乎一直停在本事件循环里，
+     * 于是注入**永远不触发** ✗（实测：真窗口下投了 4 个按键一个都没送进去）。 */
+    sdlclick_tick();
+    sdlkey_tick();
+
+    /* 按住的键 → 长按(7)/连发(8)（真机功能机的"按着不放"语义，见 event.c） */
+    if (zm_event_key_tick(SDL_GetTicks()))
+      return true; /* 已派发 → 让模拟器执行 handler */
+
     SDL_Delay(16);
   }
 }
