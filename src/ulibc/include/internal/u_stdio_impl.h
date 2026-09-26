@@ -7,8 +7,8 @@
  * 客户机 FILE* 只是小整数句柄，宿主侧维护 FILE* 表。
  * fopen/fclose/fread/fwrite/... 各是独立翻译单元，共用这张表。
  */
-#include <stdio.h>
 #include <stdint.h>
+#include <stdio.h>
 
 /** 句柄表（定义于 std/stdio/u_stdio_tbl.c） */
 extern FILE *u_stdio_g_files[];

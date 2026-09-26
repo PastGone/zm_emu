@@ -8,7 +8,7 @@
  */
 
 int32_t u_fixed_div(int32_t a, int32_t b, int frac_bits) {
-  if (b == 0)
-    return 0;
-  return (int32_t)(((int64_t)a << frac_bits) / (int64_t)b);
+	if (b == 0)
+		return 0;
+	return (int32_t)(((int64_t)a << frac_bits) / (int64_t)b);
 }

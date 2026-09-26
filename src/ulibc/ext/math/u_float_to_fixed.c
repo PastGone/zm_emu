@@ -8,11 +8,11 @@
  */
 
 int32_t u_float_to_fixed(double v, int frac_bits) {
-  double s = (double)(1 << frac_bits);
-  double r = v * s;
-  if (r >= 2147483647.0)
-    return 2147483647;
-  if (r <= -2147483648.0)
-    return (int32_t)(-2147483647 - 1);
-  return (int32_t)(r >= 0 ? r + 0.5 : r - 0.5);
+	double s = (double)(1 << frac_bits);
+	double r = v * s;
+	if (r >= 2147483647.0)
+		return 2147483647;
+	if (r <= -2147483648.0)
+		return (int32_t)(-2147483647 - 1);
+	return (int32_t)(r >= 0 ? r + 0.5 : r - 0.5);
 }

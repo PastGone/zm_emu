@@ -21,15 +21,14 @@
  * 结构，与真机 localtime_r 失败一致。
  */
 uint32_t u_localtime(uc_engine *uc, uint32_t timer_ptr, uint32_t tm_ptr) {
-  time_t t = (time_t)(timer_ptr ? (int64_t)u_rd32(uc, timer_ptr)
-                                : (int64_t)time(NULL));
-  struct tm lt;
-  memset(&lt, 0, sizeof(lt));
+	time_t t = (time_t)(timer_ptr ? (int64_t)u_rd32(uc, timer_ptr) : (int64_t)time(NULL));
+	struct tm lt;
+	memset(&lt, 0, sizeof(lt));
 
-  const struct tm *p = localtime(&t);
-  if (p)
-    lt = *p;
+	const struct tm *p = localtime(&t);
+	if (p)
+		lt = *p;
 
-  u_tm_store(uc, tm_ptr, &lt);
-  return tm_ptr;
+	u_tm_store(uc, tm_ptr, &lt);
+	return tm_ptr;
 }

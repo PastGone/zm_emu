@@ -11,7 +11,7 @@
  */
 
 int u_btowc(int c) {
-  if (c == EOF)
-    return (int)WEOF;
-  return (int)btowc(c);
+	if (c == EOF)
+		return (int)WEOF;
+	return (int)btowc(c);
 }

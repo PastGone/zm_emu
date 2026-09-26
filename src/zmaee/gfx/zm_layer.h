@@ -40,7 +40,7 @@ extern const int ZM_CF_BPP[5];
 
 /* 按 ZMCF 取每像素字节数（越界返回 0） */
 static inline int zm_cf_bpp(uint32_t fmt) {
-  return (fmt <= 4u) ? ZM_CF_BPP[fmt] : 0;
+	return (fmt <= 4u) ? ZM_CF_BPP[fmt] : 0;
 }
 
 /* 按 RE 的 ZMAEE_IDisplay_New 语义建立"层 0"（基础层）。
@@ -60,19 +60,19 @@ static inline int zm_cf_bpp(uint32_t fmt) {
 int zm_layer_init_base(uc_engine *uc, uint32_t display);
 
 typedef struct {
-  uint32_t fmt;  /* +0x00 ZMCF 色格式枚举（1=RGB565，2/3/4=32bit）；
-                    基础层的这一格 = GetBaseLayerDepth() 的返回值 */
-  uint32_t x, y; /* +0x04 / +0x08 */
-  uint32_t w;    /* +0x0C 宽（兼 pitch） */
-  uint32_t h;    /* +0x10 高 */
-  uint32_t cx, cy, cw, ch; /* +0x14/+0x18/+0x1C/+0x20 裁剪区 */
-  uint32_t buf;  /* +0x24 像素缓冲指针 */
-  /* RE：sub_285D8 里
-   *   if (*(层+0x2C) != 0) 走 mask 函数，否则走 copy 函数   → +0x2C 是"启用透明"
-   *   v12 = RGB565(*(层+0x30))                              → +0x30 才是透明色
-   * 这也修正了 SetTransColor(a2,a3) 的语义：a2=启用标志，a3=颜色。 */
-  uint32_t tenable; /* +0x2C 非 0 = 启用透明色 */
-  uint32_t tcolor;  /* +0x30 透明色（ARGB） */
+	uint32_t fmt;			 /* +0x00 ZMCF 色格式枚举（1=RGB565，2/3/4=32bit）；
+								基础层的这一格 = GetBaseLayerDepth() 的返回值 */
+	uint32_t x, y;			 /* +0x04 / +0x08 */
+	uint32_t w;				 /* +0x0C 宽（兼 pitch） */
+	uint32_t h;				 /* +0x10 高 */
+	uint32_t cx, cy, cw, ch; /* +0x14/+0x18/+0x1C/+0x20 裁剪区 */
+	uint32_t buf;			 /* +0x24 像素缓冲指针 */
+	/* RE：sub_285D8 里
+	 *   if (*(层+0x2C) != 0) 走 mask 函数，否则走 copy 函数   → +0x2C 是"启用透明"
+	 *   v12 = RGB565(*(层+0x30))                              → +0x30 才是透明色
+	 * 这也修正了 SetTransColor(a2,a3) 的语义：a2=启用标志，a3=颜色。 */
+	uint32_t tenable; /* +0x2C 非 0 = 启用透明色 */
+	uint32_t tcolor;  /* +0x30 透明色（ARGB） */
 } zm_layer_t;
 
 /* 读第 idx 层。成功（该层存在且有缓冲）返回 0，否则 -1。 */
@@ -82,13 +82,12 @@ int zm_layer_get(uc_engine *uc, uint32_t display, uint32_t idx, zm_layer_t *out)
  * idx ∈ [1,15]；rect = {x,y,w,h}；fmt ∈ [1,4]。
  * 自己分配层缓冲并清零，填满层结构；该层已存在（+0x24 != 0）返回 -8。
  * 返回 0 成功、-4 参数错、-2 分配失败、-8 已存在。 */
-uint32_t zm_layer_CreateLayer(uc_engine *uc, uint32_t display, uint32_t idx,
-                              uint32_t rect_ptr, uint32_t fmt);
+uint32_t zm_layer_CreateLayer(
+	uc_engine *uc, uint32_t display, uint32_t idx, uint32_t rect_ptr, uint32_t fmt);
 
 /* +0x1C GetLayerInfo(display, idx, out)：把层项载荷 52 字节拷给调用方。
  * idx 允许 0..15（固件只校验 >0xF），层无缓冲返回 -4。 */
-uint32_t zm_layer_GetLayerInfo(uc_engine *uc, uint32_t display, uint32_t idx,
-                               uint32_t out_ptr);
+uint32_t zm_layer_GetLayerInfo(uc_engine *uc, uint32_t display, uint32_t idx, uint32_t out_ptr);
 
 /* +0x30 SetActiveLayer(display, idx)：层无缓冲返回 -4。 */
 uint32_t zm_layer_SetActiveLayer(uc_engine *uc, uint32_t display, uint32_t idx);

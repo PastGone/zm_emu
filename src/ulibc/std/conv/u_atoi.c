@@ -6,5 +6,5 @@
  */
 
 int u_atoi(uc_engine *uc, uint32_t s) {
-  return (int)u_strtol_ex(uc, s, NULL, 10);
+	return (int)u_strtol_ex(uc, s, NULL, 10);
 }

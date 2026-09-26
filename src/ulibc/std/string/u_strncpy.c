@@ -10,15 +10,15 @@
  */
 
 uint32_t u_strncpy(uc_engine *uc, uint32_t dst, uint32_t src, uint32_t n) {
-  if (!uc || dst == 0 || n == 0)
-    return dst;
-  if (src == 0) {
-    u_memset(uc, dst, 0, n);
-    return dst;
-  }
-  uint32_t len = u_strnlen(uc, src, n);
-  u_memcpy(uc, dst, src, len);
-  if (len < n)
-    u_memset(uc, dst + len, 0, n - len);
-  return dst;
+	if (!uc || dst == 0 || n == 0)
+		return dst;
+	if (src == 0) {
+		u_memset(uc, dst, 0, n);
+		return dst;
+	}
+	uint32_t len = u_strnlen(uc, src, n);
+	u_memcpy(uc, dst, src, len);
+	if (len < n)
+		u_memset(uc, dst + len, 0, n - len);
+	return dst;
 }

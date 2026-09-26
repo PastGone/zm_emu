@@ -1,0 +1,44 @@
+# .clang-format —— 模拟 Go 风格 for C
+
+# 基础风格：LLVM，大部分选项我们会覆盖
+BasedOnStyle: LLVM
+
+# --- 缩进：Go 强制使用 Tab ---
+IndentWidth: 4
+TabWidth: 4
+UseTab: Always
+# 在预处理指令前也使用缩进（Go 没有这个，但保持一致）
+IndentPPDirectives: BeforeHash
+
+# --- 行宽：Go 没有严格限制，这里给一个宽松值 ---
+ColumnLimit: 99
+
+# --- 大括号：Go 强制 Attach（{ 跟在同行）---
+BreakBeforeBraces: Attach
+
+# --- 短语句：Go 不允许单行 ---
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+
+# --- 参数换行：Go 习惯每个参数各占一行 ---
+BinPackArguments: false
+BinPackParameters: false
+
+# --- 指针风格：保持 C 传统，如果你想要 Go 的视觉感受可改为 Left ---
+DerivePointerAlignment: false
+PointerAlignment: Right
+
+# --- 其他细节 ---
+# 控制语句括号前加空格：if (x)，函数调用不加：foo(x) （Go 风格类似）
+SpaceBeforeParens: ControlStatements
+# 自动排序 include
+SortIncludes: true
+# 续行缩进
+ContinuationIndentWidth: 4
+AlignAfterOpenBracket: Align
+# 空行控制
+MaxEmptyLinesToKeep: 1
+KeepEmptyLinesAtTheStartOfBlocks: false

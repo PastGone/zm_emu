@@ -8,5 +8,5 @@
  */
 
 void u_heap_init(uc_engine *uc, uint32_t base, uint32_t size) {
-  u_heap_setup(uc, base, size);
+	u_heap_setup(uc, base, size);
 }

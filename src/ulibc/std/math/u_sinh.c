@@ -9,4 +9,6 @@
  * 纯标量运算，不涉及客户机地址空间。
  */
 
-double u_sinh(double x) { return sinh(x); }
+double u_sinh(double x) {
+	return sinh(x);
+}

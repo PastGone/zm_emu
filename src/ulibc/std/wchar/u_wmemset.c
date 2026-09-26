@@ -9,8 +9,8 @@
  */
 
 uint32_t u_wmemset(uc_engine *uc, uint32_t dst, u_wchar c, uint32_t n) {
-  if (!uc || n == 0)
-    return dst;
-  u_memset16(uc, dst, (uint16_t)c, n);
-  return dst;
+	if (!uc || n == 0)
+		return dst;
+	u_memset16(uc, dst, (uint16_t)c, n);
+	return dst;
 }

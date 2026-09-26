@@ -18,11 +18,11 @@
 #define U_BLK_MIN (U_HEAP_HDR + U_HEAP_ALIGN)
 
 typedef struct {
-  uc_engine *uc;
-  uint32_t base;
-  uint32_t size; /* 8 字节对齐后的可用总大小 */
-  uint32_t end;
-  int ready;
+	uc_engine *uc;
+	uint32_t base;
+	uint32_t size; /* 8 字节对齐后的可用总大小 */
+	uint32_t end;
+	int ready;
 } u_heap_state;
 
 /** 全局堆状态（定义于 core/heap/u_heap_impl.c） */

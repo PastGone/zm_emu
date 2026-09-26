@@ -6,9 +6,9 @@
  */
 
 bool u_write(uc_engine *uc, uint32_t addr, const void *buf, size_t len) {
-  if (!uc || !buf)
-    return false;
-  if (len == 0)
-    return true;
-  return uc_mem_write(uc, (uint64_t)addr, buf, len) == UC_ERR_OK;
+	if (!uc || !buf)
+		return false;
+	if (len == 0)
+		return true;
+	return uc_mem_write(uc, (uint64_t)addr, buf, len) == UC_ERR_OK;
 }

@@ -44,13 +44,13 @@ long u_labs(long v);
 long long u_llabs(long long v);
 
 typedef struct {
-  int quot;
-  int rem;
+	int quot;
+	int rem;
 } u_div_t;
 
 typedef struct {
-  long quot;
-  long rem;
+	long quot;
+	long rem;
 } u_ldiv_t;
 
 u_div_t u_div(int num, int den);
@@ -69,8 +69,7 @@ long long u_atoll(uc_engine *uc, uint32_t s);
 double u_atof(uc_engine *uc, uint32_t s);
 
 long u_strtol(uc_engine *uc, uint32_t s, uint32_t endptr_addr, int base);
-unsigned long u_strtoul(uc_engine *uc, uint32_t s, uint32_t endptr_addr,
-                        int base);
+unsigned long u_strtoul(uc_engine *uc, uint32_t s, uint32_t endptr_addr, int base);
 long long u_strtoll(uc_engine *uc, uint32_t s, uint32_t endptr_addr, int base);
 double u_strtod(uc_engine *uc, uint32_t s, uint32_t endptr_addr);
 
@@ -79,8 +78,7 @@ double u_strtod(uc_engine *uc, uint32_t s, uint32_t endptr_addr);
  * 不触碰客户机内存。
  */
 long u_strtol_ex(uc_engine *uc, uint32_t s, uint32_t *end_out, int base);
-unsigned long u_strtoul_ex(uc_engine *uc, uint32_t s, uint32_t *end_out,
-                           int base);
+unsigned long u_strtoul_ex(uc_engine *uc, uint32_t s, uint32_t *end_out, int base);
 long long u_strtoll_ex(uc_engine *uc, uint32_t s, uint32_t *end_out, int base);
 double u_strtod_ex(uc_engine *uc, uint32_t s, uint32_t *end_out);
 
@@ -91,8 +89,7 @@ double u_strtod_ex(uc_engine *uc, uint32_t s, uint32_t *end_out);
  * @return 实际写入字节数（含 '\0'）；变量不存在返回 0；
  *         buf 为 0 或 buflen 为 0 时只返回所需长度。
  */
-uint32_t u_getenv(uc_engine *uc, uint32_t name, uint32_t buf,
-                  uint32_t buflen);
+uint32_t u_getenv(uc_engine *uc, uint32_t name, uint32_t buf, uint32_t buflen);
 
 /**
  * system：执行宿主 shell 命令（命令串在客户机内存）。
@@ -109,11 +106,10 @@ int u_atexit(void (*fn)(uc_engine *uc, void *arg), void *arg);
 
 typedef int (*u_compare_fn)(uc_engine *uc, uint32_t a, uint32_t b);
 
-void u_qsort_host(uc_engine *uc, uint32_t base, uint32_t n, uint32_t width,
-                  u_compare_fn cmp);
+void u_qsort_host(uc_engine *uc, uint32_t base, uint32_t n, uint32_t width, u_compare_fn cmp);
 
 /** 命中返回客户机地址，未命中返回 0 */
-uint32_t u_bsearch_host(uc_engine *uc, uint32_t key, uint32_t base,
-                        uint32_t n, uint32_t width, u_compare_fn cmp);
+uint32_t u_bsearch_host(
+	uc_engine *uc, uint32_t key, uint32_t base, uint32_t n, uint32_t width, u_compare_fn cmp);
 
 #endif /* U_STDLIB_H */

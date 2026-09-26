@@ -13,18 +13,18 @@
  */
 
 double u_modf(uc_engine *uc, double x, uint32_t iptr) {
-  double ipart = 0.0;
-  double fpart = modf(x, &ipart);
-  if (uc && iptr) {
-    /* 显式按小端写 8 字节，避免宿主/客户机端序或 double 表示差异 */
-    union {
-      double d;
-      uint64_t u;
-    } cvt;
-    cvt.d = ipart;
-    uint64_t bits = cvt.u;
-    u_wr32(uc, iptr, (uint32_t)(bits & 0xFFFFFFFFu));
-    u_wr32(uc, iptr + 4, (uint32_t)(bits >> 32));
-  }
-  return fpart;
+	double ipart = 0.0;
+	double fpart = modf(x, &ipart);
+	if (uc && iptr) {
+		/* 显式按小端写 8 字节，避免宿主/客户机端序或 double 表示差异 */
+		union {
+			double d;
+			uint64_t u;
+		} cvt;
+		cvt.d = ipart;
+		uint64_t bits = cvt.u;
+		u_wr32(uc, iptr, (uint32_t)(bits & 0xFFFFFFFFu));
+		u_wr32(uc, iptr + 4, (uint32_t)(bits >> 32));
+	}
+	return fpart;
 }

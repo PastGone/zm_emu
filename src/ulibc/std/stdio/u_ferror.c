@@ -10,14 +10,14 @@
  */
 
 int u_ferror(uc_engine *uc, uint32_t fp) {
-  (void)uc;
-  FILE *f = u_stdio_slot(fp);
-  return f ? ferror(f) : 1;
+	(void)uc;
+	FILE *f = u_stdio_slot(fp);
+	return f ? ferror(f) : 1;
 }
 
 void u_clearerr(uc_engine *uc, uint32_t fp) {
-  (void)uc;
-  FILE *f = u_stdio_slot(fp);
-  if (f)
-    clearerr(f);
+	(void)uc;
+	FILE *f = u_stdio_slot(fp);
+	if (f)
+		clearerr(f);
 }

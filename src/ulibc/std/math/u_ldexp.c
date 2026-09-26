@@ -7,4 +7,6 @@
  * @brief u_ldexp —— 【纯透传】转发宿主 libm 的 ldexp
  */
 
-double u_ldexp(double x, int e) { return ldexp(x, e); }
+double u_ldexp(double x, int e) {
+	return ldexp(x, e);
+}

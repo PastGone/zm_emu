@@ -10,8 +10,8 @@
  */
 
 int64_t u_time(uc_engine *uc, uint32_t timer_ptr) {
-  int64_t t = (int64_t)time(NULL);
-  if (uc && timer_ptr)
-    u_wr32(uc, timer_ptr, (uint32_t)t);
-  return t;
+	int64_t t = (int64_t)time(NULL);
+	if (uc && timer_ptr)
+		u_wr32(uc, timer_ptr, (uint32_t)t);
+	return t;
 }

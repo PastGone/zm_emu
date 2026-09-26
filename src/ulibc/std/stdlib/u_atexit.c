@@ -11,30 +11,30 @@
 #define U_ATEXIT_MAX 32
 
 typedef struct {
-  void (*fn)(uc_engine *uc, void *arg);
-  void *arg;
+	void (*fn)(uc_engine *uc, void *arg);
+	void *arg;
 } u_atexit_slot;
 
 static u_atexit_slot s_slots[U_ATEXIT_MAX];
 static int s_count;
 
 int u_atexit(void (*fn)(uc_engine *uc, void *arg), void *arg) {
-  if (!fn || s_count >= U_ATEXIT_MAX)
-    return -1;
-  s_slots[s_count].fn = fn;
-  s_slots[s_count].arg = arg;
-  s_count++;
-  return 0;
+	if (!fn || s_count >= U_ATEXIT_MAX)
+		return -1;
+	s_slots[s_count].fn = fn;
+	s_slots[s_count].arg = arg;
+	s_count++;
+	return 0;
 }
 
 /** 由 u_exit 调用；非公开 */
 void u_atexit_run(uc_engine *uc) {
-  while (s_count > 0) {
-    s_count--;
-    void (*fn)(uc_engine *, void *) = s_slots[s_count].fn;
-    void *arg = s_slots[s_count].arg;
-    s_slots[s_count].fn = NULL;
-    if (fn)
-      fn(uc, arg);
-  }
+	while (s_count > 0) {
+		s_count--;
+		void (*fn)(uc_engine *, void *) = s_slots[s_count].fn;
+		void *arg = s_slots[s_count].arg;
+		s_slots[s_count].fn = NULL;
+		if (fn)
+			fn(uc, arg);
+	}
 }

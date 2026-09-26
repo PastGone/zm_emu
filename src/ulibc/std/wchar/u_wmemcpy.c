@@ -8,8 +8,8 @@
  */
 
 uint32_t u_wmemcpy(uc_engine *uc, uint32_t dst, uint32_t src, uint32_t n) {
-  if (!uc || n == 0)
-    return dst;
-  u_memcpy(uc, dst, src, n * 2u);
-  return dst;
+	if (!uc || n == 0)
+		return dst;
+	u_memcpy(uc, dst, src, n * 2u);
+	return dst;
 }

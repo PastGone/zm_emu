@@ -8,5 +8,5 @@
  */
 
 uint32_t u_strlwr(uc_engine *uc, uint32_t s) {
-  return u_xlate_case(uc, s, 0);
+	return u_xlate_case(uc, s, 0);
 }

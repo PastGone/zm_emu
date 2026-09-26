@@ -11,17 +11,17 @@
  */
 
 uint32_t u_wcslen(uc_engine *uc, uint32_t s) {
-  if (!uc || s == 0)
-    return 0;
-  uint32_t n = 0;
-  for (;;) {
-    uint16_t w = u_rd16(uc, s + n * 2u);
-    if (w == 0)
-      return n;
-    /* 读到不可访问内存则终止，避免死循环 */
-    uint8_t probe;
-    if (!u_read(uc, s + n * 2u, &probe, 1))
-      return n;
-    n++;
-  }
+	if (!uc || s == 0)
+		return 0;
+	uint32_t n = 0;
+	for (;;) {
+		uint16_t w = u_rd16(uc, s + n * 2u);
+		if (w == 0)
+			return n;
+		/* 读到不可访问内存则终止，避免死循环 */
+		uint8_t probe;
+		if (!u_read(uc, s + n * 2u, &probe, 1))
+			return n;
+		n++;
+	}
 }

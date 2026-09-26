@@ -2,7 +2,6 @@
 #define EMU_MEM_LAYOUT_H
 
 #include "emu_mem_regions.h" /* 纯地址算术：各 region 基址/尺寸 */
-#include "emu_obj_layout.h"
 
 /* ============================================================
  *                        虚 表 区  (0x00000)
@@ -18,10 +17,10 @@ static constexpr uint32_t ROOT_TABLE_ADDR = SHIM_VT_BASE + 0x000U;
 static constexpr uint32_t SHELL_VT_ADDR = SHIM_VT_BASE + 0x400U;
 
 static constexpr uint32_t FileMgr_VT_ADDR = SHIM_VT_BASE + 0x500U; /* 16 槽 → 0x540 */
-static constexpr uint32_t FILE_VT_ADDR = SHIM_VT_BASE + 0x580U;    /* 10 槽 → 0x5A8 */
+static constexpr uint32_t FILE_VT_ADDR = SHIM_VT_BASE + 0x580U;	   /* 10 槽 → 0x5A8 */
 
 static constexpr uint32_t NETMGR_VT_ADDR = SHIM_VT_BASE + 0x800U; /* 8 槽 → 0x820 */
-static constexpr uint32_t TAPI_VT_ADDR = SHIM_VT_BASE + 0x880U;   /* 8 槽 → 0x8A0 */
+static constexpr uint32_t TAPI_VT_ADDR = SHIM_VT_BASE + 0x880U;	  /* 8 槽 → 0x8A0 */
 
 static constexpr uint32_t CBK_OBJ_VT_ADDR = SHIM_VT_BASE + 0x1000U; /* 可写：applet 覆写 vt+8 */
 static constexpr uint32_t DLL_OBJ_VT_ADDR = SHIM_VT_BASE + 0x1100U;
@@ -33,7 +32,7 @@ static constexpr uint32_t DLL_OBJ_VT_ADDR = SHIM_VT_BASE + 0x1100U;
  * bitmap 由 IDisplay.CreateBitmap/LoadBitmap 创建，这里用单个 BITMAP 单例
  * 作为所有 bitmap 对象的 vtable 模板（真实多实例后续再扩展）。 */
 static constexpr uint32_t DISPLAY_VT_ADDR = SHIM_VT_BASE + 0x1600U; /* 58 槽 → 0x16E8 */
-static constexpr uint32_t BITMAP_VT_ADDR = SHIM_VT_BASE + 0x1700U;  /* 7 槽 → 0x171C */
+static constexpr uint32_t BITMAP_VT_ADDR = SHIM_VT_BASE + 0x1700U;	/* 7 槽 → 0x171C */
 
 /* 0x100000B ISetting（RE：g_aee_setting_vtbl @ .data:0x64408，14 槽）。
  * 旧名 AUDIO 是误命名：该对象被用于 +0x14 / +0x24，曾按"音频状态"实现；
@@ -47,7 +46,8 @@ static constexpr uint32_t MEDIA_VT_ADDR = SHIM_VT_BASE + 0x1900U;
 /* 0x1000013 IUtil 服务对象。真机 util 虚表是 7 个槽（0x00~0x18）。 */
 static constexpr uint32_t IUTIL_VT_ADDR = SHIM_VT_BASE + 0x1A00U;
 
-/* ZMAEE IZip 服务对象虚表（IDA 实测 g_aee_zip_vtbl @ .data:0x64574，5 槽 → 0x14）。 */
+/* ZMAEE IZip 服务对象虚表（IDA 实测 g_aee_zip_vtbl @ .data:0x64574，5 槽 →
+ * 0x14）。 */
 static constexpr uint32_t ZIP_VT_ADDR = SHIM_VT_BASE + 0x1B00U;
 
 /* IImage 池虚表（32 槽 → 0x80） */

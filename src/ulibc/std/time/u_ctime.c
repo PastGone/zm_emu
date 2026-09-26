@@ -22,19 +22,18 @@
  * 同族的 asctime/gmtime/localtime 三个文件是同一处改动，理由相同。
  */
 uint32_t u_ctime(uc_engine *uc, uint32_t timer_ptr, uint32_t buf) {
-  time_t t = (time_t)(timer_ptr ? (int64_t)u_rd32(uc, timer_ptr)
-                                : (int64_t)time(NULL));
-  char tmp[64];
+	time_t t = (time_t)(timer_ptr ? (int64_t)u_rd32(uc, timer_ptr) : (int64_t)time(NULL));
+	char tmp[64];
 
-  const char *s = ctime(&t);
-  if (!s)
-    return 0; /* 与实机同语义：ctime 只在时间戳超出可表示范围时返回 NULL */
+	const char *s = ctime(&t);
+	if (!s)
+		return 0; /* 与实机同语义：ctime 只在时间戳超出可表示范围时返回 NULL */
 
-  size_t n = strlen(s);
-  if (n >= sizeof(tmp))
-    n = sizeof(tmp) - 1; /* 防御：无论如何不溢出本函数的缓冲 */
-  memcpy(tmp, s, n);
-  tmp[n] = '\0';
+	size_t n = strlen(s);
+	if (n >= sizeof(tmp))
+		n = sizeof(tmp) - 1; /* 防御：无论如何不溢出本函数的缓冲 */
+	memcpy(tmp, s, n);
+	tmp[n] = '\0';
 
-  return u_write_cstr(uc, buf, tmp) ? buf : 0;
+	return u_write_cstr(uc, buf, tmp) ? buf : 0;
 }

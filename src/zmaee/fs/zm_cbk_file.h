@@ -23,10 +23,8 @@
 uint32_t zm_cbk_file_open(uc_engine *uc, uint32_t path_ptr, uint32_t mode);
 uint32_t zm_cbk_file_size(uc_engine *uc, uint32_t obj);
 uint32_t zm_cbk_file_read(uc_engine *uc, uint32_t obj, uint32_t buf, uint32_t len);
-uint32_t zm_cbk_file_write(uc_engine *uc, uint32_t obj, uint32_t buf,
-                           uint32_t len);
-uint32_t zm_cbk_file_seek(uc_engine *uc, uint32_t obj, uint32_t whence,
-                          uint32_t off);
+uint32_t zm_cbk_file_write(uc_engine *uc, uint32_t obj, uint32_t buf, uint32_t len);
+uint32_t zm_cbk_file_seek(uc_engine *uc, uint32_t obj, uint32_t whence, uint32_t off);
 uint32_t zm_cbk_file_release(uc_engine *uc, uint32_t obj);
 
 /**

@@ -42,8 +42,7 @@ uint32_t u_ctime(uc_engine *uc, uint32_t timer_ptr, uint32_t buf);
  * strftime：按客户机格式串格式化到客户机 dst，最多 max 字节
  * @return 写入的字符数（不含 '\0'）
  */
-uint32_t u_strftime(uc_engine *uc, uint32_t dst, uint32_t max,
-                    uint32_t fmt_ptr, uint32_t tm_ptr);
+uint32_t u_strftime(uc_engine *uc, uint32_t dst, uint32_t max, uint32_t fmt_ptr, uint32_t tm_ptr);
 
 /** clock()：进程 CPU 时间（clock_t 滴答数） */
 int64_t u_clock(void);

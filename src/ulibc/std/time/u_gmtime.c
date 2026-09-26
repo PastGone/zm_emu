@@ -21,15 +21,14 @@
  * 与真机 gmtime_r 失败的行为一致。
  */
 uint32_t u_gmtime(uc_engine *uc, uint32_t timer_ptr, uint32_t tm_ptr) {
-  time_t t = (time_t)(timer_ptr ? (int64_t)u_rd32(uc, timer_ptr)
-                                : (int64_t)time(NULL));
-  struct tm gt;
-  memset(&gt, 0, sizeof(gt));
+	time_t t = (time_t)(timer_ptr ? (int64_t)u_rd32(uc, timer_ptr) : (int64_t)time(NULL));
+	struct tm gt;
+	memset(&gt, 0, sizeof(gt));
 
-  const struct tm *p = gmtime(&t);
-  if (p)
-    gt = *p;
+	const struct tm *p = gmtime(&t);
+	if (p)
+		gt = *p;
 
-  u_tm_store(uc, tm_ptr, &gt);
-  return tm_ptr;
+	u_tm_store(uc, tm_ptr, &gt);
+	return tm_ptr;
 }

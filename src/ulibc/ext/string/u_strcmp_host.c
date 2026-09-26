@@ -14,39 +14,39 @@
  */
 
 int u_strcmp_host(uc_engine *uc, uint32_t a, const char *b) {
-  if (!uc)
-    return 0;
-  if (!b)
-    return 1;
-  uint32_t la = u_strlen(uc, a);
-  uint32_t lb = (uint32_t)strlen(b);
-  uint32_t m = (la < lb) ? la : lb;
-  if (m) {
-    int r = u_memcmp_host(uc, a, b, m);
-    if (r)
-      return r;
-  }
-  if (la == lb)
-    return 0;
-  return (la < lb) ? -1 : 1;
+	if (!uc)
+		return 0;
+	if (!b)
+		return 1;
+	uint32_t la = u_strlen(uc, a);
+	uint32_t lb = (uint32_t)strlen(b);
+	uint32_t m = (la < lb) ? la : lb;
+	if (m) {
+		int r = u_memcmp_host(uc, a, b, m);
+		if (r)
+			return r;
+	}
+	if (la == lb)
+		return 0;
+	return (la < lb) ? -1 : 1;
 }
 
 int u_strncmp_host(uc_engine *uc, uint32_t a, const char *b, uint32_t n) {
-  if (!uc || n == 0)
-    return 0;
-  if (!b)
-    return 1;
-  uint32_t la = u_strnlen(uc, a, n);
-  uint32_t lb = (uint32_t)strlen(b);
-  if (lb > n)
-    lb = n;
-  uint32_t m = (la < lb) ? la : lb;
-  if (m) {
-    int r = u_memcmp_host(uc, a, b, m);
-    if (r)
-      return r;
-  }
-  if (la == lb)
-    return 0;
-  return (la < lb) ? -1 : 1;
+	if (!uc || n == 0)
+		return 0;
+	if (!b)
+		return 1;
+	uint32_t la = u_strnlen(uc, a, n);
+	uint32_t lb = (uint32_t)strlen(b);
+	if (lb > n)
+		lb = n;
+	uint32_t m = (la < lb) ? la : lb;
+	if (m) {
+		int r = u_memcmp_host(uc, a, b, m);
+		if (r)
+			return r;
+	}
+	if (la == lb)
+		return 0;
+	return (la < lb) ? -1 : 1;
 }

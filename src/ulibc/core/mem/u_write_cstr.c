@@ -8,10 +8,10 @@
  */
 
 uint32_t u_write_cstr(uc_engine *uc, uint32_t addr, const char *s) {
-  if (!uc || addr == 0 || !s)
-    return 0;
-  size_t len = strlen(s);
-  if (!u_write(uc, addr, s, len + 1))
-    return 0;
-  return (uint32_t)(len + 1);
+	if (!uc || addr == 0 || !s)
+		return 0;
+	size_t len = strlen(s);
+	if (!u_write(uc, addr, s, len + 1))
+		return 0;
+	return (uint32_t)(len + 1);
 }

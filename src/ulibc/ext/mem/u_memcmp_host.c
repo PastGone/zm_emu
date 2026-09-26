@@ -12,22 +12,22 @@
  */
 
 int u_memcmp_host(uc_engine *uc, uint32_t a, const void *b, uint32_t n) {
-  if (!uc || !b || n == 0)
-    return 0;
+	if (!uc || !b || n == 0)
+		return 0;
 
-  uint8_t ba[U_MEM_CHUNK];
-  const uint8_t *bb = (const uint8_t *)b;
-  uint32_t done = 0;
-  while (done < n) {
-    uint32_t chunk = n - done;
-    if (chunk > (uint32_t)sizeof(ba))
-      chunk = (uint32_t)sizeof(ba);
-    if (!u_read(uc, a + done, ba, chunk))
-      return -1;
-    int r = memcmp(ba, bb + done, chunk);
-    if (r != 0)
-      return r;
-    done += chunk;
-  }
-  return 0;
+	uint8_t ba[U_MEM_CHUNK];
+	const uint8_t *bb = (const uint8_t *)b;
+	uint32_t done = 0;
+	while (done < n) {
+		uint32_t chunk = n - done;
+		if (chunk > (uint32_t)sizeof(ba))
+			chunk = (uint32_t)sizeof(ba);
+		if (!u_read(uc, a + done, ba, chunk))
+			return -1;
+		int r = memcmp(ba, bb + done, chunk);
+		if (r != 0)
+			return r;
+		done += chunk;
+	}
+	return 0;
 }

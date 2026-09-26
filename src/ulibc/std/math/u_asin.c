@@ -9,4 +9,6 @@
  * 纯标量运算，不涉及客户机地址空间。
  */
 
-double u_asin(double x) { return asin(x); }
+double u_asin(double x) {
+	return asin(x);
+}

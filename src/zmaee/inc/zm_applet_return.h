@@ -14,10 +14,10 @@
 
 /* 或使用枚举（推荐） */
 typedef enum {
-  ZMAEE_RET_OK = 0,         /**< 处理成功，结束 */
-  ZMAEE_RET_CONTINUE = 1,   /**< 处理成功，但继续框架默认流程 */
-  ZMAEE_RET_UNHANDLED = -1, /**< 未处理，交由框架 */
-  ZMAEE_RET_ERR_INV = -4    /**< 错误：无效上下文 */
+	ZMAEE_RET_OK = 0,		  /**< 处理成功，结束 */
+	ZMAEE_RET_CONTINUE = 1,	  /**< 处理成功，但继续框架默认流程 */
+	ZMAEE_RET_UNHANDLED = -1, /**< 未处理，交由框架 */
+	ZMAEE_RET_ERR_INV = -4	  /**< 错误：无效上下文 */
 } zmaee_ret_t;
 
 #endif /* _ZM_APPLET_RETURN_H_ */

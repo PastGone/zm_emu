@@ -27,30 +27,27 @@
 
 /* 按 IDisplay::CreateImage 语义创建 IImage：写入 out_ptr，返回 0。
  * r1=alloc 回调、r2=free 回调（当前实现用宿主内存，仅记录）。 */
-uint32_t zm_image_CreateImage(uc_engine *uc, uint32_t r0, uint32_t r1,
-                              uint32_t r2, uint32_t r3);
+uint32_t zm_image_CreateImage(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3);
 
 /* IImage 各槽（r0 = this） */
 uint32_t zm_image_AddRef(uc_engine *uc, uint32_t r0);
 uint32_t zm_image_Release(uc_engine *uc, uint32_t r0);
-uint32_t zm_image_SetData(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
-                          uint32_t r3);
+uint32_t zm_image_SetData(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3);
 uint32_t zm_image_GetFrameCount(uc_engine *uc, uint32_t r0);
 uint32_t zm_image_Width(uc_engine *uc, uint32_t r0);
 uint32_t zm_image_Height(uc_engine *uc, uint32_t r0);
 uint32_t zm_image_GetType(uc_engine *uc, uint32_t r0);
-uint32_t zm_image_DecodeToBitmap(uc_engine *uc, uint32_t r0, uint32_t r1,
-                                 uint32_t r2, uint32_t r3, uint32_t sp);
-uint32_t zm_image_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
-                       uint32_t r2, uint32_t r3);
+uint32_t zm_image_DecodeToBitmap(
+	uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3, uint32_t sp);
+uint32_t
+zm_image_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3);
 
 /* ---- surface 门面（IImage::Decode 的 out 对象 / entry+8）----
  * applet 对 surface 调 vt[4] 取宽、vt[8] 取高（逆向 00000506 sub_37B4）。 */
 uint32_t zm_surf_addRef(uc_engine *uc, uint32_t r0);
 uint32_t zm_surf_release(uc_engine *uc, uint32_t r0);
 uint32_t zm_surf_wh(uc_engine *uc, uint32_t r0, uint32_t which);
-uint32_t zm_surf_encode(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
-                        uint32_t r3);
+uint32_t zm_surf_encode(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3);
 /* SURF_VT_ADDR+0x10 GetRect(this, out)：写 int16 矩形 {left,top,right,bottom} */
 uint32_t zm_surf_getrect(uc_engine *uc, uint32_t r0, uint32_t r1);
 /* 无副作用的空实现（未细究语义的槽位统一走它） */
@@ -81,13 +78,13 @@ uint32_t zm_surf_nop(uc_engine *uc, uint32_t off);
 #define GDI_SURFACE_HDR 0x1CU
 
 /* 读 GDI_Surface 元数据；成功返回 1，*w/*h/*step(每像素字节数)/*colorkey 有效 */
-int zm_image_get_gdi_surface(uc_engine *uc, uint32_t surf, int *w, int *h,
-                             int *step, uint32_t *colorkey);
+int zm_image_get_gdi_surface(
+	uc_engine *uc, uint32_t surf, int *w, int *h, int *step, uint32_t *colorkey);
 
 /* 把 GDI_Surface 贴到帧缓冲 (dx,dy)。rect_ptr = {x,y,w,h} 或 0
  * （整块）；mode = applet 的类型字节（镜像/翻转）。已处理返回 1。 */
-int zm_image_blit_gdi_surface(uc_engine *uc, uint32_t surf, int dx, int dy,
-                              uint32_t rect_ptr, int mode);
+int zm_image_blit_gdi_surface(
+	uc_engine *uc, uint32_t surf, int dx, int dy, uint32_t rect_ptr, int mode);
 
 /* 取对象（entry / surface / IBitmap）对应的像素数据，供 IDisplay 绘制：
  * 成功返回 1 并填 *w/*h/*rgba（RGBA8888，w*h*4 字节）；失败返回 0。 */

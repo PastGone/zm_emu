@@ -5,26 +5,26 @@
 
 #include "../../emu.h"
 #include "../../log/log.h"
-#include "../../tool/uc_helper.h" /* uc_write16（UCS-2 目标写入） */
+#include "../../tool/uc_helper.h"	   /* uc_write16（UCS-2 目标写入） */
 #include "../../ulibc/include/u_mem.h" /* u_strlen（root[0x90] zm_strlen） */
 
 /* 读取客户机地址 addr 处的 C 字符串到宿主机 buf，最多 maxlen-1 字符 */
 char *read_cstr(uc_engine *uc, uint32_t addr, char *buf, size_t maxlen) {
-  if (addr == 0 || maxlen == 0) {
-    if (maxlen > 0)
-      buf[0] = '\0';
-    return buf;
-  }
-  size_t i = 0;
-  while (i < maxlen - 1) {
-    uint8_t c;
-    uc_mem_read(uc, addr + i, &c, 1);
-    if (c == 0)
-      break;
-    buf[i++] = c;
-  }
-  buf[i] = '\0';
-  return buf;
+	if (addr == 0 || maxlen == 0) {
+		if (maxlen > 0)
+			buf[0] = '\0';
+		return buf;
+	}
+	size_t i = 0;
+	while (i < maxlen - 1) {
+		uint8_t c;
+		uc_mem_read(uc, addr + i, &c, 1);
+		if (c == 0)
+			break;
+		buf[i++] = c;
+	}
+	buf[i] = '\0';
+	return buf;
 }
 
 /*
@@ -59,62 +59,61 @@ char *read_cstr(uc_engine *uc, uint32_t addr, char *buf, size_t maxlen) {
  * @param dst_words  目标**字符**容量（r3，含收尾 NUL 的位置）
  * @return 写入的 UCS-2 字符数（不含收尾 NUL）
  */
-uint32_t zm_utf8_to_ucs2(uc_engine *uc, uint32_t src, uint32_t src_bytes,
-                         uint32_t dst, uint32_t dst_words) {
-  uint8_t b0 = 0, b1, b2;
-  uint32_t written = 0; /* 已写入的 UCS-2 字符数（= 返回值） */
-  uint32_t i = 0;       /* 当前字符的输入字节下标 */
-  uint32_t next;        /* 下一个字符的输入字节下标 */
+uint32_t zm_utf8_to_ucs2(
+	uc_engine *uc, uint32_t src, uint32_t src_bytes, uint32_t dst, uint32_t dst_words) {
+	uint8_t b0 = 0, b1, b2;
+	uint32_t written = 0; /* 已写入的 UCS-2 字符数（= 返回值） */
+	uint32_t i = 0;		  /* 当前字符的输入字节下标 */
+	uint32_t next;		  /* 下一个字符的输入字节下标 */
 
-  if (!src || !dst || src_bytes == 0 || dst_words <= 1 ||
-      uc_mem_read(uc, src, &b0, 1) != UC_ERR_OK || b0 == 0) {
-    uc_write16(uc, dst, 0); /* 真机：早退也要在目标开头补 NUL */
-    return 0;
-  }
+	if (!src || !dst || src_bytes == 0 || dst_words <= 1 ||
+		uc_mem_read(uc, src, &b0, 1) != UC_ERR_OK || b0 == 0) {
+		uc_write16(uc, dst, 0); /* 真机：早退也要在目标开头补 NUL */
+		return 0;
+	}
 
-  for (;;) {
-    if ((b0 & 0x80) == 0) { /* 1 字节 */
-      if (src_bytes < i + 1)
-        break;
-      uc_write16(uc, dst + 2 * written, b0);
-      next = i + 1;
-    } else if ((b0 & 0xE0) == 0xC0) { /* 2 字节 */
-      if (src_bytes < i + 2)
-        break;
-      uc_mem_read(uc, src + i + 1, &b1, 1);
-      uc_write16(uc, dst + 2 * written,
-                 (uint16_t)(((b0 & 0x3F) << 6) | (b1 & 0x3F)));
-      next = i + 2;
-    } else if ((b0 & 0xF0) == 0xE0) { /* 3 字节 */
-      if (src_bytes < i + 3)
-        break;
-      uc_mem_read(uc, src + i + 1, &b1, 1);
-      uc_mem_read(uc, src + i + 2, &b2, 1);
-      uc_write16(uc, dst + 2 * written,
-                 (uint16_t)((b0 << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F)));
-      next = i + 3;
-    } else { /* 非法前导（含 4 字节序列）：写 0xFFFF 并跳 5 字节（真机行为） */
-      uc_write16(uc, dst + 2 * written, 0xFFFF);
-      next = i + 5;
-      written++;
-      if (src_bytes <= next)
-        break;
-      goto next_char;
-    }
-    written++;
-    if (src_bytes <= next)
-      break; /* 输入读尽 */
+	for (;;) {
+		if ((b0 & 0x80) == 0) { /* 1 字节 */
+			if (src_bytes < i + 1)
+				break;
+			uc_write16(uc, dst + 2 * written, b0);
+			next = i + 1;
+		} else if ((b0 & 0xE0) == 0xC0) { /* 2 字节 */
+			if (src_bytes < i + 2)
+				break;
+			uc_mem_read(uc, src + i + 1, &b1, 1);
+			uc_write16(uc, dst + 2 * written, (uint16_t)(((b0 & 0x3F) << 6) | (b1 & 0x3F)));
+			next = i + 2;
+		} else if ((b0 & 0xF0) == 0xE0) { /* 3 字节 */
+			if (src_bytes < i + 3)
+				break;
+			uc_mem_read(uc, src + i + 1, &b1, 1);
+			uc_mem_read(uc, src + i + 2, &b2, 1);
+			uc_write16(
+				uc, dst + 2 * written, (uint16_t)((b0 << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F)));
+			next = i + 3;
+		} else { /* 非法前导（含 4 字节序列）：写 0xFFFF 并跳 5 字节（真机行为） */
+			uc_write16(uc, dst + 2 * written, 0xFFFF);
+			next = i + 5;
+			written++;
+			if (src_bytes <= next)
+				break;
+			goto next_char;
+		}
+		written++;
+		if (src_bytes <= next)
+			break; /* 输入读尽 */
 
-  next_char:
-    if (uc_mem_read(uc, src + next, &b0, 1) != UC_ERR_OK)
-      break;
-    if (b0 == 0 || dst_words == written + 1)
-      break; /* 遇 '\0'，或再写一格就没位置放收尾 NUL */
-    i = next;
-  }
+	next_char:
+		if (uc_mem_read(uc, src + next, &b0, 1) != UC_ERR_OK)
+			break;
+		if (b0 == 0 || dst_words == written + 1)
+			break; /* 遇 '\0'，或再写一格就没位置放收尾 NUL */
+		i = next;
+	}
 
-  uc_write16(uc, dst + 2 * written, 0); /* 真机：结尾一定补 NUL */
-  return written;
+	uc_write16(uc, dst + 2 * written, 0); /* 真机：结尾一定补 NUL */
+	return written;
 }
 
 /**
@@ -139,64 +138,68 @@ uint32_t zm_utf8_to_ucs2(uc_engine *uc, uint32_t src, uint32_t src_bytes,
  * @param dst_bytes  目标**字节**容量（r3，含收尾 NUL 的位置）
  * @return 写入的 UTF-8 字节数（不含收尾 NUL）
  */
-uint32_t zm_ucs2_to_utf8(uc_engine *uc, uint32_t src, uint32_t src_chars,
-                         uint32_t dst, uint32_t dst_bytes) {
-  uint16_t w = 0;
-  uint32_t written = 0; /* 已写入的字节数（= 返回值） */
+uint32_t zm_ucs2_to_utf8(
+	uc_engine *uc, uint32_t src, uint32_t src_chars, uint32_t dst, uint32_t dst_bytes) {
+	uint16_t w = 0;
+	uint32_t written = 0; /* 已写入的字节数（= 返回值） */
 
-  if (!src || !dst || src_chars == 0 ||
-      uc_mem_read(uc, src, &w, 2) != UC_ERR_OK || w == 0) {
-    uc_write16(uc, dst, 0); /* 真机：早退也在目标开头补 NUL */
-    return 0;
-  }
+	if (!src || !dst || src_chars == 0 || uc_mem_read(uc, src, &w, 2) != UC_ERR_OK || w == 0) {
+		uc_write16(uc, dst, 0); /* 真机：早退也在目标开头补 NUL */
+		return 0;
+	}
 
-  for (uint32_t i = 0;; i++) {
-    uint8_t out[3];
-    uint32_t n;
-    if (w <= 0x7F) {
-      if (dst_bytes <= written + 1)
-        break;
-      out[0] = (uint8_t)w;
-      n = 1;
-    } else if (w <= 0x7FF) {
-      if (dst_bytes <= written + 2)
-        break;
-      out[0] = (uint8_t)((w >> 6) | 0xC0);
-      out[1] = (uint8_t)((w & 0x3F) | 0x80);
-      n = 2;
-    } else {
-      if (dst_bytes <= written + 3)
-        break;
-      out[0] = (uint8_t)((w >> 12) | 0xE0);
-      out[1] = (uint8_t)(((w >> 6) & 0x3F) | 0x80);
-      out[2] = (uint8_t)((w & 0x3F) | 0x80);
-      n = 3;
-    }
-    uc_mem_write(uc, dst + written, out, n);
-    written += n;
-    if (src_chars <= i + 1)
-      break; /* 源读尽 */
-    if (uc_mem_read(uc, src + 2 * (i + 1), &w, 2) != UC_ERR_OK)
-      break;
-    if (w == 0)
-      break;
-  }
+	for (uint32_t i = 0;; i++) {
+		uint8_t out[3];
+		uint32_t n;
+		if (w <= 0x7F) {
+			if (dst_bytes <= written + 1)
+				break;
+			out[0] = (uint8_t)w;
+			n = 1;
+		} else if (w <= 0x7FF) {
+			if (dst_bytes <= written + 2)
+				break;
+			out[0] = (uint8_t)((w >> 6) | 0xC0);
+			out[1] = (uint8_t)((w & 0x3F) | 0x80);
+			n = 2;
+		} else {
+			if (dst_bytes <= written + 3)
+				break;
+			out[0] = (uint8_t)((w >> 12) | 0xE0);
+			out[1] = (uint8_t)(((w >> 6) & 0x3F) | 0x80);
+			out[2] = (uint8_t)((w & 0x3F) | 0x80);
+			n = 3;
+		}
+		uc_mem_write(uc, dst + written, out, n);
+		written += n;
+		if (src_chars <= i + 1)
+			break; /* 源读尽 */
+		if (uc_mem_read(uc, src + 2 * (i + 1), &w, 2) != UC_ERR_OK)
+			break;
+		if (w == 0)
+			break;
+	}
 
-  if (getenv("ZM_LOG_UCS2")) {
-    char out[64] = {0};
-    char in[64] = {0};
-    uint32_t n = written < 40 ? written : 40;
-    uc_mem_read(uc, dst, out, n);
-    uc_mem_read(uc, src, in, 40);
-    char hex[3 * 24 + 1];
-    for (int k = 0; k < 24; k++) snprintf(hex + k * 3, 4, "%02X ", (uint8_t)in[k]);
-    log_info("[UCS2]   src 原始 24 字节: %s", hex);
-    log_info("[UCS2] src=0x%X chars=%u first_w=0x%X -> dst=0x%X bytes=%u \"%s\"",
-             src, src_chars, (unsigned)((uint8_t)in[0] | ((uint8_t)in[1] << 8)),
-             dst, written, out);
-  }
-  uc_write16(uc, dst + written, 0); /* 真机：结尾一定补 NUL（只写 1 字节即可） */
-  return written;
+	if (getenv("ZM_LOG_UCS2")) {
+		char out[64] = {0};
+		char in[64] = {0};
+		uint32_t n = written < 40 ? written : 40;
+		uc_mem_read(uc, dst, out, n);
+		uc_mem_read(uc, src, in, 40);
+		char hex[3 * 24 + 1];
+		for (int k = 0; k < 24; k++)
+			snprintf(hex + k * 3, 4, "%02X ", (uint8_t)in[k]);
+		log_info("[UCS2]   src 原始 24 字节: %s", hex);
+		log_info("[UCS2] src=0x%X chars=%u first_w=0x%X -> dst=0x%X bytes=%u \"%s\"",
+				 src,
+				 src_chars,
+				 (unsigned)((uint8_t)in[0] | ((uint8_t)in[1] << 8)),
+				 dst,
+				 written,
+				 out);
+	}
+	uc_write16(uc, dst + written, 0); /* 真机：结尾一定补 NUL（只写 1 字节即可） */
+	return written;
 }
 
 /**
@@ -219,28 +222,27 @@ uint32_t zm_ucs2_to_utf8(uc_engine *uc, uint32_t src, uint32_t src_chars,
  * @param charset_addr 字符集合，NUL 结尾（对应 r1）；为 0 时用默认转换符集
  * @return 命中返回该字符在客户机中的地址；未命中返回 0
  */
-uint32_t zm_spec_lookup(uc_engine *uc, uint32_t str_addr,
-                        uint32_t charset_addr) {
-  if (str_addr == 0)
-    return 0;
+uint32_t zm_spec_lookup(uc_engine *uc, uint32_t str_addr, uint32_t charset_addr) {
+	if (str_addr == 0)
+		return 0;
 
-  char set[64];
-  if (charset_addr)
-    read_cstr(uc, charset_addr, set, sizeof(set));
-  else
-    set[0] = '\0';
-  if (set[0] == '\0')
-    snprintf(set, sizeof(set), "dufocsxXp");
+	char set[64];
+	if (charset_addr)
+		read_cstr(uc, charset_addr, set, sizeof(set));
+	else
+		set[0] = '\0';
+	if (set[0] == '\0')
+		snprintf(set, sizeof(set), "dufocsxXp");
 
-  for (uint32_t i = 0;; i++) {
-    uint8_t c = 0;
-    if (uc_mem_read(uc, str_addr + i, &c, 1) != UC_ERR_OK)
-      return 0;
-    if (c == 0)
-      return 0;
-    if (strchr(set, (char)c))
-      return str_addr + i;
-  }
+	for (uint32_t i = 0;; i++) {
+		uint8_t c = 0;
+		if (uc_mem_read(uc, str_addr + i, &c, 1) != UC_ERR_OK)
+			return 0;
+		if (c == 0)
+			return 0;
+		if (strchr(set, (char)c))
+			return str_addr + i;
+	}
 }
 
 /**
@@ -253,20 +255,20 @@ uint32_t zm_spec_lookup(uc_engine *uc, uint32_t str_addr,
  * @param out_len 非 NULL 时回填扫描出的长度（不含收尾 NUL）
  */
 static bool looks_like_text(uc_engine *uc, uint32_t p, uint32_t *out_len) {
-  uint32_t n = 0;
-  for (; n < 4096u; n++) {
-    uint8_t c = 0;
-    if (uc_mem_read(uc, p + n, &c, 1) != UC_ERR_OK)
-      return false;
-    if (c == 0) {
-      if (out_len)
-        *out_len = n;
-      return true;
-    }
-    if (c < 0x20 || c >= 0x7F)
-      return false;
-  }
-  return false;
+	uint32_t n = 0;
+	for (; n < 4096u; n++) {
+		uint8_t c = 0;
+		if (uc_mem_read(uc, p + n, &c, 1) != UC_ERR_OK)
+			return false;
+		if (c == 0) {
+			if (out_len)
+				*out_len = n;
+			return true;
+		}
+		if (c < 0x20 || c >= 0x7F)
+			return false;
+	}
+	return false;
 }
 
 /**
@@ -281,51 +283,51 @@ static bool looks_like_text(uc_engine *uc, uint32_t p, uint32_t *out_len) {
  * @return 命中返回子指针，未命中返回 0
  */
 uint32_t zm_strchr(uc_engine *uc, uint32_t str_obj_ptr, uint32_t ch) {
-  if (str_obj_ptr == 0)
-    return 0;
+	if (str_obj_ptr == 0)
+		return 0;
 
-  /*
-   * 兼容两种形态：
-   *   (a) zmaee 字符串对象：+0=data_ptr，+4=len，data_ptr 可映射。
-   *   (b) 裸 C 字符串缓冲区：strcpy_cstr 把文件名直接复制到 instance+0x214
-   *       后，strchr 需要能直接在缓冲区里查找字符。
-   */
-  uint32_t data_ptr = 0, len = 0;
-  bool as_obj = false;
-  if (uc_mem_read(uc, str_obj_ptr, &data_ptr, 4) == UC_ERR_OK &&
-      uc_mem_read(uc, str_obj_ptr + 4, &len, 4) == UC_ERR_OK) {
-    if (data_ptr == str_obj_ptr + 12) {
-      as_obj = true; /* str_assign/strcpy_cstr 的内联对象布局 */
-    } else if (data_ptr != 0 && len < 4096) {
-      uint8_t first = 0;
-      if (uc_mem_read(uc, data_ptr, &first, 1) == UC_ERR_OK &&
-          (first == 0 || (first >= 0x20 && first < 0x80))) {
-        as_obj = true;
-      }
-    }
-  }
+	/*
+	 * 兼容两种形态：
+	 *   (a) zmaee 字符串对象：+0=data_ptr，+4=len，data_ptr 可映射。
+	 *   (b) 裸 C 字符串缓冲区：strcpy_cstr 把文件名直接复制到 instance+0x214
+	 *       后，strchr 需要能直接在缓冲区里查找字符。
+	 */
+	uint32_t data_ptr = 0, len = 0;
+	bool as_obj = false;
+	if (uc_mem_read(uc, str_obj_ptr, &data_ptr, 4) == UC_ERR_OK &&
+		uc_mem_read(uc, str_obj_ptr + 4, &len, 4) == UC_ERR_OK) {
+		if (data_ptr == str_obj_ptr + 12) {
+			as_obj = true; /* str_assign/strcpy_cstr 的内联对象布局 */
+		} else if (data_ptr != 0 && len < 4096) {
+			uint8_t first = 0;
+			if (uc_mem_read(uc, data_ptr, &first, 1) == UC_ERR_OK &&
+				(first == 0 || (first >= 0x20 && first < 0x80))) {
+				as_obj = true;
+			}
+		}
+	}
 
-  /*
-   * 与 zm_strlen 同款兜底：as_obj 判定成立但解引用出来是空串、而 str_obj_ptr
-   * 本身是段可打印文本时，说明是把文本缓冲误判成了对象（首 4 字节被当成
-   * data_ptr、紧接着的 0 被当成 len）。此时按裸 C 串处理。
-   */
-  if (as_obj) {
-    uint32_t dn = 0;
-    if (looks_like_text(uc, data_ptr, &dn) && dn == 0 &&
-        looks_like_text(uc, str_obj_ptr, NULL))
-      as_obj = false;
-  }
+	/*
+	 * 与 zm_strlen 同款兜底：as_obj 判定成立但解引用出来是空串、而 str_obj_ptr
+	 * 本身是段可打印文本时，说明是把文本缓冲误判成了对象（首 4 字节被当成
+	 * data_ptr、紧接着的 0 被当成 len）。此时按裸 C 串处理。
+	 */
+	if (as_obj) {
+		uint32_t dn = 0;
+		if (looks_like_text(uc, data_ptr, &dn) && dn == 0 &&
+			looks_like_text(uc, str_obj_ptr, NULL))
+			as_obj = false;
+	}
 
-  uint32_t base = as_obj ? data_ptr : str_obj_ptr;
-  char cstr[256];
-  read_cstr(uc, base, cstr, sizeof(cstr));
+	uint32_t base = as_obj ? data_ptr : str_obj_ptr;
+	char cstr[256];
+	read_cstr(uc, base, cstr, sizeof(cstr));
 
-  char needle = (char)(ch & 0xFF);
-  char *p = strchr(cstr, needle);
-  if (p)
-    return base + (uint32_t)(p - cstr);
-  return 0;
+	char needle = (char)(ch & 0xFF);
+	char *p = strchr(cstr, needle);
+	if (p)
+		return base + (uint32_t)(p - cstr);
+	return 0;
 }
 
 /**
@@ -333,28 +335,27 @@ uint32_t zm_strchr(uc_engine *uc, uint32_t str_obj_ptr, uint32_t ch) {
  * @return 解析后的地址（原样返回表示它就是裸 C 串）
  */
 static uint32_t resolve_str_ptr(uc_engine *uc, uint32_t p) {
-  if (p == 0)
-    return 0;
-  uint32_t data_ptr = 0, len = 0;
-  if (uc_mem_read(uc, p, &data_ptr, 4) == UC_ERR_OK &&
-      uc_mem_read(uc, p + 4, &len, 4) == UC_ERR_OK) {
-    if (data_ptr == p + 12)
-      return data_ptr; /* str_assign/str_cpy_cstr 的内联对象布局 */
-    if (data_ptr != 0 && len < 4096) {
-      uint8_t first = 0;
-      if (uc_mem_read(uc, data_ptr, &first, 1) == UC_ERR_OK &&
-          (first == 0 || (first >= 0x20 && first < 0x80))) {
-        /* 同 zm_strlen 的兜底：文本缓冲被误判成对象（解引用是空串、
-         * 而 p 本身就是可打印文本）时，按裸 C 串返回。 */
-        uint32_t dn = 0;
-        if (looks_like_text(uc, data_ptr, &dn) && dn == 0 &&
-            looks_like_text(uc, p, NULL))
-          return p;
-        return data_ptr;
-      }
-    }
-  }
-  return p;
+	if (p == 0)
+		return 0;
+	uint32_t data_ptr = 0, len = 0;
+	if (uc_mem_read(uc, p, &data_ptr, 4) == UC_ERR_OK &&
+		uc_mem_read(uc, p + 4, &len, 4) == UC_ERR_OK) {
+		if (data_ptr == p + 12)
+			return data_ptr; /* str_assign/str_cpy_cstr 的内联对象布局 */
+		if (data_ptr != 0 && len < 4096) {
+			uint8_t first = 0;
+			if (uc_mem_read(uc, data_ptr, &first, 1) == UC_ERR_OK &&
+				(first == 0 || (first >= 0x20 && first < 0x80))) {
+				/* 同 zm_strlen 的兜底：文本缓冲被误判成对象（解引用是空串、
+				 * 而 p 本身就是可打印文本）时，按裸 C 串返回。 */
+				uint32_t dn = 0;
+				if (looks_like_text(uc, data_ptr, &dn) && dn == 0 && looks_like_text(uc, p, NULL))
+					return p;
+				return data_ptr;
+			}
+		}
+	}
+	return p;
 }
 
 /**
@@ -379,24 +380,24 @@ static uint32_t resolve_str_ptr(uc_engine *uc, uint32_t p) {
  * 兼容两种入参形态（裸 C 串 / zmaee 字符串对象），见 resolve_str_ptr。
  */
 uint32_t zm_strcmp(uc_engine *uc, uint32_t a, uint32_t b) {
-  uint32_t pa = resolve_str_ptr(uc, a);
-  uint32_t pb = resolve_str_ptr(uc, b);
-  if (pa == 0)
-    return pb ? (uint32_t)-1 : 0; /* 空指针当空串 */
-  if (pb == 0)
-    return 1;
+	uint32_t pa = resolve_str_ptr(uc, a);
+	uint32_t pb = resolve_str_ptr(uc, b);
+	if (pa == 0)
+		return pb ? (uint32_t)-1 : 0; /* 空指针当空串 */
+	if (pb == 0)
+		return 1;
 
-  for (uint32_t i = 0; i < 4096; ++i) { /* 上限防御：客户机串可能没有 NUL */
-    uint8_t ca = 0, cb = 0;
-    if (uc_mem_read(uc, pa + i, &ca, 1) != UC_ERR_OK ||
-        uc_mem_read(uc, pb + i, &cb, 1) != UC_ERR_OK)
-      break;
-    if (ca != cb)
-      return (uint32_t)(int)((int)ca - (int)cb);
-    if (ca == 0)
-      return 0;
-  }
-  return 0;
+	for (uint32_t i = 0; i < 4096; ++i) { /* 上限防御：客户机串可能没有 NUL */
+		uint8_t ca = 0, cb = 0;
+		if (uc_mem_read(uc, pa + i, &ca, 1) != UC_ERR_OK ||
+			uc_mem_read(uc, pb + i, &cb, 1) != UC_ERR_OK)
+			break;
+		if (ca != cb)
+			return (uint32_t)(int)((int)ca - (int)cb);
+		if (ca == 0)
+			return 0;
+	}
+	return 0;
 }
 
 /**
@@ -418,24 +419,24 @@ uint32_t zm_strcmp(uc_engine *uc, uint32_t a, uint32_t b) {
  * @return 命中返回子串在客户机中的起始地址；未命中返回 0
  */
 uint32_t zm_strstr(uc_engine *uc, uint32_t haystack, uint32_t needle) {
-  uint32_t hp = resolve_str_ptr(uc, haystack);
-  uint32_t np = resolve_str_ptr(uc, needle);
-  if (hp == 0 || np == 0)
-    return 0;
+	uint32_t hp = resolve_str_ptr(uc, haystack);
+	uint32_t np = resolve_str_ptr(uc, needle);
+	if (hp == 0 || np == 0)
+		return 0;
 
-  char nbuf[64];
-  read_cstr(uc, np, nbuf, sizeof(nbuf));
-  size_t nl = strlen(nbuf);
-  if (nl == 0)
-    return hp;
+	char nbuf[64];
+	read_cstr(uc, np, nbuf, sizeof(nbuf));
+	size_t nl = strlen(nbuf);
+	if (nl == 0)
+		return hp;
 
-  char hbuf[512];
-  read_cstr(uc, hp, hbuf, sizeof(hbuf));
+	char hbuf[512];
+	read_cstr(uc, hp, hbuf, sizeof(hbuf));
 
-  char *hit = strstr(hbuf, nbuf);
-  if (!hit)
-    return 0;
-  return hp + (uint32_t)(hit - hbuf);
+	char *hit = strstr(hbuf, nbuf);
+	if (!hit)
+		return 0;
+	return hp + (uint32_t)(hit - hbuf);
 }
 
 /**
@@ -455,17 +456,17 @@ uint32_t zm_strstr(uc_engine *uc, uint32_t haystack, uint32_t needle) {
  * @return 字符数（不含收尾 NUL）；ptr 为 0 返回 0
  */
 uint32_t zm_wcslen(uc_engine *uc, uint32_t ptr) {
-  if (!ptr)
-    return 0;
-  uint32_t n = 0;
-  for (; n < 0x10000u; n++) { /* 上限防御：脏指针不至于死循环 */
-    uint8_t b[2] = {0, 0};
-    if (uc_mem_read(uc, ptr + n * 2u, b, 2) != UC_ERR_OK)
-      break;
-    if (b[0] == 0 && b[1] == 0)
-      break;
-  }
-  return n;
+	if (!ptr)
+		return 0;
+	uint32_t n = 0;
+	for (; n < 0x10000u; n++) { /* 上限防御：脏指针不至于死循环 */
+		uint8_t b[2] = {0, 0};
+		if (uc_mem_read(uc, ptr + n * 2u, b, 2) != UC_ERR_OK)
+			break;
+		if (b[0] == 0 && b[1] == 0)
+			break;
+	}
+	return n;
 }
 
 /**
@@ -479,46 +480,46 @@ uint32_t zm_wcslen(uc_engine *uc, uint32_t ptr) {
  * 之前当作 strchr 是误判：那些调用点的 r1 其实是未定义的残留值。
  */
 uint32_t zm_strlen(uc_engine *uc, uint32_t str_obj_ptr) {
-  if (str_obj_ptr == 0)
-    return 0;
+	if (str_obj_ptr == 0)
+		return 0;
 
-  /* 与 zm_strchr 同款形态判定：字符串对象（+0=data_ptr,+4=len）或裸 C 串 */
-  uint32_t data_ptr = 0, len = 0;
-  bool as_obj = false;
-  if (uc_mem_read(uc, str_obj_ptr, &data_ptr, 4) == UC_ERR_OK &&
-      uc_mem_read(uc, str_obj_ptr + 4, &len, 4) == UC_ERR_OK) {
-    if (data_ptr == str_obj_ptr + 12) {
-      as_obj = true; /* str_assign/str_cpy_cstr 的内联对象布局 */
-    } else if (data_ptr != 0 && len < 4096) {
-      uint8_t first = 0;
-      if (uc_mem_read(uc, data_ptr, &first, 1) == UC_ERR_OK &&
-          (first == 0 || (first >= 0x20 && first < 0x80))) {
-        as_obj = true;
-      }
-    }
-  }
+	/* 与 zm_strchr 同款形态判定：字符串对象（+0=data_ptr,+4=len）或裸 C 串 */
+	uint32_t data_ptr = 0, len = 0;
+	bool as_obj = false;
+	if (uc_mem_read(uc, str_obj_ptr, &data_ptr, 4) == UC_ERR_OK &&
+		uc_mem_read(uc, str_obj_ptr + 4, &len, 4) == UC_ERR_OK) {
+		if (data_ptr == str_obj_ptr + 12) {
+			as_obj = true; /* str_assign/str_cpy_cstr 的内联对象布局 */
+		} else if (data_ptr != 0 && len < 4096) {
+			uint8_t first = 0;
+			if (uc_mem_read(uc, data_ptr, &first, 1) == UC_ERR_OK &&
+				(first == 0 || (first >= 0x20 && first < 0x80))) {
+				as_obj = true;
+			}
+		}
+	}
 
-  if (as_obj) {
-    if (len != 0)
-      return len;
-    /*
-     * len == 0 有两种可能：
-     *   (a) 真·空字符串对象 → 长度就是 0；
-     *   (b) 普通文本缓冲被上面的启发式误判成对象 —— 实测 000007ca 计算器：
-     *       显示缓冲 S+0xA4 = "3\0\0\0…" 的头 8 字节被读成
-     *       {data_ptr=0x33('3'), len=0}，而 data_ptr=0x33 落在 blob 里
-     *       且首字节恰好是 0，于是"对象"判定成立、直接返回 len=0。
-     *       后果：按 "=" 算出 3 之后长度被写成 0 → 数字一个都画不出来。
-     * 用"ptr 本身是不是可打印文本"区分：对象头是指针（含非 ASCII 字节），
-     * 文本缓冲不是。这样 (a) 仍返回 0，(b) 能拿到真实长度。
-     */
-    uint32_t n = 0;
-    if (looks_like_text(uc, str_obj_ptr, &n))
-      return n;
-    return 0;
-  }
+	if (as_obj) {
+		if (len != 0)
+			return len;
+		/*
+		 * len == 0 有两种可能：
+		 *   (a) 真·空字符串对象 → 长度就是 0；
+		 *   (b) 普通文本缓冲被上面的启发式误判成对象 —— 实测 000007ca 计算器：
+		 *       显示缓冲 S+0xA4 = "3\0\0\0…" 的头 8 字节被读成
+		 *       {data_ptr=0x33('3'), len=0}，而 data_ptr=0x33 落在 blob 里
+		 *       且首字节恰好是 0，于是"对象"判定成立、直接返回 len=0。
+		 *       后果：按 "=" 算出 3 之后长度被写成 0 → 数字一个都画不出来。
+		 * 用"ptr 本身是不是可打印文本"区分：对象头是指针（含非 ASCII 字节），
+		 * 文本缓冲不是。这样 (a) 仍返回 0，(b) 能拿到真实长度。
+		 */
+		uint32_t n = 0;
+		if (looks_like_text(uc, str_obj_ptr, &n))
+			return n;
+		return 0;
+	}
 
-  return u_strlen(uc, str_obj_ptr);
+	return u_strlen(uc, str_obj_ptr);
 }
 
 /**
@@ -533,36 +534,36 @@ uint32_t zm_strlen(uc_engine *uc, uint32_t str_obj_ptr) {
  * 避免把指向未映射区间的"指针"误当 str_obj 解引用。
  */
 uint32_t zm_read_str_obj(uc_engine *uc, uint32_t ptr, char *buf, size_t cap) {
-  if (buf && cap)
-    buf[0] = '\0';
-  if (ptr == 0 || cap == 0)
-    return 0;
+	if (buf && cap)
+		buf[0] = '\0';
+	if (ptr == 0 || cap == 0)
+		return 0;
 
-  uint32_t data_ptr = 0, len = 0;
-  bool as_obj = false;
-  if (uc_mem_read(uc, ptr, &data_ptr, 4) == UC_ERR_OK &&
-      uc_mem_read(uc, ptr + 4, &len, 4) == UC_ERR_OK) {
-    if (data_ptr == ptr + 12) {
-      /* str_ctor/str_assign 的内联布局 */
-      as_obj = true;
-    } else if (data_ptr != 0 && len < 4096) {
-      /* 可能为堆/栈字符串对象：验证 data_ptr 处首字节可读且合理 */
-      uint8_t first = 0;
-      if (uc_mem_read(uc, data_ptr, &first, 1) == UC_ERR_OK &&
-          (first == 0 || (first >= 0x20 && first < 0x80))) {
-        as_obj = true;
-      }
-    }
-  }
+	uint32_t data_ptr = 0, len = 0;
+	bool as_obj = false;
+	if (uc_mem_read(uc, ptr, &data_ptr, 4) == UC_ERR_OK &&
+		uc_mem_read(uc, ptr + 4, &len, 4) == UC_ERR_OK) {
+		if (data_ptr == ptr + 12) {
+			/* str_ctor/str_assign 的内联布局 */
+			as_obj = true;
+		} else if (data_ptr != 0 && len < 4096) {
+			/* 可能为堆/栈字符串对象：验证 data_ptr 处首字节可读且合理 */
+			uint8_t first = 0;
+			if (uc_mem_read(uc, data_ptr, &first, 1) == UC_ERR_OK &&
+				(first == 0 || (first >= 0x20 && first < 0x80))) {
+				as_obj = true;
+			}
+		}
+	}
 
-  if (as_obj) {
-    read_cstr(uc, data_ptr, buf, cap);
-    /* 若解引用得到空串，但裸串形态可能有效，则回退尝试裸串 */
-    if (buf[0] != '\0')
-      return (uint32_t)strlen(buf);
-  }
+	if (as_obj) {
+		read_cstr(uc, data_ptr, buf, cap);
+		/* 若解引用得到空串，但裸串形态可能有效，则回退尝试裸串 */
+		if (buf[0] != '\0')
+			return (uint32_t)strlen(buf);
+	}
 
-  /* 裸 C 字符串形态（sprintf 拼出的路径等） */
-  read_cstr(uc, ptr, buf, cap);
-  return (uint32_t)strlen(buf);
+	/* 裸 C 字符串形态（sprintf 拼出的路径等） */
+	read_cstr(uc, ptr, buf, cap);
+	return (uint32_t)strlen(buf);
 }

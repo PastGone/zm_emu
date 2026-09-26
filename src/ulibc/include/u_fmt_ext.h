@@ -16,7 +16,6 @@
  * args 里的元素按格式串中转换说明出现的顺序排列；
  * double / long long 占连续两个元素（小端：低 32 位在前）。
  */
-int u_sprintf_u32(uc_engine *uc, uint32_t dst, uint32_t fmt,
-                  const uint32_t *args, uint32_t nargs);
+int u_sprintf_u32(uc_engine *uc, uint32_t dst, uint32_t fmt, const uint32_t *args, uint32_t nargs);
 
 #endif /* U_FMT_EXT_H */

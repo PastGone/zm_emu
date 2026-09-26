@@ -1,8 +1,8 @@
 #ifndef ZM_SHELL_H
-#define ZM_SHELL_H
+	#define ZM_SHELL_H
 
-#include <stdint.h>
-#include <unicorn/unicorn.h>
+	#include <stdint.h>
+	#include <unicorn/unicorn.h>
 
 /* ZMAEE IShell 原生虚表（g_aee_shell_vtbl @ .data:0x64440，34 槽）处理函数。
  * shell 为全局单例：root.getShell() 返回 G_SHELL_ADDR 对象，其 vptr 指向 SHELL_VT_ADDR。
@@ -20,8 +20,8 @@
  */
 
 /* 通用 stub：记录 offset 与参数，返回 0 */
-uint32_t zm_shell_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
-                       uint32_t r2, uint32_t r3);
+uint32_t
+zm_shell_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3);
 
 /* +0x00 / +0x04 */
 uint32_t zm_shell_AddRef(uc_engine *uc, uint32_t r0);
@@ -72,8 +72,7 @@ uint32_t zm_shell_GetApplet(uc_engine *uc, uint32_t index);
  * 本实现为 stub：读取 dll 名仅作日志，把 DLL_OBJ 写入 *out_ptr 并返回，
  * 让 applet 后续对 DLL 对象 vt[+8/+0xC/+0x10] 的调用不崩溃。
  */
-uint32_t zm_shell_LoadDLL(uc_engine *uc, uint32_t name_ptr, uint32_t name_len,
-                          uint32_t out_ptr);
+uint32_t zm_shell_LoadDLL(uc_engine *uc, uint32_t name_ptr, uint32_t name_len, uint32_t out_ptr);
 
 /* +0x5C UnloadDLL(this, handle)（RE sub_346D8）。stub：log + 返 0。 */
 uint32_t zm_shell_UnloadDLL(uc_engine *uc, uint32_t handle);
@@ -90,34 +89,31 @@ uint32_t zm_shell_UnloadDLL(uc_engine *uc, uint32_t handle);
  * sub_83F50 返回 false → sub_8433C 返回 false → sub_82AB0 走 sub_82424
  * 绘制 applet 自身 UI（DLL 真实执行需单独工程）。
  */
-uint32_t zm_shell_LoadLibraryExt(uc_engine *uc, uint32_t r0, uint32_t buf,
-                                 uint32_t size, uint32_t out_obj_ptr);
+uint32_t zm_shell_LoadLibraryExt(
+	uc_engine *uc, uint32_t r0, uint32_t buf, uint32_t size, uint32_t out_obj_ptr);
 
 /* 服务对象 release（NETMGR_VT_ADDR[+4] / TAPI_VT_ADDR[+4]）：无操作返 0 */
 uint32_t zm_svc_release(uc_engine *uc);
 
 /* NETMGR_VT_ADDR[+0x1C]：stub */
-uint32_t zm_netmgr_x1C(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
-                       uint32_t r3);
+uint32_t zm_netmgr_x1C(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3);
 
 /* TAPI_VT_ADDR[+0x2C] / [+0x40]：stub */
-uint32_t zm_tapi_x2C(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
-                     uint32_t r3);
-uint32_t zm_tapi_x40(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
-                     uint32_t r3);
+uint32_t zm_tapi_x2C(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3);
+uint32_t zm_tapi_x40(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3);
 
 /* TAPI 未接具体 handler 的槽位统一走这里（观测探针，见 zm_shell.c）。 */
-uint32_t zm_tapi_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
-                      uint32_t r2, uint32_t r3);
+uint32_t
+zm_tapi_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3);
 
 /* ZMAEE IZip 通用观测探针。 */
-uint32_t zm_zip_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
-                     uint32_t r2, uint32_t r3);
+uint32_t
+zm_zip_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3);
 
 /* ISetting（0x100000B，g_aee_setting_vtbl @ .data:0x64408，14 槽）通用
  * stub —— 各槽语义待 RE。 */
-uint32_t zm_setting_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
-                         uint32_t r2, uint32_t r3);
+uint32_t
+zm_setting_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3);
 
 /* ISetting[+0x24]（RE sub_33F4C）。此前被误当作"audio.getStatus"实现。
  * 保留既有行为：向 out4 与 out_buf[0..2] 写 0 并返回 0 —— 00000405 的
@@ -138,7 +134,6 @@ uint32_t zm_dll_init(uc_engine *uc);
 uint32_t zm_dll_config(uc_engine *uc, uint32_t a1, uint32_t a2, uint32_t a3);
 uint32_t zm_dll_entry(uc_engine *uc, uint32_t a1, uint32_t a2, uint32_t a3);
 
-
 /* 目录类槽位（真机返回**字符串指针**；以前是返回 0 的桩 ✗） */
 uint32_t zm_shell_GetRootDir(uc_engine *uc);
 uint32_t zm_shell_GetWorkDir(uc_engine *uc);
@@ -146,5 +141,5 @@ uint32_t zm_shell_GetAppDir(uc_engine *uc, uint32_t buf, uint32_t cap);
 #endif /* ZM_SHELL_H */
 
 /* IUtil（0x1000013）的观测探针，见 zm_shell.c */
-uint32_t zm_util_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
-                      uint32_t r2, uint32_t r3);
+uint32_t
+zm_util_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3);

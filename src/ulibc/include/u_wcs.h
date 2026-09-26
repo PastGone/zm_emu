@@ -59,8 +59,7 @@ void u_wcstok_reset(void);
 /* -------------------- 宽串 → 数值 -------------------- */
 
 long u_wcstol(uc_engine *uc, uint32_t s, uint32_t endptr_addr, int base);
-unsigned long u_wcstoul(uc_engine *uc, uint32_t s, uint32_t endptr_addr,
-                        int base);
+unsigned long u_wcstoul(uc_engine *uc, uint32_t s, uint32_t endptr_addr, int base);
 double u_wcstod(uc_engine *uc, uint32_t s, uint32_t endptr_addr);
 
 /* -------------------- wmem* 族（按宽字符计数） -------------------- */

@@ -10,12 +10,12 @@
  */
 
 void u_longjmp(uc_engine *uc, uint32_t jmpbuf, int val) {
-  if (!u_ctx_restore(uc, jmpbuf)) {
-    /* 恢复失败：至少让返回值非 0，避免调用方死循环 */
-    uint64_t r0 = 1;
-    uc_reg_write(uc, UC_ARM_REG_R0, &r0);
-    return;
-  }
-  uint64_t r0 = (val != 0) ? (uint64_t)(uint32_t)val : 1u;
-  uc_reg_write(uc, UC_ARM_REG_R0, &r0);
+	if (!u_ctx_restore(uc, jmpbuf)) {
+		/* 恢复失败：至少让返回值非 0，避免调用方死循环 */
+		uint64_t r0 = 1;
+		uc_reg_write(uc, UC_ARM_REG_R0, &r0);
+		return;
+	}
+	uint64_t r0 = (val != 0) ? (uint64_t)(uint32_t)val : 1u;
+	uc_reg_write(uc, UC_ARM_REG_R0, &r0);
 }

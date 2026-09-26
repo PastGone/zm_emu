@@ -8,15 +8,15 @@
  */
 
 int u_feof(uc_engine *uc, uint32_t fp) {
-  (void)uc;
-  FILE *f = u_stdio_slot(fp);
-  return f ? feof(f) : 1;
+	(void)uc;
+	FILE *f = u_stdio_slot(fp);
+	return f ? feof(f) : 1;
 }
 
 int u_fflush(uc_engine *uc, uint32_t fp) {
-  (void)uc;
-  FILE *f = u_stdio_slot(fp);
-  if (!f)
-    return EOF;
-  return fflush(f);
+	(void)uc;
+	FILE *f = u_stdio_slot(fp);
+	if (!f)
+		return EOF;
+	return fflush(f);
 }

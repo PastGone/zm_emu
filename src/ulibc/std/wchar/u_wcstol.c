@@ -18,41 +18,40 @@
 
 /** 宽串 → 宿主窄串；返回宽字符数（不含终止符） */
 static uint32_t fold(uc_engine *uc, uint32_t s, char *out, uint32_t cap) {
-  uint32_t i = 0;
-  while (i < cap) {
-    uint16_t c = u_rd16(uc, s + i * 2u);
-    if (c == 0)
-      break;
-    out[i] = (char)(c & 0xFF);
-    i++;
-  }
-  out[i] = '\0';
-  return i;
+	uint32_t i = 0;
+	while (i < cap) {
+		uint16_t c = u_rd16(uc, s + i * 2u);
+		if (c == 0)
+			break;
+		out[i] = (char)(c & 0xFF);
+		i++;
+	}
+	out[i] = '\0';
+	return i;
 }
 
 long u_wcstol(uc_engine *uc, uint32_t s, uint32_t endptr_addr, int base) {
-  char buf[U_WCONV_WIN];
-  if (!uc || s == 0)
-    return 0;
-  fold(uc, s, buf, U_WCONV_WIN - 1);
+	char buf[U_WCONV_WIN];
+	if (!uc || s == 0)
+		return 0;
+	fold(uc, s, buf, U_WCONV_WIN - 1);
 
-  char *e = NULL;
-  long v = strtol(buf, &e, base);
-  if (endptr_addr)
-    u_wr32(uc, endptr_addr, s + (uint32_t)(e - buf) * 2u);
-  return v;
+	char *e = NULL;
+	long v = strtol(buf, &e, base);
+	if (endptr_addr)
+		u_wr32(uc, endptr_addr, s + (uint32_t)(e - buf) * 2u);
+	return v;
 }
 
-unsigned long u_wcstoul(uc_engine *uc, uint32_t s, uint32_t endptr_addr,
-                        int base) {
-  char buf[U_WCONV_WIN];
-  if (!uc || s == 0)
-    return 0;
-  fold(uc, s, buf, U_WCONV_WIN - 1);
+unsigned long u_wcstoul(uc_engine *uc, uint32_t s, uint32_t endptr_addr, int base) {
+	char buf[U_WCONV_WIN];
+	if (!uc || s == 0)
+		return 0;
+	fold(uc, s, buf, U_WCONV_WIN - 1);
 
-  char *e = NULL;
-  unsigned long v = strtoul(buf, &e, base);
-  if (endptr_addr)
-    u_wr32(uc, endptr_addr, s + (uint32_t)(e - buf) * 2u);
-  return v;
+	char *e = NULL;
+	unsigned long v = strtoul(buf, &e, base);
+	if (endptr_addr)
+		u_wr32(uc, endptr_addr, s + (uint32_t)(e - buf) * 2u);
+	return v;
 }

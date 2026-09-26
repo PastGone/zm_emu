@@ -10,4 +10,6 @@
  * 强转 unsigned char 是必须的：否则传入 EOF(-1) 等负值会让宿主实现产生 UB。
  */
 
-int u_isprint(int c) { return isprint((unsigned char)c); }
+int u_isprint(int c) {
+	return isprint((unsigned char)c);
+}

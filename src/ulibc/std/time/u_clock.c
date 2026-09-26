@@ -10,4 +10,6 @@
  * 另有 u_clock_ms() 提供毫秒版本（见 std/time/u_clock_ms.c）。
  */
 
-int64_t u_clock(void) { return (int64_t)clock(); }
+int64_t u_clock(void) {
+	return (int64_t)clock();
+}

@@ -23,17 +23,17 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "../emu.h"  /* uc_engine / TRAMP_BASE / TR_* 槽位常量 / g_* 全局 */
+#include "../emu.h"	 /* uc_engine / TRAMP_BASE / TR_* 槽位常量 / g_* 全局 */
 #include "../trap.h" /* getArg（display/image 读第 5 个及以后的参数） */
 
 /* -------------------- 现场 -------------------- */
 
 typedef struct {
-  uc_engine *uc;
-  uint32_t trap; /* 陷阱地址 */
-  uint32_t r0, r1, r2, r3;
-  uint32_t lr, sp;
-  uint32_t off; /* 槽的字面量偏移，由分派器从表项填入；无字面量的槽恒为 0 */
+	uc_engine *uc;
+	uint32_t trap; /* 陷阱地址 */
+	uint32_t r0, r1, r2, r3;
+	uint32_t lr, sp;
+	uint32_t off; /* 槽的字面量偏移，由分派器从表项填入；无字面量的槽恒为 0 */
 } trap_ctx;
 
 typedef uint32_t (*trap_fn)(trap_ctx *c);
@@ -47,27 +47,23 @@ typedef uint32_t (*trap_fn)(trap_ctx *c);
  * 现在它是表的一列：看表就知道。
  */
 enum trap_kind {
-  TK_CALL = 0,  /**< 普通调用：分发器回写 R0，并把 PC 置为 LR */
-  TK_MANUAL_PC, /**< handler 已自行写 PC / 停 emu：分发器不再动 R0/PC */
+	TK_CALL = 0,  /**< 普通调用：分发器回写 R0，并把 PC 置为 LR */
+	TK_MANUAL_PC, /**< handler 已自行写 PC / 停 emu：分发器不再动 R0/PC */
 };
 
 typedef struct {
-  uint32_t lo, hi; /**< 槽地址区间（精确项 lo == hi） */
-  trap_fn fn;
-  uint32_t off; /**< 填进 ctx.off（无字面量的槽填 0） */
-  uint8_t kind; /**< enum trap_kind */
+	uint32_t lo, hi; /**< 槽地址区间（精确项 lo == hi） */
+	trap_fn fn;
+	uint32_t off; /**< 填进 ctx.off（无字面量的槽填 0） */
+	uint8_t kind; /**< enum trap_kind */
 } trap_entry;
 
 /* 表项缩写：只做字段填充，不做签名适配（签名适配已由 trap_fn 统一）
  * 精确项 / 带 off 的精确项 / 控制流项 / 区间项 四种。 */
-#define SLOT(trap, fn) \
-  { (trap), (trap), (fn), 0, TK_CALL }
-#define SLOT_OFF(trap, fn, o) \
-  { (trap), (trap), (fn), (o), TK_CALL }
-#define SLOT_PC(trap, fn) \
-  { (trap), (trap), (fn), 0, TK_MANUAL_PC }
-#define RANGE(lo, hi, fn) \
-  { (lo), (hi), (fn), 0, TK_CALL }
+#define SLOT(trap, fn) {(trap), (trap), (fn), 0, TK_CALL}
+#define SLOT_OFF(trap, fn, o) {(trap), (trap), (fn), (o), TK_CALL}
+#define SLOT_PC(trap, fn) {(trap), (trap), (fn), 0, TK_MANUAL_PC}
+#define RANGE(lo, hi, fn) {(lo), (hi), (fn), 0, TK_CALL}
 
 /* -------------------- 客户机堆 / libc 接线（trap_cbk_heap.c）-------------------- */
 
@@ -80,16 +76,16 @@ void cbk_heap_init_once(uc_engine *uc);
 
 /* 进入 handler 前：参数/寄存器 dump（ZM_DISASM）+ 统计探针 + 上下文镜像。
  * hook_ctx_apply 不是"调试"，但它必须在 handler 之前跑，故一并收在这里。 */
-void trap_debug_before(uc_engine *uc, uint32_t trap, uint32_t r0, uint32_t r1,
-                       uint32_t r2, uint32_t r3, uint32_t lr);
+void trap_debug_before(
+	uc_engine *uc, uint32_t trap, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3, uint32_t lr);
 /* handler 返回后：回填环形缓冲的返回值（ring < 0 表示未记录） */
 void trap_debug_after(int ring, uint32_t ret);
 /* ZM_CB_PROBE：找 applet 把回调交给了哪个槽 */
-void trap_debug_probe(uint32_t trap, uint32_t r0, uint32_t r1, uint32_t r2,
-                      uint32_t r3, uint32_t lr);
+void trap_debug_probe(
+	uint32_t trap, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3, uint32_t lr);
 /* 记一笔"applet → 外部"调用，返回环形缓冲下标（供 trap_debug_after 回填） */
-int trap_ring_record(uint32_t addr, uint32_t r0, uint32_t r1, uint32_t r2,
-                     uint32_t r3, uint32_t lr);
+int trap_ring_record(
+	uint32_t addr, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3, uint32_t lr);
 
 /* -------------------- handlers：root 表（trap_handlers_root.c）-------------------- */
 

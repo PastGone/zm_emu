@@ -36,7 +36,7 @@ double u_tanh(double x);
 double u_exp(double x);
 double u_log(double x);
 double u_log10(double x);
-double u_log2(double x);  /* C99 */
+double u_log2(double x); /* C99 */
 double u_ldexp(double x, int e);
 
 /** modf：小数部分作为返回值，整数部分（double）写回客户机 iptr */

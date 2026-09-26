@@ -13,10 +13,10 @@
  */
 
 int u_system(uc_engine *uc, uint32_t cmd) {
-  if (!uc || cmd == 0)
-    return -1;
-  char cbuf[1024];
-  if (!u_read_cstr(uc, cmd, cbuf, sizeof(cbuf)))
-    return -1;
-  return system(cbuf);
+	if (!uc || cmd == 0)
+		return -1;
+	char cbuf[1024];
+	if (!u_read_cstr(uc, cmd, cbuf, sizeof(cbuf)))
+		return -1;
+	return system(cbuf);
 }

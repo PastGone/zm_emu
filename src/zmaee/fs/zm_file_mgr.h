@@ -22,16 +22,15 @@ uint32_t zm_fileMgr_open_file(uc_engine *uc, uint32_t filename_ptr);
 uint32_t zm_fileMgr_make_dir(uc_engine *uc, uint32_t path_ptr);
 
 /* IFileMgr 通用 stub（g_filemgr_vtbl 未实现槽）：记录 offset 与参数，返回 0 */
-uint32_t zm_fileMgr_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
-                         uint32_t r2, uint32_t r3);
+uint32_t
+zm_fileMgr_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3);
 
 /* +0x20 TestFile（RE sub_2A7BC）：文件存在性检查。
  * 存在 0 / 不存在 -1 / 参数空 -4。包内与 assets.zip 路径暂不支持。 */
 uint32_t zm_fileMgr_TestFile(uc_engine *uc, uint32_t r0, uint32_t name_ptr);
 
 /* +0x0C = IFileMgr::GetInfo(mgr, name, out)，见 .c 里的实现注释。 */
-uint32_t zm_fileMgr_GetInfo(uc_engine *uc, uint32_t r0, uint32_t name_ptr,
-                            uint32_t out_ptr);
+uint32_t zm_fileMgr_GetInfo(uc_engine *uc, uint32_t r0, uint32_t name_ptr, uint32_t out_ptr);
 
 /* +0x30 存储区支持查询（RE sub_29E40）：
  * a1(this)==0 → 0；a2==0 → 67('C' 内置盘)；a2==1 → 69('E')；

@@ -8,4 +8,6 @@
  * BMP 内码点在宿主(UTF-32)与客户机(UCS-2)表示一致，可直接透传。
  */
 
-int u_iswprint(int wc) { return iswprint((wint_t)wc); }
+int u_iswprint(int wc) {
+	return iswprint((wint_t)wc);
+}

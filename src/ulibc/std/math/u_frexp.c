@@ -12,9 +12,9 @@
  */
 
 double u_frexp(uc_engine *uc, double x, uint32_t exptr) {
-  int e = 0;
-  double m = frexp(x, &e);
-  if (uc && exptr)
-    u_wr32(uc, exptr, (uint32_t)e);
-  return m;
+	int e = 0;
+	double m = frexp(x, &e);
+	if (uc && exptr)
+		u_wr32(uc, exptr, (uint32_t)e);
+	return m;
 }

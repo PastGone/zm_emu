@@ -8,7 +8,7 @@
  */
 
 void u_heap_ensure(uc_engine *uc, uint32_t base, uint32_t size) {
-  if (u_heap_g.ready && u_heap_g.uc == uc)
-    return;
-  u_heap_setup(uc, base, size);
+	if (u_heap_g.ready && u_heap_g.uc == uc)
+		return;
+	u_heap_setup(uc, base, size);
 }

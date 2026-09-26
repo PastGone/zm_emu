@@ -6,9 +6,9 @@
  */
 
 int u_vprintf(uc_engine *uc, uint32_t fmt, u_va *va) {
-  return u_vfprintf(uc, stdout, fmt, va);
+	return u_vfprintf(uc, stdout, fmt, va);
 }
 
 int u_printf(uc_engine *uc, uint32_t fmt, u_va *va) {
-  return u_vfprintf(uc, stdout, fmt, va);
+	return u_vfprintf(uc, stdout, fmt, va);
 }

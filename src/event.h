@@ -26,54 +26,54 @@
  * 旧注释曾把这两个名字写反（TOUCH_UP=9 ✗），这里按实测更正 ✓。
  */
 enum APP_CMD : uint32_t {
-  APP_CMD_INIT = 0,           /**< 创建/初始化（R2/R3 = 上下文指针 INIT_CTX） */
-  APP_CMD_DESTROY = 1,        /**< 销毁：让 applet 收尾（停声音 + 存盘） */
-  APP_CMD_PAUSE = 2,          /**< 切后台 */
-  APP_CMD_RESUME = 3,         /**< 切回前台 */
-  APP_CMD_REPAINT = 4,        /**< 要求重绘 */
-  APP_CMD_KEY_DOWN = 5,       /**< 按键按下（R2 = KEYCODE_*） */
-  APP_CMD_KEY_UP = 6,         /**< 按键抬起（R2 = KEYCODE_*） */
-  APP_CMD_KEY_LONG_PRESS = 7, /**< 长按（按住超过 ~600ms，只发一次） */
-  APP_CMD_KEY_MULTIPLE = 8,   /**< 连发（按住期间的自动重复） */
-  APP_CMD_TOUCH_DOWN = 9,     /**< 笔按下（R2=x R3=y） */
-  APP_CMD_TOUCH_UP = 10,      /**< 笔抬起（R2=x R3=y） */
-  APP_CMD_TOUCH_MOVE = 11,    /**< 笔移动（拖动） */
+	APP_CMD_INIT = 0,			/**< 创建/初始化（R2/R3 = 上下文指针 INIT_CTX） */
+	APP_CMD_DESTROY = 1,		/**< 销毁：让 applet 收尾（停声音 + 存盘） */
+	APP_CMD_PAUSE = 2,			/**< 切后台 */
+	APP_CMD_RESUME = 3,			/**< 切回前台 */
+	APP_CMD_REPAINT = 4,		/**< 要求重绘 */
+	APP_CMD_KEY_DOWN = 5,		/**< 按键按下（R2 = KEYCODE_*） */
+	APP_CMD_KEY_UP = 6,			/**< 按键抬起（R2 = KEYCODE_*） */
+	APP_CMD_KEY_LONG_PRESS = 7, /**< 长按（按住超过 ~600ms，只发一次） */
+	APP_CMD_KEY_MULTIPLE = 8,	/**< 连发（按住期间的自动重复） */
+	APP_CMD_TOUCH_DOWN = 9,		/**< 笔按下（R2=x R3=y） */
+	APP_CMD_TOUCH_UP = 10,		/**< 笔抬起（R2=x R3=y） */
+	APP_CMD_TOUCH_MOVE = 11,	/**< 笔移动（拖动） */
 };
 
 //  ZMAEE 内部使用的键码，由安卓推断而出
 enum ZMAEE_APPLET_INTERNAL_KEYCODE : uint32_t {
-  // 数字键：Android 7~16 -> 0~9
-  KEYCODE_0 = 0, // Android KEYCODE_0 (7)
-  KEYCODE_1 = 1, // Android KEYCODE_1 (8)
-  KEYCODE_2 = 2, // Android KEYCODE_2 (9)
-  KEYCODE_3 = 3, // Android KEYCODE_3 (10)
-  KEYCODE_4 = 4, // Android KEYCODE_4 (11)
-  KEYCODE_5 = 5, // Android KEYCODE_5 (12)
-  KEYCODE_6 = 6, // Android KEYCODE_6 (13)
-  KEYCODE_7 = 7, // Android KEYCODE_7 (14)
-  KEYCODE_8 = 8, // Android KEYCODE_8 (15)
-  KEYCODE_9 = 9, // Android KEYCODE_9 (16)
+	// 数字键：Android 7~16 -> 0~9
+	KEYCODE_0 = 0, // Android KEYCODE_0 (7)
+	KEYCODE_1 = 1, // Android KEYCODE_1 (8)
+	KEYCODE_2 = 2, // Android KEYCODE_2 (9)
+	KEYCODE_3 = 3, // Android KEYCODE_3 (10)
+	KEYCODE_4 = 4, // Android KEYCODE_4 (11)
+	KEYCODE_5 = 5, // Android KEYCODE_5 (12)
+	KEYCODE_6 = 6, // Android KEYCODE_6 (13)
+	KEYCODE_7 = 7, // Android KEYCODE_7 (14)
+	KEYCODE_8 = 8, // Android KEYCODE_8 (15)
+	KEYCODE_9 = 9, // Android KEYCODE_9 (16)
 
-  // 功能键
-  KEYCODE_SOFT_LEFT = 10,  // Android KEYCODE_SOFT_LEFT (1) / KEYCODE_MENU (82)
-  KEYCODE_SOFT_RIGHT = 11, // Android KEYCODE_SOFT_RIGHT (2) / KEYCODE_BACK (4)
-  KEYCODE_BACK = 11,       // 别名：Android KEYCODE_BACK (4) 也映射到 11
-  KEYCODE_CALL = 17,       // Android KEYCODE_CALL (5)
+	// 功能键
+	KEYCODE_SOFT_LEFT = 10,	 // Android KEYCODE_SOFT_LEFT (1) / KEYCODE_MENU (82)
+	KEYCODE_SOFT_RIGHT = 11, // Android KEYCODE_SOFT_RIGHT (2) / KEYCODE_BACK (4)
+	KEYCODE_BACK = 11,		 // 别名：Android KEYCODE_BACK (4) 也映射到 11
+	KEYCODE_CALL = 17,		 // Android KEYCODE_CALL (5)
 
-  // 方向键
-  KEYCODE_DPAD_UP = 13,    // Android KEYCODE_DPAD_UP (19)
-  KEYCODE_DPAD_DOWN = 14,  // Android KEYCODE_DPAD_DOWN (20)
-  KEYCODE_DPAD_LEFT = 15,  // Android KEYCODE_DPAD_LEFT (21)
-  KEYCODE_DPAD_RIGHT = 16, // Android KEYCODE_DPAD_RIGHT (22)
+	// 方向键
+	KEYCODE_DPAD_UP = 13,	 // Android KEYCODE_DPAD_UP (19)
+	KEYCODE_DPAD_DOWN = 14,	 // Android KEYCODE_DPAD_DOWN (20)
+	KEYCODE_DPAD_LEFT = 15,	 // Android KEYCODE_DPAD_LEFT (21)
+	KEYCODE_DPAD_RIGHT = 16, // Android KEYCODE_DPAD_RIGHT (22)
 
-  // 中心键、星号、井号
-  KEYCODE_CENTER = 25, // Android KEYCODE_DPAD_CENTER (23)
-  KEYCODE_STAR = 20,   // Android KEYCODE_STAR (17)
-  KEYCODE_POUND = 21,  // Android KEYCODE_POUND (18)
+	// 中心键、星号、井号
+	KEYCODE_CENTER = 25, // Android KEYCODE_DPAD_CENTER (23)
+	KEYCODE_STAR = 20,	 // Android KEYCODE_STAR (17)
+	KEYCODE_POUND = 21,	 // Android KEYCODE_POUND (18)
 
-  // 其他
-  KEYCODE_HOME = 30,   // Android KEYCODE_HOME (3)
-  KEYCODE_SEARCH = 31, // Android KEYCODE_SEARCH (84)
+	// 其他
+	KEYCODE_HOME = 30,	 // Android KEYCODE_HOME (3)
+	KEYCODE_SEARCH = 31, // Android KEYCODE_SEARCH (84)
 };
 
 /**

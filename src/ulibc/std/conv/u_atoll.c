@@ -6,5 +6,5 @@
  */
 
 long long u_atoll(uc_engine *uc, uint32_t s) {
-  return u_strtoll_ex(uc, s, NULL, 10);
+	return u_strtoll_ex(uc, s, NULL, 10);
 }

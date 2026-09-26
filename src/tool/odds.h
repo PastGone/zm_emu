@@ -4,6 +4,5 @@
 long get_file_size(FILE *fp);
 void pause_console(void);
 const char *get_filename_from_fullpath(const char *full_path);
-char *get_dir_from_fullpath(const char *full_path, char *out_path,
-                            size_t out_size);
+char *get_dir_from_fullpath(const char *full_path, char *out_path, size_t out_size);
 #endif

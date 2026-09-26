@@ -10,9 +10,11 @@
 
 static uint32_t s_seed = 1u;
 
-void u_srand(uint32_t seed) { s_seed = seed ? seed : 1u; }
+void u_srand(uint32_t seed) {
+	s_seed = seed ? seed : 1u;
+}
 
 int u_rand(void) {
-  s_seed = s_seed * 1103515245u + 12345u;
-  return (int)((s_seed >> 16) & 0x7FFFu);
+	s_seed = s_seed * 1103515245u + 12345u;
+	return (int)((s_seed >> 16) & 0x7FFFu);
 }

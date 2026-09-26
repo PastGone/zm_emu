@@ -24,13 +24,11 @@ uint32_t zm_root_get_tick(uc_engine *uc);
  * 00000506 @0x89F50 现场：r0=0x820600（其 +0x28 处是 "data" 字符串）、
  * r1=调用方 0x40 字节缓冲、r2=0x28、r3=槽地址本身。
  * 把对象携带的数据块拷到调用方缓冲并返回对象 +0。 */
-uint32_t zm_root_x68C(uc_engine *uc, uint32_t obj, uint32_t out_buf,
-                      uint32_t len, uint32_t self);
+uint32_t zm_root_x68C(uc_engine *uc, uint32_t obj, uint32_t out_buf, uint32_t len, uint32_t self);
 
 /* CBK 对象 vt[+8] 初始默认实现（会被 applet 覆写，覆写前若被调用则走此 stub）
  */
-uint32_t zm_root_cbk_default(uc_engine *uc, uint32_t r0, uint32_t r1,
-                             uint32_t r2, uint32_t r3);
+uint32_t zm_root_cbk_default(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3);
 
 /* ROOT_TABLE_ADDR[0x40] / ROOT_TABLE_ADDR[0x44]：srand / rand（00000506 实测）
  *
@@ -61,7 +59,7 @@ uint32_t zm_root_rand(void);
  */
 #define ZM_MATH_SQRT 0
 #define ZM_MATH_ATAN 3 /* atan(x) */
-#define ZM_MATH_TAN  4 /* tan(x) */
+#define ZM_MATH_TAN 4  /* tan(x) */
 #define ZM_MATH_COS 1
 #define ZM_MATH_SIN 2
 uint32_t zm_root_math(uc_engine *uc, int op, uint32_t lo, uint32_t hi);

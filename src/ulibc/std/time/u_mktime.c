@@ -10,7 +10,7 @@
  */
 
 int64_t u_mktime(uc_engine *uc, uint32_t tm_ptr) {
-  struct tm t;
-  u_tm_load(uc, tm_ptr, &t);
-  return (int64_t)mktime(&t);
+	struct tm t;
+	u_tm_load(uc, tm_ptr, &t);
+	return (int64_t)mktime(&t);
 }

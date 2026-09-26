@@ -12,26 +12,26 @@
  */
 
 int u_puts(uc_engine *uc, uint32_t s) {
-  if (!uc || s == 0)
-    return EOF;
+	if (!uc || s == 0)
+		return EOF;
 
-  char stack_buf[512];
-  uint32_t len = u_strlen(uc, s);
-  char *buf = stack_buf;
-  int heap = 0;
-  if (len + 1u > sizeof(stack_buf)) {
-    buf = (char *)malloc((size_t)len + 1u);
-    if (!buf)
-      return EOF;
-    heap = 1;
-  }
-  u_read(uc, s, buf, len);
-  buf[len] = '\0';
+	char stack_buf[512];
+	uint32_t len = u_strlen(uc, s);
+	char *buf = stack_buf;
+	int heap = 0;
+	if (len + 1u > sizeof(stack_buf)) {
+		buf = (char *)malloc((size_t)len + 1u);
+		if (!buf)
+			return EOF;
+		heap = 1;
+	}
+	u_read(uc, s, buf, len);
+	buf[len] = '\0';
 
-  int r = fputs(buf, stdout);
-  if (r >= 0)
-    r = fputc('\n', stdout);
-  if (heap)
-    free(buf);
-  return r;
+	int r = fputs(buf, stdout);
+	if (r >= 0)
+		r = fputc('\n', stdout);
+	if (heap)
+		free(buf);
+	return r;
 }

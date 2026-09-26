@@ -8,8 +8,8 @@
  */
 
 int u_remove(uc_engine *uc, uint32_t path) {
-  char pbuf[1024];
-  if (!u_read_cstr(uc, path, pbuf, sizeof(pbuf)))
-    return -1;
-  return remove(pbuf);
+	char pbuf[1024];
+	if (!u_read_cstr(uc, path, pbuf, sizeof(pbuf)))
+		return -1;
+	return remove(pbuf);
 }

@@ -12,34 +12,34 @@
  */
 
 int u_heap_ready(uc_engine *uc) {
-  return (u_heap_g.ready && u_heap_g.uc == uc) ? 1 : 0;
+	return (u_heap_g.ready && u_heap_g.uc == uc) ? 1 : 0;
 }
 
 uint32_t u_heap_used(uc_engine *uc) {
-  if (!u_heap_ready(uc))
-    return 0;
-  uint32_t used = 0;
-  uint32_t cur = u_heap_g.base;
-  while (cur + U_HEAP_HDR <= u_heap_g.end) {
-    uint32_t flags = u_rd32(uc, cur);
-    uint32_t bsz = flags & ~7u;
-    if (bsz < U_BLK_MIN || cur + bsz > u_heap_g.end)
-      break;
-    if (flags & U_FLAG_USED)
-      used += bsz;
-    cur += bsz;
-  }
-  return used;
+	if (!u_heap_ready(uc))
+		return 0;
+	uint32_t used = 0;
+	uint32_t cur = u_heap_g.base;
+	while (cur + U_HEAP_HDR <= u_heap_g.end) {
+		uint32_t flags = u_rd32(uc, cur);
+		uint32_t bsz = flags & ~7u;
+		if (bsz < U_BLK_MIN || cur + bsz > u_heap_g.end)
+			break;
+		if (flags & U_FLAG_USED)
+			used += bsz;
+		cur += bsz;
+	}
+	return used;
 }
 
 uint32_t u_heap_free_bytes(uc_engine *uc) {
-  if (!u_heap_ready(uc))
-    return 0;
-  return u_heap_g.size - u_heap_used(uc);
+	if (!u_heap_ready(uc))
+		return 0;
+	return u_heap_g.size - u_heap_used(uc);
 }
 
 uint32_t u_heap_size(uc_engine *uc) {
-  if (!u_heap_ready(uc))
-    return 0;
-  return u_heap_g.size;
+	if (!u_heap_ready(uc))
+		return 0;
+	return u_heap_g.size;
 }

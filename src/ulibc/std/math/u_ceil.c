@@ -9,4 +9,6 @@
  * 纯标量运算，不涉及客户机地址空间。
  */
 
-double u_ceil(double x) { return ceil(x); }
+double u_ceil(double x) {
+	return ceil(x);
+}

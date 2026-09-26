@@ -8,5 +8,5 @@
  */
 
 int u_sprintf(uc_engine *uc, uint32_t dst, uint32_t fmt, u_va *va) {
-  return u_vsnprintf(uc, dst, U_FMT_MAX_OUT, fmt, va);
+	return u_vsnprintf(uc, dst, U_FMT_MAX_OUT, fmt, va);
 }

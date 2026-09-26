@@ -11,5 +11,5 @@
  */
 
 int64_t u_clock_ms(void) {
-  return (int64_t)(clock() * 1000 / CLOCKS_PER_SEC);
+	return (int64_t)(clock() * 1000 / CLOCKS_PER_SEC);
 }

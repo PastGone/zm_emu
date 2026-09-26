@@ -6,5 +6,5 @@
  */
 
 double u_fixed_to_float(int32_t v, int frac_bits) {
-  return (double)v / (double)(1 << frac_bits);
+	return (double)v / (double)(1 << frac_bits);
 }

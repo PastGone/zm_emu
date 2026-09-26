@@ -17,8 +17,7 @@ char *read_cstr(uc_engine *uc, uint32_t addr, char *buf, size_t maxlen);
  * charset 为 0 时使用默认转换符集 "dufocsxXp"（applet 的 sprintf 包装用它
  * 统计变参个数）。
  */
-uint32_t zm_spec_lookup(uc_engine *uc, uint32_t str_addr,
-                        uint32_t charset_addr);
+uint32_t zm_spec_lookup(uc_engine *uc, uint32_t str_addr, uint32_t charset_addr);
 
 /* root.str_find：在字符串对象/裸 C 串中查找字符，命中返回子指针，否则 0 */
 uint32_t zm_strchr(uc_engine *uc, uint32_t str_obj_ptr, uint32_t ch);
@@ -83,8 +82,8 @@ uint32_t zm_read_str_obj(uc_engine *uc, uint32_t ptr, char *buf, size_t cap);
  * @param dst_words  目标字符容量（r3，含收尾 NUL 的位置）
  * @return 写入的 UCS-2 字符数（不含收尾 NUL）
  */
-uint32_t zm_utf8_to_ucs2(uc_engine *uc, uint32_t src, uint32_t src_bytes,
-                         uint32_t dst, uint32_t dst_words);
+uint32_t
+zm_utf8_to_ucs2(uc_engine *uc, uint32_t src, uint32_t src_bytes, uint32_t dst, uint32_t dst_words);
 
 /**
  * @brief root[0x24] = ZMAEE_Ucs2_2_Utf8：UCS-2 → UTF-8 转换拷贝
@@ -99,8 +98,8 @@ uint32_t zm_utf8_to_ucs2(uc_engine *uc, uint32_t src, uint32_t src_bytes,
  * @param dst_bytes  目标字节容量（r3，含收尾 NUL 的位置）
  * @return 写入的 UTF-8 字节数（不含收尾 NUL）
  */
-uint32_t zm_ucs2_to_utf8(uc_engine *uc, uint32_t src, uint32_t src_chars,
-                         uint32_t dst, uint32_t dst_bytes);
+uint32_t
+zm_ucs2_to_utf8(uc_engine *uc, uint32_t src, uint32_t src_chars, uint32_t dst, uint32_t dst_bytes);
 
 /**
  * @brief root[0xD8] = zmaee_wcslen：宽字符串（UCS-2）长度（**字符数**）

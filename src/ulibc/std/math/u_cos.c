@@ -9,4 +9,6 @@
  * 纯标量运算，不涉及客户机地址空间。
  */
 
-double u_cos(double x) { return cos(x); }
+double u_cos(double x) {
+	return cos(x);
+}

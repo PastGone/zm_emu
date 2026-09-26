@@ -10,26 +10,26 @@
  */
 
 uint32_t u_memrchr(uc_engine *uc, uint32_t src, int c, uint32_t n) {
-  if (!uc || n == 0)
-    return 0;
+	if (!uc || n == 0)
+		return 0;
 
-  uint8_t needle = (uint8_t)(c & 0xFF);
-  uint8_t buf[U_MEM_CHUNK];
-  uint32_t done = 0;
-  while (done < n) {
-    uint32_t chunk = n - done;
-    if (chunk > (uint32_t)sizeof(buf))
-      chunk = (uint32_t)sizeof(buf);
-    uint32_t off = n - done - chunk;
-    if (!u_read(uc, src + off, buf, chunk))
-      break;
-    uint32_t i = chunk;
-    while (i > 0) {
-      i--;
-      if (buf[i] == needle)
-        return src + off + i;
-    }
-    done += chunk;
-  }
-  return 0;
+	uint8_t needle = (uint8_t)(c & 0xFF);
+	uint8_t buf[U_MEM_CHUNK];
+	uint32_t done = 0;
+	while (done < n) {
+		uint32_t chunk = n - done;
+		if (chunk > (uint32_t)sizeof(buf))
+			chunk = (uint32_t)sizeof(buf);
+		uint32_t off = n - done - chunk;
+		if (!u_read(uc, src + off, buf, chunk))
+			break;
+		uint32_t i = chunk;
+		while (i > 0) {
+			i--;
+			if (buf[i] == needle)
+				return src + off + i;
+		}
+		done += chunk;
+	}
+	return 0;
 }

@@ -9,4 +9,6 @@
  * POSIX 而非 C 标准；zmaee 会用到。
  */
 
-uint32_t u_strdup(uc_engine *uc, uint32_t s) { return u_heap_strdup(uc, s); }
+uint32_t u_strdup(uc_engine *uc, uint32_t s) {
+	return u_heap_strdup(uc, s);
+}

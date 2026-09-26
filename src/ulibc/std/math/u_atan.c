@@ -9,4 +9,6 @@
  * 纯标量运算，不涉及客户机地址空间。
  */
 
-double u_atan(double x) { return atan(x); }
+double u_atan(double x) {
+	return atan(x);
+}

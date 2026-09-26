@@ -8,11 +8,11 @@
  */
 
 int u_rename(uc_engine *uc, uint32_t oldp, uint32_t newp) {
-  char obuf[1024];
-  char nbuf[1024];
-  if (!u_read_cstr(uc, oldp, obuf, sizeof(obuf)))
-    return -1;
-  if (!u_read_cstr(uc, newp, nbuf, sizeof(nbuf)))
-    return -1;
-  return rename(obuf, nbuf);
+	char obuf[1024];
+	char nbuf[1024];
+	if (!u_read_cstr(uc, oldp, obuf, sizeof(obuf)))
+		return -1;
+	if (!u_read_cstr(uc, newp, nbuf, sizeof(nbuf)))
+		return -1;
+	return rename(obuf, nbuf);
 }

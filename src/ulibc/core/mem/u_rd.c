@@ -8,23 +8,23 @@
  */
 
 uint8_t u_rd8(uc_engine *uc, uint32_t addr) {
-  uint8_t v = 0;
-  if (!u_read(uc, addr, &v, 1))
-    return 0;
-  return v;
+	uint8_t v = 0;
+	if (!u_read(uc, addr, &v, 1))
+		return 0;
+	return v;
 }
 
 uint16_t u_rd16(uc_engine *uc, uint32_t addr) {
-  uint8_t b[2];
-  if (!u_read(uc, addr, b, 2))
-    return 0;
-  return (uint16_t)(b[0] | ((uint16_t)b[1] << 8));
+	uint8_t b[2];
+	if (!u_read(uc, addr, b, 2))
+		return 0;
+	return (uint16_t)(b[0] | ((uint16_t)b[1] << 8));
 }
 
 uint32_t u_rd32(uc_engine *uc, uint32_t addr) {
-  uint8_t b[4];
-  if (!u_read(uc, addr, b, 4))
-    return 0;
-  return (uint32_t)b[0] | ((uint32_t)b[1] << 8) | ((uint32_t)b[2] << 16) |
-         ((uint32_t)b[3] << 24);
+	uint8_t b[4];
+	if (!u_read(uc, addr, b, 4))
+		return 0;
+	return (uint32_t)b[0] | ((uint32_t)b[1] << 8) | ((uint32_t)b[2] << 16) |
+		   ((uint32_t)b[3] << 24);
 }

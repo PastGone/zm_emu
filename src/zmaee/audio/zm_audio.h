@@ -34,8 +34,8 @@ void zm_audio_shutdown(void);
  */
 /* 第 5 个参数起在栈上（sp 指向调用方的实参区）——applet 确实会传，
  * 以前被丢掉，见 zm_audio.c 里的说明。 */
-uint32_t zm_media_command(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2,
-                          uint32_t r3, uint32_t sp);
+uint32_t
+zm_media_command(uc_engine *uc, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3, uint32_t sp);
 
 /* IMedia.stop（+0x14）：停止播放，固定返回 0 */
 uint32_t zm_media_stop(uc_engine *uc);
@@ -61,7 +61,7 @@ void zm_audio_note_user_input(void);
 bool zm_media_pending_cb_poll(uc_engine *uc);
 
 /* IMedia 通用 stub（未实现槽）：记录 offset 与参数，返回 0 */
-uint32_t zm_media_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1,
-                       uint32_t r2, uint32_t r3);
+uint32_t
+zm_media_stub(uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3);
 
 #endif

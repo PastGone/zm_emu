@@ -8,12 +8,12 @@
 void hook_code(uc_engine *uc, uint64_t address, uint32_t size, void *user_data);
 
 /* UC_HOOK_MEM_READ/WRITE 回调：shim 区读写日志 */
-void hook_shim_mem(uc_engine *uc, uc_mem_type type, uint64_t address, int size,
-                   int64_t value, void *user_data);
+void hook_shim_mem(
+	uc_engine *uc, uc_mem_type type, uint64_t address, int size, int64_t value, void *user_data);
 
 /* UC_HOOK_MEM_UNMAPPED 回调：未映射内存访问警告 */
-bool hook_mem_unmapped(uc_engine *uc, uc_mem_type type, uint64_t address,
-                       int size, int64_t value, void *user_data);
+bool hook_mem_unmapped(
+	uc_engine *uc, uc_mem_type type, uint64_t address, int size, int64_t value, void *user_data);
 
 /* PC 观察点（纯调试）。env: ZM_PC=<起址>[,<止址>]（十六进制，可带 0x）
  * 命中区间时打印 PC/LR/R0-R3，用来确认"某个函数被调用时拿到什么参数"。
@@ -36,9 +36,9 @@ void hook_dump_pc_ring(void);
  * 命中区间被写入时打印 PC/LR/地址/值，用来查"某个字段到底有没有人写、
  * 是谁写的"。不设置时完全不生效，不改变任何模拟行为。 */
 void hook_ctx_apply(uc_engine *uc);
-bool hook_ctx_mirror(uc_engine *uc, uc_mem_type type, uint64_t address, int size,
-                     int64_t value, void *user_data);
-bool hook_mem_write_watch(uc_engine *uc, uc_mem_type type, uint64_t address,
-                          int size, int64_t value, void *user_data);
+bool hook_ctx_mirror(
+	uc_engine *uc, uc_mem_type type, uint64_t address, int size, int64_t value, void *user_data);
+bool hook_mem_write_watch(
+	uc_engine *uc, uc_mem_type type, uint64_t address, int size, int64_t value, void *user_data);
 
 #endif

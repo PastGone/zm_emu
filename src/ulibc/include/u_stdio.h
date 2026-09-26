@@ -43,12 +43,10 @@ uint32_t u_fopen(uc_engine *uc, uint32_t path, uint32_t mode);
 int u_fclose(uc_engine *uc, uint32_t fp);
 
 /** 从 fp 读 n 个 size 字节的项到客户机 dst；返回成功读取的项数 */
-uint32_t u_fread(uc_engine *uc, uint32_t dst, uint32_t size, uint32_t n,
-                 uint32_t fp);
+uint32_t u_fread(uc_engine *uc, uint32_t dst, uint32_t size, uint32_t n, uint32_t fp);
 
 /** 把客户机 src 的 n 个 size 字节写入 fp；返回成功写入的项数 */
-uint32_t u_fwrite(uc_engine *uc, uint32_t src, uint32_t size, uint32_t n,
-                  uint32_t fp);
+uint32_t u_fwrite(uc_engine *uc, uint32_t src, uint32_t size, uint32_t n, uint32_t fp);
 
 int u_fseek(uc_engine *uc, uint32_t fp, int32_t off, int whence);
 int32_t u_ftell(uc_engine *uc, uint32_t fp);

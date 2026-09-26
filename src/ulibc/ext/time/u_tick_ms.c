@@ -15,20 +15,20 @@
 
 #if defined(_WIN32)
 
-#include <windows.h>
+	#include <windows.h>
 
 uint32_t u_tick_ms(void) {
-  return (uint32_t)GetTickCount();
+	return (uint32_t)GetTickCount();
 }
 
 #else
 
-#include <sys/time.h>
+	#include <sys/time.h>
 
 uint32_t u_tick_ms(void) {
-  struct timeval tv;
-  gettimeofday(&tv, NULL);
-  return (uint32_t)(tv.tv_sec * 1000ULL + tv.tv_usec / 1000ULL);
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	return (uint32_t)(tv.tv_sec * 1000ULL + tv.tv_usec / 1000ULL);
 }
 
 #endif

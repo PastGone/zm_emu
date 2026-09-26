@@ -9,5 +9,5 @@
  */
 
 int u_vsprintf(uc_engine *uc, uint32_t dst, uint32_t fmt, u_va *va) {
-  return u_sprintf(uc, dst, fmt, va);
+	return u_sprintf(uc, dst, fmt, va);
 }

@@ -10,12 +10,12 @@
  */
 
 int u_getc(uc_engine *uc, uint32_t fp) {
-  (void)uc;
-  FILE *f = u_stdio_slot(fp);
-  return f ? getc(f) : EOF;
+	(void)uc;
+	FILE *f = u_stdio_slot(fp);
+	return f ? getc(f) : EOF;
 }
 
 int u_getchar(uc_engine *uc) {
-  (void)uc;
-  return getchar();
+	(void)uc;
+	return getchar();
 }

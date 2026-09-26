@@ -11,7 +11,7 @@
  */
 
 int u_mbsinit(uc_engine *uc, uint32_t state_ptr) {
-  if (state_ptr == 0)
-    return 1;
-  return u_rd32(uc, state_ptr) == 0 ? 1 : 0;
+	if (state_ptr == 0)
+		return 1;
+	return u_rd32(uc, state_ptr) == 0 ? 1 : 0;
 }

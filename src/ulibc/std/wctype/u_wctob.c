@@ -11,7 +11,7 @@
  */
 
 int u_wctob(int wc) {
-  if (wc == (int)WEOF)
-    return EOF;
-  return wctob((wint_t)wc);
+	if (wc == (int)WEOF)
+		return EOF;
+	return wctob((wint_t)wc);
 }

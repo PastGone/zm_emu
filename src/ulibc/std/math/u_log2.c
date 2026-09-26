@@ -9,4 +9,6 @@
  * 纯标量运算，不涉及客户机地址空间。
  */
 
-double u_log2(double x) { return log2(x); }
+double u_log2(double x) {
+	return log2(x);
+}

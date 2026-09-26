@@ -15,27 +15,27 @@
 #define U_STRTOD_WIN 512u
 
 double u_strtod_ex(uc_engine *uc, uint32_t s, uint32_t *end_out) {
-  char buf[U_STRTOD_WIN];
-  char *end = NULL;
-  double v = 0.0;
+	char buf[U_STRTOD_WIN];
+	char *end = NULL;
+	double v = 0.0;
 
-  u_errno = 0;
-  if (end_out)
-    *end_out = s;
-  if (!uc || s == 0)
-    return 0.0;
+	u_errno = 0;
+	if (end_out)
+		*end_out = s;
+	if (!uc || s == 0)
+		return 0.0;
 
-  u_read_cstr(uc, s, buf, sizeof(buf));
-  v = strtod(buf, &end);
-  if (end && end_out)
-    *end_out = s + (uint32_t)(end - buf);
-  return v;
+	u_read_cstr(uc, s, buf, sizeof(buf));
+	v = strtod(buf, &end);
+	if (end && end_out)
+		*end_out = s + (uint32_t)(end - buf);
+	return v;
 }
 
 double u_strtod(uc_engine *uc, uint32_t s, uint32_t endptr_addr) {
-  uint32_t end = s;
-  double v = u_strtod_ex(uc, s, &end);
-  if (endptr_addr)
-    u_wr32(uc, endptr_addr, end);
-  return v;
+	uint32_t end = s;
+	double v = u_strtod_ex(uc, s, &end);
+	if (endptr_addr)
+		u_wr32(uc, endptr_addr, end);
+	return v;
 }

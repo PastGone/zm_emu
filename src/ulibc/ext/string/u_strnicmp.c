@@ -10,7 +10,7 @@
  */
 
 int u_strnicmp(uc_engine *uc, uint32_t a, uint32_t b, uint32_t n) {
-  if (!uc || n == 0 || a == b)
-    return 0;
-  return u_icmp_impl(uc, a, b, n, 1);
+	if (!uc || n == 0 || a == b)
+		return 0;
+	return u_icmp_impl(uc, a, b, n, 1);
 }

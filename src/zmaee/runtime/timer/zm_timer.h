@@ -24,8 +24,8 @@
  * 重新启用"时 ID 从 0 重新计数。
  * 单次语义：到期先 CancelTimer(id) 再调 cb(id, a5)；周期定时器需在
  * 回调里重新 SetTimer（applet 本就如此使用）。 */
-uint32_t zm_timer_SetTimer(uc_engine *uc, uint32_t dur_ms, uint32_t cb,
-                           uint32_t owner, uint32_t a5);
+uint32_t
+zm_timer_SetTimer(uc_engine *uc, uint32_t dur_ms, uint32_t cb, uint32_t owner, uint32_t a5);
 
 /* +0x40 CancelTimer(this, timer_id)（RE）：按 entry[0]==ID 查找，
  * 找到后左侧整体前移压缩、数量-1、清 vacated 尾槽；成功返 0，
@@ -73,8 +73,7 @@ bool zm_timer_poll(uint32_t now_ms);
  *   回调一次都不触发 → 画面上的
  *     "执行时间：00:00:00 / 倒数计时：00:01:00"
  *   永远不动（时钟文字是 DrawText 画的，所以字显示正常、只是数值不涨）。 */
-uint32_t zm_timer_StartTimer(uc_engine *uc, uint32_t interval_ms, uint32_t id,
-                             uint32_t cb);
+uint32_t zm_timer_StartTimer(uc_engine *uc, uint32_t interval_ms, uint32_t id, uint32_t cb);
 uint32_t zm_timer_StopTimer(uc_engine *uc, uint32_t id);
 
 /* ---- 指令级"异步中断"派发（hook_code 调用）------------------------------
@@ -102,8 +101,12 @@ void zm_timer_interrupt_return(uc_engine *uc);
  * 与 zm_timer_interrupt 共用同一套现场保存/恢复（TR_timer_return），
  * 所以同一时刻只能有一个在飞（s_int_active 忙标志会挡住第二个）。
  * 触摸事件的异步派发（event.c 的 zm_event_async_poll）走这个入口。 */
-bool zm_timer_async_call(uc_engine *uc, uint32_t resume_pc, const char *what,
-                         uint32_t cb, const uint32_t *args, int nargs);
+bool zm_timer_async_call(uc_engine *uc,
+						 uint32_t resume_pc,
+						 const char *what,
+						 uint32_t cb,
+						 const uint32_t *args,
+						 int nargs);
 
 /* "applet 是否已经饿到可以被异步打断"：连续 idle_limit（默认 300ms，
  * ZM_ASYNC_IDLE_MS 可调）没回过事件循环。触摸事件用它做同样的门限判断

@@ -8,9 +8,9 @@
  */
 
 int u_fseek(uc_engine *uc, uint32_t fp, int32_t off, int whence) {
-  (void)uc;
-  FILE *f = u_stdio_slot(fp);
-  if (!f)
-    return -1;
-  return fseek(f, (long)off, whence);
+	(void)uc;
+	FILE *f = u_stdio_slot(fp);
+	if (!f)
+		return -1;
+	return fseek(f, (long)off, whence);
 }

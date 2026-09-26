@@ -8,11 +8,11 @@
  */
 
 void u_stdio_cleanup(void) {
-  u_stdio_boot();
-  for (uint32_t i = 4; i < U_MAX_FILES; i++) {
-    if (u_stdio_g_files[i]) {
-      fclose(u_stdio_g_files[i]);
-      u_stdio_g_files[i] = NULL;
-    }
-  }
+	u_stdio_boot();
+	for (uint32_t i = 4; i < U_MAX_FILES; i++) {
+		if (u_stdio_g_files[i]) {
+			fclose(u_stdio_g_files[i]);
+			u_stdio_g_files[i] = NULL;
+		}
+	}
 }

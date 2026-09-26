@@ -16,12 +16,12 @@
  */
 
 void u_perror(uc_engine *uc, uint32_t s) {
-  char buf[256];
-  buf[0] = '\0';
-  if (uc && s)
-    u_read_cstr(uc, s, buf, sizeof(buf));
-  if (buf[0])
-    fprintf(stderr, "%s: %s\n", buf, strerror(errno));
-  else
-    fprintf(stderr, "%s\n", strerror(errno));
+	char buf[256];
+	buf[0] = '\0';
+	if (uc && s)
+		u_read_cstr(uc, s, buf, sizeof(buf));
+	if (buf[0])
+		fprintf(stderr, "%s: %s\n", buf, strerror(errno));
+	else
+		fprintf(stderr, "%s\n", strerror(errno));
 }

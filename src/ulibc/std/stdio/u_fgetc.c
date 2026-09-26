@@ -8,13 +8,13 @@
  */
 
 int u_fgetc(uc_engine *uc, uint32_t fp) {
-  (void)uc;
-  FILE *f = u_stdio_slot(fp);
-  return f ? fgetc(f) : EOF;
+	(void)uc;
+	FILE *f = u_stdio_slot(fp);
+	return f ? fgetc(f) : EOF;
 }
 
 int u_fputc(uc_engine *uc, uint32_t fp, int c) {
-  (void)uc;
-  FILE *f = u_stdio_slot(fp);
-  return f ? fputc(c, f) : EOF;
+	(void)uc;
+	FILE *f = u_stdio_slot(fp);
+	return f ? fputc(c, f) : EOF;
 }

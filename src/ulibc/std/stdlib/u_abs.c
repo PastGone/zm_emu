@@ -7,6 +7,12 @@
  * 自己实现而非转发宿主：避免 INT_MIN 上的未定义行为。
  */
 
-int u_abs(int v) { return (v < 0) ? -v : v; }
-long u_labs(long v) { return (v < 0) ? -v : v; }
-long long u_llabs(long long v) { return (v < 0) ? -v : v; }
+int u_abs(int v) {
+	return (v < 0) ? -v : v;
+}
+long u_labs(long v) {
+	return (v < 0) ? -v : v;
+}
+long long u_llabs(long long v) {
+	return (v < 0) ? -v : v;
+}

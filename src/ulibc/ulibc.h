@@ -171,27 +171,27 @@ typedef uint32_t u_ptr;
 #define U_NULL ((u_ptr)0)
 
 /* ---- core：基建 ---- */
-#include "include/u_mem.h"
-#include "include/u_heap.h"
 #include "include/u_arg.h"
 #include "include/u_fmt.h"
+#include "include/u_heap.h"
+#include "include/u_mem.h"
 
 /* ---- std：标准 C ---- */
+#include "include/u_ctype.h"
+#include "include/u_jmp.h"
+#include "include/u_math.h"
+#include "include/u_stdio.h"
+#include "include/u_stdlib.h"
 #include "include/u_str.h"
+#include "include/u_time.h"
 #include "include/u_wcs.h"
 #include "include/u_wctype.h"
-#include "include/u_ctype.h"
-#include "include/u_math.h"
-#include "include/u_stdlib.h"
-#include "include/u_stdio.h"
-#include "include/u_time.h"
-#include "include/u_jmp.h"
 
 /* ---- ext：非标准扩展 ---- */
+#include "include/u_fmt_ext.h"
+#include "include/u_math_ext.h"
 #include "include/u_mem_ext.h"
 #include "include/u_str_ext.h"
-#include "include/u_math_ext.h"
 #include "include/u_time_ext.h"
-#include "include/u_fmt_ext.h"
 
 #endif /* ULIBC_H */

@@ -61,14 +61,14 @@
 enum { U_VA_REGS = 0, U_VA_MEM = 1, U_VA_ARRAY = 2, U_VA_MEM8 = 3 };
 
 typedef struct {
-  uc_engine *uc;
-  int mode;
-  uint32_t regs[4];  /* U_VA_REGS：入口 r0..r3 快照 */
-  uint32_t sp;       /* U_VA_REGS：入口 SP（栈参数基址） */
-  uint32_t mem_base; /* U_VA_MEM：参数区基址 */
-  const uint32_t *arr;
-  uint32_t arr_n;
-  uint32_t next; /* 下一个参数的「槽序号」 */
+	uc_engine *uc;
+	int mode;
+	uint32_t regs[4];  /* U_VA_REGS：入口 r0..r3 快照 */
+	uint32_t sp;	   /* U_VA_REGS：入口 SP（栈参数基址） */
+	uint32_t mem_base; /* U_VA_MEM：参数区基址 */
+	const uint32_t *arr;
+	uint32_t arr_n;
+	uint32_t next; /* 下一个参数的「槽序号」 */
 } u_va;
 
 /** 从入口寄存器 + 栈取参；n_named = 固定参数个数 */

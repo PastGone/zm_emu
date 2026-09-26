@@ -10,7 +10,7 @@
 
 /* 子模块拆分（纯常量 / root 分发表 / 各对象虚表，均不依赖本文件） */
 #include "emu_mem_layout.h" /* BLOB/STACK/HEAP/SHIM 布局 + 对象/虚表地址 + TRAP 宏 */
-#include "traps/emu_root_traps.h"
+#include "emu_obj_layout.h"
 #include "emu_vt_traps.h"
 
 // -------------------- 全局变量 --------------------
@@ -44,9 +44,8 @@ extern int g_disasm;
 
 /* 当前载入 applet 的短名称（如 "00000102.app"），由 main.c 设置，
  * 供 TR_Applet_Internal_Reg_callback 写入 applet instance+4。 */
-extern char
-    g_app_pathname[4096]; // 4096是 linux
-                          // 的最长文件名,这里设了这么大是为了防止搞什么摇蛾子
+extern char g_app_pathname[4096]; // 4096是 linux
+								  // 的最长文件名,这里设了这么大是为了防止搞什么摇蛾子
 
 // 用来反汇编用的一组全局变量，之所以是全局变量是因为要不停的复用
 extern csh g_cs_handle;

@@ -11,16 +11,16 @@
  */
 
 int32_t u_ftell(uc_engine *uc, uint32_t fp) {
-  (void)uc;
-  FILE *f = u_stdio_slot(fp);
-  if (!f)
-    return -1;
-  return (int32_t)ftell(f);
+	(void)uc;
+	FILE *f = u_stdio_slot(fp);
+	if (!f)
+		return -1;
+	return (int32_t)ftell(f);
 }
 
 void u_rewind(uc_engine *uc, uint32_t fp) {
-  FILE *f = u_stdio_slot(fp);
-  if (f)
-    rewind(f);
-  (void)uc;
+	FILE *f = u_stdio_slot(fp);
+	if (f)
+		rewind(f);
+	(void)uc;
 }

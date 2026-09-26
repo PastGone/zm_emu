@@ -27,19 +27,19 @@
  * （只缺 asctime_r），所以那三个文件保持可重入版本不动。
  */
 uint32_t u_asctime(uc_engine *uc, uint32_t tm_ptr, uint32_t buf) {
-  struct tm t;
-  char tmp[64];
-  u_tm_load(uc, tm_ptr, &t);
+	struct tm t;
+	char tmp[64];
+	u_tm_load(uc, tm_ptr, &t);
 
-  const char *s = asctime(&t);
-  if (!s)
-    return 0; /* 与实机同语义：asctime 只在 tm 字段超出正常范围时返回 NULL */
+	const char *s = asctime(&t);
+	if (!s)
+		return 0; /* 与实机同语义：asctime 只在 tm 字段超出正常范围时返回 NULL */
 
-  size_t n = strlen(s);
-  if (n >= sizeof(tmp))
-    n = sizeof(tmp) - 1; /* 防御：无论如何不溢出本函数的缓冲 */
-  memcpy(tmp, s, n);
-  tmp[n] = '\0';
+	size_t n = strlen(s);
+	if (n >= sizeof(tmp))
+		n = sizeof(tmp) - 1; /* 防御：无论如何不溢出本函数的缓冲 */
+	memcpy(tmp, s, n);
+	tmp[n] = '\0';
 
-  return u_write_cstr(uc, buf, tmp) ? buf : 0;
+	return u_write_cstr(uc, buf, tmp) ? buf : 0;
 }

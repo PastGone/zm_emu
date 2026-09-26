@@ -14,8 +14,7 @@
  * @param n       当 bounded 非 0 时的比较上限
  * @param bounded 非 0 表示按 n 截断（strnicmp 语义）
  */
-int u_icmp_impl(uc_engine *uc, uint32_t a, uint32_t b, uint32_t n,
-                int bounded);
+int u_icmp_impl(uc_engine *uc, uint32_t a, uint32_t b, uint32_t n, int bounded);
 
 /** 原地把客户机 C 串转成大写(upper!=0)或小写 */
 uint32_t u_xlate_case(uc_engine *uc, uint32_t s, int upper);

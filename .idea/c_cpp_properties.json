@@ -6,8 +6,7 @@
                 "${workspaceFolder}/**",
                 "/home/apollo/.xmake/packages/**"
             ],
-            "cStandard": "c17",
-            "cppStandard": "c++20"
+            "cStandard": "c23"
         }
     ],
     "version": 4

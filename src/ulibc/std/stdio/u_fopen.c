@@ -11,16 +11,16 @@
  */
 
 uint32_t u_fopen(uc_engine *uc, uint32_t path, uint32_t mode) {
-  char pbuf[1024];
-  char mbuf[32];
-  if (!u_read_cstr(uc, path, pbuf, sizeof(pbuf)))
-    return 0;
-  u_read_cstr(uc, mode, mbuf, sizeof(mbuf));
-  if (mbuf[0] == '\0')
-    strcpy(mbuf, "rb");
+	char pbuf[1024];
+	char mbuf[32];
+	if (!u_read_cstr(uc, path, pbuf, sizeof(pbuf)))
+		return 0;
+	u_read_cstr(uc, mode, mbuf, sizeof(mbuf));
+	if (mbuf[0] == '\0')
+		strcpy(mbuf, "rb");
 
-  FILE *f = fopen(pbuf, mbuf);
-  if (!f)
-    return 0;
-  return (uint32_t)u_stdio_alloc(f);
+	FILE *f = fopen(pbuf, mbuf);
+	if (!f)
+		return 0;
+	return (uint32_t)u_stdio_alloc(f);
 }

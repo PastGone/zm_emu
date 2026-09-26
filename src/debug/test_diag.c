@@ -2,8 +2,8 @@
 #include "../event.h"
 #include "../log/log.h"
 #include "../zmaee/audio/zm_audio.h"
-#include "../zmaee/fs/zm_file_mgr.h"
 #include "../zmaee/fs/zm_file.h"
+#include "../zmaee/fs/zm_file_mgr.h"
 #include "../zmaee/gfx/zm_display.h"
 
 #include <stdio.h>
@@ -12,16 +12,22 @@
 #include <time.h>
 
 void zm_diag_dump_buttons(uc_engine *uc) {
-  const char *db = getenv("ZM_DUMP_BUTTONS");
-  if (db && *db && g_instance) {
-    for (uint32_t i = 0; i < 25; i++) {
-      uint32_t off = g_instance + 124 + i * 16;
-      uint32_t r[4];
-      if (uc_mem_read(uc, off, r, 16) == UC_ERR_OK)
-        log_info("按钮[%2u] rect=(%u,%u,%u,%u) center=(%u,%u)", i, r[0], r[1],
-                 r[2], r[3], r[0] + r[2] / 2, r[1] + r[3] / 2);
-    }
-  }
+	const char *db = getenv("ZM_DUMP_BUTTONS");
+	if (db && *db && g_instance) {
+		for (uint32_t i = 0; i < 25; i++) {
+			uint32_t off = g_instance + 124 + i * 16;
+			uint32_t r[4];
+			if (uc_mem_read(uc, off, r, 16) == UC_ERR_OK)
+				log_info("按钮[%2u] rect=(%u,%u,%u,%u) center=(%u,%u)",
+						 i,
+						 r[0],
+						 r[1],
+						 r[2],
+						 r[3],
+						 r[0] + r[2] / 2,
+						 r[1] + r[3] / 2);
+		}
+	}
 }
 
 // void zm_diag_audio_test(uc_engine *g_uc) {
@@ -48,9 +54,9 @@ void zm_diag_dump_buttons(uc_engine *uc) {
 // }
 
 void zm_diag_run_event_loop(void) {
-  uint32_t hold_ms = 0;
-  const char *env = getenv("ZM_GFX_HOLD_MS");
-  if (env && *env)
-    hold_ms = (uint32_t)strtoul(env, NULL, 0);
-  zm_display_event_loop(on_touch_click, hold_ms);
+	uint32_t hold_ms = 0;
+	const char *env = getenv("ZM_GFX_HOLD_MS");
+	if (env && *env)
+		hold_ms = (uint32_t)strtoul(env, NULL, 0);
+	zm_display_event_loop(on_touch_click, hold_ms);
 }

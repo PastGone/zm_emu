@@ -6,15 +6,15 @@
  */
 
 u_div_t u_div(int num, int den) {
-  u_div_t r;
-  r.quot = num / den;
-  r.rem = num % den;
-  return r;
+	u_div_t r;
+	r.quot = num / den;
+	r.rem = num % den;
+	return r;
 }
 
 u_ldiv_t u_ldiv(long num, long den) {
-  u_ldiv_t r;
-  r.quot = num / den;
-  r.rem = num % den;
-  return r;
+	u_ldiv_t r;
+	r.quot = num / den;
+	r.rem = num % den;
+	return r;
 }

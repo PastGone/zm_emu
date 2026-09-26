@@ -8,7 +8,7 @@
  */
 
 int u_ungetc(uc_engine *uc, uint32_t fp, int c) {
-  (void)uc;
-  FILE *f = u_stdio_slot(fp);
-  return f ? ungetc(c, f) : EOF;
+	(void)uc;
+	FILE *f = u_stdio_slot(fp);
+	return f ? ungetc(c, f) : EOF;
 }

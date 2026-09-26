@@ -17,7 +17,7 @@
  */
 #include <stdint.h>
 #include <unicorn/unicorn.h>
-#include <wchar.h>  /* btowc / wctob / WEOF */
+#include <wchar.h>	/* btowc / wctob / WEOF */
 #include <wctype.h> /* isw* / tow* / wctype / wctrans */
 
 int u_iswalnum(int wc);

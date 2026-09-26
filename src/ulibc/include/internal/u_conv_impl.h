@@ -17,7 +17,7 @@
  * @param overflow_out 接收是否发生 64 位溢出
  * @return 累积值；无任何有效数字时返回 0（此时 end_out == s）
  */
-uint64_t u_conv_scan_uint(uc_engine *uc, uint32_t s, int base,
-                          uint32_t *end_out, int *neg_out, int *overflow_out);
+uint64_t u_conv_scan_uint(
+	uc_engine *uc, uint32_t s, int base, uint32_t *end_out, int *neg_out, int *overflow_out);
 
 #endif /* U_CONV_IMPL_H */

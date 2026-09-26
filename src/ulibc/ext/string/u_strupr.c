@@ -8,5 +8,5 @@
  */
 
 uint32_t u_strupr(uc_engine *uc, uint32_t s) {
-  return u_xlate_case(uc, s, 1);
+	return u_xlate_case(uc, s, 1);
 }

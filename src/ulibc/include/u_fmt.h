@@ -43,18 +43,15 @@
  * @param out 可为 NULL，cap 可为 0（此时只计数不输出，用于测长）
  * @return 本应写入的字符数（不含 '\0'）
  */
-int u_vsnprintf_core(uc_engine *uc, u_va *va, char *out, size_t cap,
-                     const char *fmt);
+int u_vsnprintf_core(uc_engine *uc, u_va *va, char *out, size_t cap, const char *fmt);
 
 /* -------------------- 标准 C：stdio.h 格式化家族 -------------------- */
 
 /** vsnprintf：写入客户机 dst，最多 size 字节（含 '\0'） */
-int u_vsnprintf(uc_engine *uc, uint32_t dst, uint32_t size, uint32_t fmt,
-                u_va *va);
+int u_vsnprintf(uc_engine *uc, uint32_t dst, uint32_t size, uint32_t fmt, u_va *va);
 
 /** snprintf：与 u_vsnprintf 同义，仅为对齐标准命名 */
-int u_snprintf(uc_engine *uc, uint32_t dst, uint32_t size, uint32_t fmt,
-               u_va *va);
+int u_snprintf(uc_engine *uc, uint32_t dst, uint32_t size, uint32_t fmt, u_va *va);
 
 /** sprintf / vsprintf：无长度限制（内部按 U_FMT_MAX_OUT 防呆） */
 int u_sprintf(uc_engine *uc, uint32_t dst, uint32_t fmt, u_va *va);
