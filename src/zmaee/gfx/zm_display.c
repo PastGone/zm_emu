@@ -283,6 +283,96 @@ static uint32_t g_draw_buf = 0;
 static uint32_t g_draw_w = 0, g_draw_h = 0;
 static uint32_t g_draw_act = 0xFFFFFFFFu;
 
+/* ---- 绘制路径的裁剪区 ----
+ *
+ * RE：层载荷 +0x14..+0x20 = 裁剪 x / 裁剪 y / 宽副本 / 高副本（zm_layer.h），
+ * IDisplay_SetClipRect（虚表 +0x5C）写的就是这一份。真机
+ * ZMAEE_IDisplay_DrawText 里的 sub_26678(v41, rect) 正是"拿 rect 与当前
+ * 裁剪区求交"：交集为空 → 整段不画；非空 → 只画交集那块，位图尺寸也取交集。
+ *
+ * 以前只有 layer_fill（FillRect）认裁剪，fb_px / blit 这一族完全不认，
+ * 于是"框（FillRect）裁得对，框里的字（DrawText）滚出框外还在飞"。
+ *
+ * g_draw_c* 是**已求过交**的结果 = 层边界 ∩ 层裁剪 ∩ SetClipRect；
+ * cw<=0 || ch<=0 表示不裁剪。 */
+static int g_draw_cx = 0, g_draw_cy = 0, g_draw_cw = 0, g_draw_ch = 0;
+
+/* IDisplay_SetClipRect 设的全局裁剪。真机存在显示上下文里（我们的层结构
+ * 没有那一格），单独存一份，免得 SetClipRect 之后一切活动层就把裁剪丢了。 */
+static int g_clip_x = 0, g_clip_y = 0, g_clip_w = 0, g_clip_h = 0;
+
+/* 绘制路径的裁剪（默认开，ZM_CLIP=0 关）。
+ *
+ * 【2026-09 定案】容器**内**不重叠、容器**外**逐帧叠加成白团 —— 说明
+ * applet 每帧只清容器那一块，容器外从来没人清；真机靠裁剪保证文字根本
+ * 画不到容器外，我们以前不裁剪，于是画出去的像素永远留着。裁剪是对的。
+ *
+ * 上一版之所以翻车，是往里掺了两样不该有的东西，现在都已去掉：
+ *   ① **不再夹层边界**：子层 w/h 小于屏幕时 applet 用屏幕坐标画的像素
+ *      会落到层外，它们原本靠 g_fb 直写才可见，夹了就整块消失（图片异常）。
+ *   ② **不再把裁剪写进层载荷**（见 SetClipRect）：那会连带把 layer_fill
+ *      的清屏也裁小，容器内就再也擦不干净了。
+ * 现在裁剪区**只**来自 SetClipRect / 层载荷 +0x14..+0x20，两者都没有就
+ * 等于不裁剪（层 0 与 CreateLayer 建的层默认都是"整层"，天然不裁剪）。 */
+static int fb_clip_on(void) {
+	static int en = -1;
+	if (en < 0) {
+		const char *e = getenv("ZM_CLIP");
+		en = (e && e[0] == '0') ? 0 : 1;
+		log_info("绘制路径裁剪 = %s（ZM_CLIP=0 关闭）", en ? "开（默认）" : "关");
+	}
+	return en;
+}
+
+/* 重算 g_draw_c* = 层裁剪 ∩ 全局裁剪（**不含**层边界）。
+ * 两者都没有 → 不裁剪。求交后为空同样按"不裁剪"处理：真机是一个像素都不画，
+ * 但这里更可能是读到了脏数据，与其整屏空白不如放行。 */
+static void fb_update_clip(const zm_layer_t *L) {
+	int has = 0, l = 0, t = 0, r = 0, b = 0;
+	if (L->cw > 0 && L->ch > 0) {
+		l = (int)L->cx;
+		t = (int)L->cy;
+		r = l + (int)L->cw;
+		b = t + (int)L->ch;
+		has = 1;
+	}
+	if (g_clip_w > 0 && g_clip_h > 0) {
+		int gl = g_clip_x, gt = g_clip_y, gr = gl + g_clip_w, gb = gt + g_clip_h;
+		if (!has) {
+			l = gl;
+			t = gt;
+			r = gr;
+			b = gb;
+			has = 1;
+		} else {
+			if (gl > l)
+				l = gl;
+			if (gt > t)
+				t = gt;
+			if (gr < r)
+				r = gr;
+			if (gb < b)
+				b = gb;
+		}
+	}
+	if (has && r > l && b > t) {
+		g_draw_cx = l;
+		g_draw_cy = t;
+		g_draw_cw = r - l;
+		g_draw_ch = b - t;
+	} else {
+		g_draw_cw = g_draw_ch = 0; /* 无裁剪区 / 空 → 不裁剪 */
+	}
+}
+
+/* 裁剪判定：越界返回非 0。无符号比较顺带把负坐标也判成越界。 */
+static inline int fb_clipped(int x, int y) {
+	if (g_draw_cw <= 0 || g_draw_ch <= 0)
+		return 0;
+	return (unsigned)(x - g_draw_cx) >= (unsigned)g_draw_cw ||
+		   (unsigned)(y - g_draw_cy) >= (unsigned)g_draw_ch;
+}
+
 static void fb_refresh_draw_target(void) {
 	if (!g_uc)
 		return;
@@ -295,15 +385,32 @@ static void fb_refresh_draw_target(void) {
 		g_draw_buf = L.buf;
 		g_draw_w = L.w;
 		g_draw_h = L.h;
+		fb_update_clip(&L);
 	} else {
 		g_draw_buf = 0;
 		g_draw_w = g_draw_h = 0;
+		g_draw_cw = g_draw_ch = 0;
 	}
 }
 
 static inline void fb_px(int x, int y, uint32_t argb) {
 	if ((unsigned)x >= (unsigned)g_fb_w || (unsigned)y >= (unsigned)g_fb_h)
 		return;
+	/* 真机：任何绘制都先过裁剪区（DrawText 的 sub_26678），框外不落像素。
+	 * 缺这一步的症状：容器内每帧清得掉、容器外没人清，画出去的字就永久
+	 * 残留并逐帧叠加（"飞出容器外还在重叠"）。 */
+	if (fb_clip_on() && fb_clipped(x, y)) {
+		static uint32_t first = 0;
+		if (first++ == 0)
+			log_info("[裁剪] 首次拒绝像素 (%d,%d)，生效裁剪区={%d,%d,%d,%d}",
+					 x,
+					 y,
+					 g_draw_cx,
+					 g_draw_cy,
+					 g_draw_cw,
+					 g_draw_ch);
+		return;
+	}
 	if (g_fb)
 		g_fb[(size_t)y * (size_t)g_fb_w + (size_t)x] = argb;
 
@@ -473,21 +580,32 @@ static void fb_draw_text(uc_engine *uc,
 		return;
 
 	int tw = conv->w, th = conv->h;
-	/* 对齐：忠实照搬真机的位判断（真机先用 MeasureString 量宽高再按 a7 定位） */
+	/* 对齐：忠实照搬真机的位判断（真机先用 MeasureString 量宽高再按 a7 定位）。
+	 *
+	 * 垂直方向真机用的是 MeasureString 写回的**字体行高**（sub_26378），不是
+	 * 字形位图的实际高度 —— 两者差 ascent/descent 的空白。用位图高会让
+	 * &0x10/&0x20 的居中/底对齐比真机偏上几像素，也和 MeasureString 报给
+	 * applet 的数字对不上（applet 普遍"先量后画"）。这里改用 TTF_FontHeight，
+	 * 与 zm_display_MeasureString 写回 metrics 的口径一致。 */
 	int dx = rx, dy = ry;
 	if (flags & 2)
 		dx = rx + rw - tw; /* 右对齐 */
 	else if (flags & 4)
 		dx = rx + (rw - tw) / 2; /* 水平居中 */
+	int mh = TTF_FontHeight(font);
+	if (mh <= 0)
+		mh = th;
 	if (flags & 0x20)
-		dy = ry + rh - th; /* 底对齐 */
+		dy = ry + rh - mh; /* 底对齐 */
 	else if (flags & 0x10)
-		dy = ry + (rh - th) / 2; /* 垂直居中 */
+		dy = ry + (rh - mh) / 2; /* 垂直居中 */
 
 	if (SDL_MUSTLOCK(conv))
 		SDL_LockSurface(conv);
 	for (int y = 0; y < th; y++) {
 		int oy = dy + y;
+		/* 真机：位图尺寸 = rect ∩ 文本矩形 ∩ **层裁剪**，交集为空一个字都不画。
+		 * 这里裁 rect，层裁剪由 fb_px 统一兜住（见 fb_clipped）。 */
 		if (oy < ry || oy >= ry + rh)
 			continue; /* 裁剪到 rect 内，避免文本溢出按钮 */
 		const uint32_t *src =
@@ -600,6 +718,10 @@ static void fb_blit_rgba_mode(int x, int y, int w, int h, const uint8_t *rgba, i
 			if (p[0] == 0xF8 && p[1] == 0x18 && p[2] == 0xF8)
 				continue;
 			int ox = x + dx, oy = y + dy;
+			/* 与 fb_px 同款裁剪（真机 Blt 同样先与裁剪区求交）。
+			 * 跳过像素会自然打断攒段：下一个像素 ox != run_x+run_n → 先 flush。 */
+			if (fb_clip_on() && fb_clipped(ox, oy))
+				continue;
 			uint32_t argb;
 			if (!a || a == 0xFF) {
 				argb = 0xFF000000u | ((unsigned)p[0] << 16) | ((unsigned)p[1] << 8) | p[2];
@@ -711,6 +833,8 @@ static void fb_blit_rgba_scaled_mode(int x,
 				continue;
 			int tx = x + ox, ty = y + oy;
 			if (cw > 0 && ch > 0 && (tx < cx || ty < cy || tx >= cx + cw || ty >= cy + ch))
+				continue;
+			if (fb_clip_on() && fb_clipped(tx, ty))
 				continue;
 			const uint8_t *p = src + ((size_t)sy * (size_t)sw + (size_t)sx) * 4u;
 			unsigned a = p[3];
@@ -2579,19 +2703,31 @@ uint32_t zm_display_MeasureString(uc_engine *uc,
 
 	int w = 0;
 	if (str_ptr && len) {
-		/* 真机顺序：先按 UCS-2 '\0' 定有效长度，再 Ucs2_2_Utf8 转 UTF-8，
-		 * 然后用它去 NewStringUTF/MeasureText。这里和 DrawText 用**同一个**
-		 * text_to_utf8（含窄串判定），避免两处编码理解再次分叉。 */
+		/* 真机顺序：先按 UCS-2 '\0' 定有效长度（a3!=0 && *a2!=0 才扫，否则
+		 * a3=0），再 Ucs2_2_Utf8 转 UTF-8，然后用它去
+		 * NewStringUTF/AndroidAEE_MeasureText(str, 0, 上下文字号)。
+		 * 这里和 DrawText 用**同一个** text_to_utf8（含窄串判定），
+		 * 避免两处编码理解再次分叉。 */
 		char utf8[4096];
 		size_t ul = text_to_utf8(uc, str_ptr, len, utf8, sizeof(utf8));
 		TTF_Font *font = get_font(g_font_size);
 		int h = 0;
-		if (font)
+		if (font) {
 			TTF_SizeUTF8(font, utf8, &w, &h);
-		else
-			w = (int)ul * (g_font_size > 0 ? g_font_size : ZM_FONT_DEFAULT_SIZE);
+		} else {
+			/* 兜底按"字数"估宽：注意 ul 是 UTF-8 **字节数**，汉字 3 字节，
+			 * 直接乘字号会虚高三倍。数 UTF-8 首字节（非 0x80..0xBF）才是字数。 */
+			size_t nc = 0;
+			for (size_t i = 0; i < ul; i++)
+				if (((unsigned char)utf8[i] & 0xC0) != 0x80)
+					nc++;
+			w = (int)nc * (g_font_size > 0 ? g_font_size : ZM_FONT_DEFAULT_SIZE);
+		}
 	}
 
+	/* 真机：a4（width_out）为 0 就不写；a5（metrics）与文本无关，空串 /
+	 * 长度 0 也照样写字体行高 —— DrawText 的 &0x10/&0x20 垂直对齐用的正是
+	 * 这个数（fb_draw_text 里的 mh 同口径）。 */
 	if (width_out)
 		uc_write32(uc, width_out, (uint32_t)w);
 
@@ -2622,6 +2758,14 @@ uint32_t zm_display_MeasureString(uc_engine *uc,
  * AndroidAEE_GetTextBitmap （渲染发生在 **Android
  * 侧**，用系统字体，所以真机汉字一定有字形）； 6) ZMAEE_Blt
  * 把这张文字位图贴进当前层。
+ *
+ * 【2026-09 修正】步骤 5 之前还有一道 sub_26678(v41, rect)：
+ *   if (sub_26678(v41, rect) != 0 && sub_26678(v41, v61) != 0) { …绘制… }
+ * 即"rect / 文本矩形各自与**当前裁剪区**求交"，交集为空就整段不画，非空则
+ * 位图尺寸取交集（v41[2..3]）、文字偏移 (v39-v41[0], v38-v41[1])。
+ * 裁剪区的载体 = 层载荷 +0x14..+0x20 + IDisplay_SetClipRect(+0x5C)。
+ * 以前只有 FillRect 认它，DrawText/BitBlt 一律不认 → 滚动文字滚出可视框
+ * 后照样画在外面（"超出框外还在飞"）。现在裁剪统一在 fb_px / blit 里生效。
  *
  * 【2026-09 修正】模拟器以前：把 UCS-2 原始字节当 UTF-8 直接喂 TTF（汉字
  * 两字节被当成非法 UTF-8 → .notdef = 豆腐块），并且把 `flags` 当字号用
@@ -2659,7 +2803,7 @@ uint32_t zm_display_DrawText(
 		 * 若这里的 buf 与 FillRect 详查里对话框所在层的 buf 不同，
 		 * 就说明文字画到了别的层上（合成时被覆盖）。 */
 		log_info("[DrawText] rect={%d,%d,%d,%d} text=\"%s\" len=%u color=0x%X "
-				 "flags=0x%X font=%dpx 目标层=%u buf=0x%X",
+				 "flags=0x%X font=%dpx 目标层=%u buf=0x%X 裁剪={%d,%d,%d,%d}%s",
 				 rx,
 				 ry,
 				 rw,
@@ -2670,7 +2814,12 @@ uint32_t zm_display_DrawText(
 				 flags,
 				 g_font_size,
 				 uc_read32(uc, DISPLAY + 8),
-				 g_draw_buf);
+				 g_draw_buf,
+				 g_draw_cx,
+				 g_draw_cy,
+				 g_draw_cw,
+				 g_draw_ch,
+				 g_draw_cw ? "" : "(不裁剪)");
 	}
 	fb_draw_text(uc, rect_ptr, text, color, g_font_size, flags);
 	return 0;
@@ -2681,6 +2830,9 @@ uint32_t zm_display_DrawText(
 uint32_t zm_display_DrawRect(uc_engine *uc, uint32_t x, uint32_t y, uint32_t w, uint32_t sp) {
 	int h = (int)uc_read32(uc, sp);
 	uint32_t color = uc_read32(uc, sp + 4);
+	/* 同 DrawText：fb_draw_rect → fb_px 要写活动层缓冲并受裁剪约束，
+	 * 目标缓存必须先刷新（否则可能写到上一个活动层 / 裁剪区是旧的）。 */
+	fb_refresh_draw_target();
 	fb_draw_rect((int)x, (int)y, (int)w, h, color);
 	return 0;
 }
@@ -2886,13 +3038,79 @@ uint32_t zm_display_SetOpacity(
 	uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3) {
 	return zm_display_stub(uc, off, r0, r1, r2, r3);
 }
+/* +0x5C SetClipRect(this=r0, rect=r1)
+ *
+ * RE：真机 ZMAEE_IDisplay_DrawText 里的 sub_26678(v41, rect) 就是"rect 与
+ * 当前裁剪区求交"，交集为空整段不画、非空只画交集；裁剪区的载体正是层载荷
+ * +0x14..+0x20（zm_layer.h）与显示上下文里的那一份。
+ *
+ * 以前这两个槽是 stub —— 裁剪永远是"整层"，于是滚动文字滚出可视框后
+ * 照样画在外面（框由 FillRect 画，它认裁剪，所以框是对的、字是飞的）。
+ *
+ * 这里同时写两处（全局 g_clip_* + 活动层载荷），取交集生效，兼容"裁剪存在
+ * 显示上下文"和"裁剪跟着层走"两种真机实现；r1==0 视为取消裁剪。
+ * ZM_CLIP=0 可整体关掉（A/B 对照）。 */
 uint32_t zm_display_SetClipRect(
 	uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3) {
-	return zm_display_stub(uc, off, r0, r1, r2, r3);
+	zm_display_slot_tick(off ? off : 0x5CU);
+	(void)r0;
+	(void)r2;
+	(void)r3;
+	if (!uc)
+		return 0;
+
+	uint32_t rect[4] = {0, 0, 0, 0};
+	if (r1 == 0) {
+		/* 空指针 = 取消裁剪（ResetClip 语义） */
+		g_clip_w = g_clip_h = 0;
+	} else {
+		if (uc_mem_read(uc, r1, rect, sizeof(rect)) != UC_ERR_OK) {
+			log_warn("IDisplay.SetClipRect：rect=0x%X 读不到", r1);
+			return (uint32_t)-4;
+		}
+		g_clip_x = (int)rect[0];
+		g_clip_y = (int)rect[1];
+		g_clip_w = (int)rect[2];
+		g_clip_h = (int)rect[3];
+		if (g_clip_w <= 0 || g_clip_h <= 0)
+			g_clip_w = g_clip_h = 0; /* 非法尺寸 = 不裁剪 */
+	}
+	/* 【2026-09 回退】**不再**写活动层载荷 +0x14..+0x20。
+	 * 那四格同时也被 layer_fill（FillRect）读来裁剪——而 applet 每帧正是靠
+	 * FillRect 大片清屏的。一旦把 SetClipRect 的小框写进去，清屏就被裁成
+	 * 只剩那一小块，框外的旧内容永远擦不掉 → 滚动列表的文字逐帧叠加，
+	 * 最后糊成白花花一片（实测症状，与"老字体没清掉"完全吻合）。
+	 * 真机那四格的归属还没有实证，在搞清之前只记到全局、不落层。 */
+	g_draw_act = 0xFFFFFFFFu; /* 强制重算 g_draw_c*（同层也要重算） */
+	fb_refresh_draw_target();
+	log_info("IDisplay.SetClipRect(%d,%d,%d,%d) → 有效裁剪(%d,%d,%d,%d)%s",
+			 (int)rect[0],
+			 (int)rect[1],
+			 (int)rect[2],
+			 (int)rect[3],
+			 g_draw_cx,
+			 g_draw_cy,
+			 g_draw_cw,
+			 g_draw_ch,
+			 g_draw_cw ? "" : "（不裁剪）");
+	return 0;
 }
+
+/* +0x60 GetClipRect(this=r0, rect_out=r1) */
 uint32_t zm_display_GetClipRect(
 	uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3) {
-	return zm_display_stub(uc, off, r0, r1, r2, r3);
+	zm_display_slot_tick(off ? off : 0x60U);
+	(void)r0;
+	(void)r2;
+	(void)r3;
+	if (!uc || r1 == 0)
+		return (uint32_t)-4;
+	uint32_t rect[4] = {(uint32_t)g_clip_x,
+						(uint32_t)g_clip_y,
+						(uint32_t)g_clip_w,
+						(uint32_t)g_clip_h};
+	uc_mem_write(uc, r1, rect, sizeof(rect));
+	return 0;
 }
 uint32_t zm_display_SetPixel(
 	uc_engine *uc, uint32_t off, uint32_t r0, uint32_t r1, uint32_t r2, uint32_t r3) {
@@ -3561,6 +3779,57 @@ uint32_t zm_display_BitBlt(
 	}
 	if (mode == 0 || mode == 1) {
 		fb_self_blit(sx, sy, sw, sh, (int)r1, (int)r2);
+		return 1;
+	}
+
+	/* 【2026-09 缺口】以前 2..7 一律 return 0 —— 什么都不做。
+	 * 若列表滚动走的正是 mode 2（RE 注释：窗口内容滚动 + 补 null 行），
+	 * 那"滚动"在我们这儿**根本没发生**：旧文字原地不动，新文字逐帧往上叠
+	 * → 就是"老字体没清掉、最后糊成白花花一片"。
+	 * 这里先把 mode/rect 打出来（前 20 次），并给出 mode 2 的实现，
+	 * 默认关，确认日志里的 mode 到底是多少再定死语义。 */
+	{
+		static uint32_t n = 0;
+		if (n++ < 20)
+			log_info("[BitBlt] mode=%d rect={%d,%d,%d,%d} → (%d,%d)（第%u次）",
+					 mode,
+					 sx,
+					 sy,
+					 sw,
+					 sh,
+					 (int)r1,
+					 (int)r2,
+					 n);
+	}
+	if (mode == 2) {
+		static int en = -1;
+		if (en < 0) {
+			const char *e = getenv("ZM_BLIT_SCROLL");
+			en = (e && e[0] == '1') ? 1 : 0;
+			log_info("BitBlt mode2（搬运后补空行）= %s", en ? "开" : "关（默认）");
+		}
+		if (!en)
+			return 0;
+		fb_self_blit(sx, sy, sw, sh, (int)r1, (int)r2);
+		/* 补空行：把**源矩形里没被目标矩形盖住**的那条地带填成背景色。
+		 * 少了这一步，滚走的内容只是被"复制"到新位置，旧位置原样留着。
+		 * 填色默认黑（真机"补 null 行"），ZM_SCROLL_FILL=0xRRGGBB 可改。 */
+		static uint32_t fill = 0;
+		static int fill_init = 0;
+		if (!fill_init) {
+			fill_init = 1;
+			const char *e = getenv("ZM_SCROLL_FILL");
+			fill = e ? (uint32_t)strtoul(e, NULL, 16) : 0u;
+			fill |= 0xFF000000u;
+			log_info("BitBlt 补空行填色 = 0x%08X", fill);
+		}
+		for (int y = sy; y < sy + sh; y++) {
+			for (int x = sx; x < sx + sw; x++) {
+				int in_dst = x >= (int)r1 && x < (int)r1 + sw && y >= (int)r2 && y < (int)r2 + sh;
+				if (!in_dst)
+					fb_px(x, y, fill);
+			}
+		}
 		return 1;
 	}
 	return 0;
